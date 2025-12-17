@@ -42,6 +42,7 @@ from features.kw_cluster import AIInsightsModule
 from features.simulator import SimulatorModule
 from features.assistant import AssistantModule
 from features.performance_snapshot import PerformanceSnapshotModule
+from features.report_card import ReportCardModule
 from utils.matchers import ExactMatcher
 from utils.formatters import format_currency
 from core.data_loader import safe_numeric
@@ -76,6 +77,18 @@ st.markdown("""
     background: linear-gradient(135deg, #10B981 0%, #059669 100%) !important;
     color: white !important;
     border: none !important;
+}
+
+/* Print Mode: Hide sidebar and UI elements when printing */
+@media print {
+    [data-testid="stSidebar"] { display: none !important; }
+    [data-testid="stHeader"] { display: none !important; }
+    [data-testid="stToolbar"] { display: none !important; }
+    .stDeployButton { display: none !important; }
+    .stDownloadButton { display: none !important; }
+    section[data-testid="stSidebar"] { display: none !important; }
+    header { display: none !important; }
+    .main .block-container { padding: 1rem !important; max-width: 100% !important; }
 }
 </style>
 """, unsafe_allow_html=True)
@@ -327,6 +340,8 @@ def main():
             st.session_state['current_module'] = 'performance'
         if st.button("Impact Analyzer", use_container_width=True):
             st.session_state['current_module'] = 'impact'
+        if st.button("📄 Report Card", use_container_width=True):
+            st.session_state['current_module'] = 'report_card'
         if st.button("Optimization Hub", use_container_width=True):
             st.session_state['current_module'] = 'optimizer'
         if st.button("Simulator", use_container_width=True):
@@ -398,6 +413,8 @@ def main():
         AIInsightsModule().run()
     elif current == 'impact':
         render_impact_dashboard()
+    elif current == 'report_card':
+        ReportCardModule().run()
 
 if __name__ == "__main__":
     main()

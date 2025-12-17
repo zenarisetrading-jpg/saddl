@@ -437,7 +437,7 @@ class ASINMapperModule(BaseFeature):
         # Product info
         col1, col2 = st.columns([2, 1])
         with col1:
-            st.markdown(f"**Product:** {product.get('title', 'N/A')[:100]}...")
+            st.markdown(f"**Product:** {str(product.get('title', 'N/A'))[:100]}...")
             st.markdown(f"**Brand:** {product.get('brand', 'N/A')}")
         with col2:
             metric_card("Wasted Spend", f"AED {product['original_spend']:.2f}")
@@ -497,7 +497,7 @@ class ASINMapperModule(BaseFeature):
                     "CampaignId": row.get("CampaignId", ""),
                     "AdGroupId": row.get("AdGroupId", ""),
                     "Brand": row.get("brand", "Unknown"),
-                    "Product": row.get("title", "Unknown")[:50]
+                    "Product": str(row.get("title", "Unknown"))[:50]
                 })
         
         # Format your products (manual review required)
@@ -525,7 +525,7 @@ class ASINMapperModule(BaseFeature):
                     "CampaignId": row.get("CampaignId", ""),
                     "AdGroupId": row.get("AdGroupId", ""),
                     "Brand": row.get("brand", "Your Brand"),
-                    "Product": row.get("title", "Unknown")[:50],
+                    "Product": str(row.get("title", "Unknown"))[:50],
                     "Recommendation": recommendation
                 })
         
@@ -614,7 +614,7 @@ class ASINMapperModule(BaseFeature):
                     
                     diagnostics_data.append({
                         'ASIN': product['asin'],
-                        'Product': product.get('title', '')[:50],
+                        'Product': str(product.get('title', ''))[:50],
                         'Priority': priority,
                         'Rating': product.get('rating', 'N/A'),
                         'Reviews': product.get('reviews_count', 'N/A'),

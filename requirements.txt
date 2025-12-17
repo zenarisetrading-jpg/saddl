@@ -22,3 +22,7 @@ openpyxl>=3.1.0
 # Database Drivers
 psycopg2-binary>=2.9.0
 plotly>=5.17.0
+
+# PDF Generation
+fpdf2>=2.7.0
+html2image>=2.0.0
