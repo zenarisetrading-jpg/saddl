@@ -34,6 +34,7 @@ from features.optimizer import (
     calculate_bid_optimizations, 
     create_heatmap, 
     run_simulation,
+    calculate_account_benchmarks,
     DEFAULT_CONFIG
 )
 from features.creator import CreatorModule
@@ -123,10 +124,13 @@ def run_consolidated_optimizer():
     
     # FIXED: Use ONLY the freshly uploaded STR from current session
     # This ensures we optimize the specific time period uploaded, not historical DB data
-    df = hub.get_data("search_term_report")
-    if df is None or df.empty:
+    df_raw = hub.get_data("search_term_report")
+    if df_raw is None or df_raw.empty:
         st.error("❌ No Search Term Report data found in session.")
         return
+    
+    # Work with a copy to avoid modifying Hub data in-place
+    df = df_raw.copy()
     
     # Show which data we're using
     upload_ts = st.session_state.unified_data.get('upload_timestamps', {}).get('search_term_report')
@@ -138,7 +142,45 @@ def run_consolidated_optimizer():
     enriched = hub.get_enriched_data()
     if enriched is not None and len(enriched) == len(df):
         # Use enriched version if it matches the upload size (no extra rows from DB)
-        df = enriched
+        df = enriched.copy()
+
+    # =====================================================
+    # DB INTEGRATION: Allow extending window with historical data
+    # =====================================================
+    client_id = st.session_state.get('active_account', {}).get('account_id')
+    db_manager = st.session_state.get('db_manager')
+    
+    include_db = False
+    if client_id and db_manager:
+        with st.expander("🛠️ Data Controls", expanded=False):
+            include_db = st.checkbox("Include Historical Data (from Database)", value=False, help="Extend analysis window by pulling previous records from the database.")
+            if include_db:
+                with st.spinner("Fetching historical data..."):
+                    db_df = db_manager.get_target_stats_df(client_id)
+                    if not db_df.empty:
+                        # Rename columns for consistency if needed (DB already returns standard names)
+                        # Fix column names to match STR upload headers
+                        db_df = db_df.rename(columns={
+                            'Date': 'Date',
+                            'Targeting': 'Targeting',
+                            'Match Type': 'Match Type',
+                            'Campaign Name': 'Campaign Name',
+                            'Ad Group Name': 'Ad Group Name'
+                        })
+                        
+                        # Merge current upload with DB data
+                        # We use Date, Campaign, Ad Group, and Targeting as keys to avoid duplicates
+                        combined = pd.concat([df, db_df], ignore_index=True)
+                        
+                        # Fix types for deduplication
+                        combined['Date'] = pd.to_datetime(combined['Date'])
+                        combined['Campaign Name'] = combined['Campaign Name'].astype(str).str.strip()
+                        combined['Ad Group Name'] = combined['Ad Group Name'].astype(str).str.strip()
+                        combined['Targeting'] = combined['Targeting'].astype(str).str.strip()
+                        
+                        # Drop duplicates (keep newest/session data which might have more recent metrics)
+                        df = combined.drop_duplicates(subset=['Date', 'Campaign Name', 'Ad Group Name', 'Targeting'], keep='first')
+                        st.success(f"✅ Merged {len(db_df)} historical records from database.")
     
     # =====================================================
     # DATE RANGE FILTER: Default to last 30 days
@@ -157,22 +199,45 @@ def run_consolidated_optimizer():
         min_date = df[date_col].min()
         max_date = df[date_col].max()
         
-        # Default: last 30 days from max date in data
-        default_start = max(min_date, max_date - timedelta(days=30))
+        if include_db:
+            # If DB included, allow full range selection
+            default_start = min_date
+        else:
+            # Default: last 30 days from max date in data
+            default_start = max(min_date, max_date - timedelta(days=30))
         
-        with st.expander("📅 Date Range", expanded=False):
+        with st.expander("📅 Date Range Selection", expanded=True):
             col_a, col_b = st.columns(2)
+            # Use wider bounds (1 year back) if date filter needs more room
+            abs_min = min(min_date, datetime.now() - timedelta(days=365))
+            
+            # --- CLAMP SESSION STATE TO VALID RANGE ---
+            # This prevents StreamlitAPIException if the previous file had a wider range
+            s_min, s_max = abs_min.date(), max_date.date()
+            if "opt_date_start" in st.session_state:
+                if st.session_state["opt_date_start"] < s_min: st.session_state["opt_date_start"] = s_min
+                if st.session_state["opt_date_start"] > s_max: st.session_state["opt_date_start"] = s_max
+            if "opt_date_end" in st.session_state:
+                if st.session_state["opt_date_end"] < s_min: st.session_state["opt_date_end"] = s_min
+                if st.session_state["opt_date_end"] > s_max: st.session_state["opt_date_end"] = s_max
+            # ------------------------------------------
+
             with col_a:
-                start_date = st.date_input("Start Date", value=default_start.date(), 
-                                            min_value=min_date.date(), max_value=max_date.date(),
+                start_date = st.date_input("Start Date", 
+                                            value=st.session_state.get("opt_date_start", default_start.date()), 
+                                            min_value=s_min, 
+                                            max_value=s_max,
                                             key="opt_date_start")
             with col_b:
-                end_date = st.date_input("End Date", value=max_date.date(),
-                                          min_value=min_date.date(), max_value=max_date.date(),
+                end_date = st.date_input("End Date", 
+                                          value=st.session_state.get("opt_date_end", max_date.date()),
+                                          min_value=s_min, 
+                                          max_value=s_max,
                                           key="opt_date_end")
         
         # Filter data to selected range
-        df = df[(df[date_col].dt.date >= start_date) & (df[date_col].dt.date <= end_date)]
+        mask = (df[date_col].dt.date >= start_date) & (df[date_col].dt.date <= end_date)
+        df = df[mask].copy()
         days_selected = (end_date - start_date).days + 1
         st.caption(f"📆 Analyzing **{days_selected} days** ({start_date.strftime('%b %d')} - {end_date.strftime('%b %d')}) | {len(df):,} rows")
         
@@ -292,9 +357,14 @@ def run_consolidated_optimizer():
     with st.spinner("Running Optimization Engine..."):
         # A. Prepare Data & Run Core Logic
         df_prep, date_info = prepare_data(df, opt.config)
+        
+        # Consolidation Fix: Calculate benchmarks ONCE and pass them down
+        benchmarks = calculate_account_benchmarks(df_prep, opt.config)
+        universal_median = benchmarks.get('universal_median_roas', opt.config.get("TARGET_ROAS", 2.5))
+        
         matcher = ExactMatcher(df_prep)
         
-        harvest_df = identify_harvest_candidates(df_prep, opt.config, matcher)
+        harvest_df = identify_harvest_candidates(df_prep, opt.config, matcher, benchmarks)
         # Build harvested terms set from BOTH Harvest_Term (Targeting-based) and Customer Search Term
         corrected_term_set = set()
         if not harvest_df.empty:
@@ -302,7 +372,8 @@ def run_consolidated_optimizer():
                 corrected_term_set.update(harvest_df["Harvest_Term"].str.lower().tolist())
             if "Customer Search Term" in harvest_df.columns:
                 corrected_term_set.update(harvest_df["Customer Search Term"].str.lower().tolist())
-        neg_kw, neg_pt, your_products_review = identify_negative_candidates(df_prep, opt.config, harvest_df)
+        
+        neg_kw, neg_pt, your_products_review = identify_negative_candidates(df_prep, opt.config, harvest_df, benchmarks)
         
         # Build negative_terms set for exclusion from bid optimization
         negative_terms_set = set()
@@ -320,7 +391,7 @@ def run_consolidated_optimizer():
                 negative_terms_set.add(key)
         
         bids_exact, bids_pt, bids_agg, bids_auto = calculate_bid_optimizations(
-            df_prep, opt.config, corrected_term_set, negative_terms_set
+            df_prep, opt.config, corrected_term_set, negative_terms_set, universal_median
         )
         # Combine for backward compatibility with simulation/heatmap
         direct_bids = pd.concat([bids_exact, bids_pt], ignore_index=True)
@@ -519,5 +590,4 @@ def main():
 
 if __name__ == "__main__":
     main()
-
 
