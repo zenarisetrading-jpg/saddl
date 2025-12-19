@@ -26,18 +26,8 @@ def render_impact_dashboard():
     col_header, col_toggle = st.columns([3, 1])
     
     with col_header:
-        import base64
-        try:
-            with open("assets/icons/impact.png", "rb") as f:
-                encoded = base64.b64encode(f.read()).decode()
-            st.markdown(f"""
-            <div style="display: flex; align-items: center; margin-bottom: 20px;">
-                <img src="data:image/png;base64,{encoded}" width="50" style="margin-right: 15px;">
-                <h1 style="margin: 0; padding: 0; line-height: 1.2;">Impact Analyzer</h1>
-            </div>
-            """, unsafe_allow_html=True)
-        except:
-            st.title("Impact Analyzer")
+        st.markdown("## :material/monitoring: Impact & Results")
+        st.caption("Measured impact of executed optimization actions")
 
     with col_toggle:
         st.write("") # Spacer
@@ -110,7 +100,7 @@ def render_impact_dashboard():
         impact_df = db_manager.get_action_impact(selected_client)
     
     if full_summary['total_actions'] == 0:
-        st.info("📊 No actions with matching 'next week' performance data found. This means either:\n"
+        st.info("No actions with matching 'next week' performance data found. This means either:\n"
                 "- Actions were logged but no performance data for the following week exists yet.\n"
                 "- Upload next week's Search Term Report and run the optimizer to see impact.")
         return
@@ -158,13 +148,18 @@ def render_impact_dashboard():
             # Dynamic Title based on filter
             title_text = f"{time_frame} Impact Summary"
             
+            # Theme-aware calendar icon
+            theme_mode = st.session_state.get('theme_mode', 'dark')
+            cal_color = "#60a5fa" if theme_mode == 'dark' else "#3b82f6"
+            calendar_icon = f'<svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="{cal_color}" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" style="vertical-align: middle; margin-right: 6px;"><rect x="3" y="4" width="18" height="18" rx="2" ry="2"></rect><line x1="16" y1="2" x2="16" y2="6"></line><line x1="8" y1="2" x2="8" y2="6"></line><line x1="3" y1="10" x2="21" y2="10"></line></svg>'
+            
             st.markdown(f"""
             <div style="background: linear-gradient(135deg, rgba(59, 130, 246, 0.2) 0%, rgba(59, 130, 246, 0.05) 100%);
                         border: 1px solid rgba(59, 130, 246, 0.3);
                         border-radius: 8px;
                         padding: 12px 16px;
                         margin-bottom: 16px;">
-                📅 <strong>{title_text}</strong> — Showing data {date_text} 
+                {calendar_icon}<strong>{title_text}</strong> — Showing data {date_text} 
                 ({len(impact_df)} actions across {unique_weeks} optimization run{'s' if unique_weeks > 1 else ''})
             </div>
             """, unsafe_allow_html=True)
@@ -240,49 +235,59 @@ def render_impact_dashboard():
     _render_hero_tiles(active_summary, active_count, dormant_count)
     
     st.divider()
-    
-    # ==========================================
-    # ACTIVE vs DORMANT TABS
-    # ==========================================
-    tab_active, tab_dormant = st.tabs([
-        f"💰 Active Impact ({active_count})", 
-        f"😴 Dormant Optimization ({dormant_count})"
-    ])
-    
-    with tab_active:
-        if active_df.empty:
-            st.info("No active impact data (all actions have $0 spend)")
-        else:
-            # Charts for active data - USE ACTIVE SUMMARY
-            col1, col2 = st.columns(2)
-            with col1:
-                _render_waterfall_chart(active_summary)
-            with col2:
-                _render_winners_losers_chart(active_df)
-            
-            st.divider()
-            
-            # Drill-down table with migration badges
-            _render_drill_down_table(active_df, show_migration_badge=True)
-    
-    with tab_dormant:
-        if dormant_df.empty:
-            st.success("✨ No dormant actions - all your optimizations have activity!")
-        else:
-            st.info("💤 **Dormant Optimization** — These actions were applied to keywords/targets "
-                   "with $0 spend in both periods. The optimization is ready and waiting for traffic.")
-            
-            # Simple table for dormant
-            _render_dormant_table(dormant_df)
+
+    with st.expander("🔍 View supporting evidence", expanded=True):
+        # ==========================================
+        # MEASURED vs PENDING IMPACT TABS
+        # ==========================================
+        tab_measured, tab_pending = st.tabs([
+            "▸ Measured Impact", 
+            "▸ Pending Impact"
+        ])
+        
+        with tab_measured:
+            if active_df.empty:
+                st.info("No measured impact data (all actions have $0 spend)")
+            else:
+                # Charts for active data - USE ACTIVE SUMMARY
+                col1, col2 = st.columns(2)
+                with col1:
+                    _render_waterfall_chart(active_summary)
+                with col2:
+                    _render_winners_losers_chart(active_df)
+                
+                st.divider()
+                
+                # Drill-down table with migration badges
+                _render_drill_down_table(active_df, show_migration_badge=True)
+        
+        with tab_pending:
+            if dormant_df.empty:
+                st.success("✨ All executed optimizations have measured activity!")
+            else:
+                st.info("💤 **Pending Impact** — These actions were applied to keywords/targets "
+                    "with $0 spend in both periods. The baseline is established and impact is pending traffic.")
+                
+                # Simple table for dormant
+                _render_dormant_table(dormant_df)
+
+    st.markdown("<br>", unsafe_allow_html=True)
+    st.caption(
+        "This view presents measured outcomes of executed actions over the selected period. "
+        "Detailed diagnostics are available for deeper investigation when required."
+    )
 
 
 def _render_empty_state():
     """Render empty state when no data exists."""
-    st.markdown("""
+    # Theme-aware chart icon
+    icon_color = "#8F8CA3"
+    empty_icon = f'<svg xmlns="http://www.w3.org/2000/svg" width="64" height="64" viewBox="0 0 24 24" fill="none" stroke="{icon_color}" stroke-opacity="0.2" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="18" y1="20" x2="18" y2="10"></line><line x1="12" y1="20" x2="12" y2="4"></line><line x1="6" y1="20" x2="6" y2="14"></line></svg>'
+    st.markdown(f"""
     <div style="text-align: center; padding: 60px 20px;">
-        <div style="font-size: 64px; margin-bottom: 20px;">📊</div>
-        <h2 style="color: #666;">No Impact Data Yet</h2>
-        <p style="color: #888; max-width: 400px; margin: 0 auto;">
+        <div style="margin-bottom: 20px;">{empty_icon}</div>
+        <h2 style="color: #8F8CA3; opacity: 0.5;">No Impact Data Yet</h2>
+        <p style="color: #8F8CA3; opacity: 0.35; max-width: 400px; margin: 0 auto;">
             Run the optimizer and download the report to start tracking actions. 
             Then upload next week's data to see the impact.
         </p>
@@ -301,31 +306,69 @@ def _render_hero_tiles(summary: Dict[str, Any], active_count: int = 0, dormant_c
     """Render the hero metric tiles with glassmorphism style."""
     
     # Custom CSS for glassmorphism tiles
+    # Theme-aware colors for subtle accents
+    theme_mode = st.session_state.get('theme_mode', 'dark')
+    
+    # Brand-aligned color palette (true Saddle logo colors)
+    if theme_mode == 'dark':
+        positive_accent = "rgba(91, 85, 111, 0.3)"  # Logo purple
+        positive_glow = "rgba(91, 85, 111, 0.15)"
+        positive_text = "#B6B4C2"  # Soft lavender gray
+        
+        negative_accent = "rgba(136, 19, 55, 0.25)"  # Muted wine
+        negative_glow = "rgba(136, 19, 55, 0.12)"
+        negative_text = "#fda4af"  # Rose-300 (softer)
+        
+        neutral_accent = "rgba(148, 163, 184, 0.25)"  # Muted slate
+        neutral_text = "#cbd5e1"  # Slate-300
+    else:
+        positive_accent = "rgba(91, 85, 111, 0.25)"  # Logo purple (lighter)
+        positive_glow = "rgba(91, 85, 111, 0.10)"
+        positive_text = "#5B556F"  # Direct logo color
+        
+        negative_accent = "rgba(136, 19, 55, 0.2)"  # Deep muted wine
+        negative_glow = "rgba(136, 19, 55, 0.08)"
+        negative_text = "#be123c"  # Rose-700
+        
+        neutral_accent = "rgba(100, 116, 139, 0.2)"
+        neutral_text = "#475569"  # Slate-600
+    
+    # SVG Icons (Saddle Brand Palette)
+    icon_color = "#8F8CA3"
+    
+    sales_icon = f'<svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="{icon_color}" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="vertical-align: middle; margin-right: 6px;"><line x1="12" y1="2" x2="12" y2="22"></line><path d="M17 5H9.5a3.5 3.5 0 0 0 0 7h5a3.5 3.5 0 0 1 0 7H6"></path></svg>'
+    spend_icon = f'<svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="{icon_color}" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="vertical-align: middle; margin-right: 6px;"><polyline points="23 6 13.5 15.5 8.5 10.5 1 18"></polyline><polyline points="17 6 23 6 23 12"></polyline></svg>'
+    target_icon = f'<svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="{icon_color}" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="vertical-align: middle; margin-right: 6px;"><circle cx="12" cy="12" r="10"></circle><circle cx="12" cy="12" r="6"></circle><circle cx="12" cy="12" r="2"></circle></svg>'
+    profit_icon = f'<svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="{icon_color}" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="vertical-align: middle; margin-right: 6px;"><rect x="1" y="4" width="22" height="16" rx="2" ry="2"></rect><line x1="1" y1="10" x2="23" y2="10"></line></svg>'
+    
     st.markdown("""
     <style>
     .hero-tile {
-        background: linear-gradient(135deg, rgba(255,255,255,0.1) 0%, rgba(255,255,255,0.05) 100%);
+        background: linear-gradient(135deg, rgba(255,255,255,0.08) 0%, rgba(255,255,255,0.03) 100%);
         backdrop-filter: blur(10px);
-        border: 1px solid rgba(255,255,255,0.18);
-        border-radius: 16px;
-        padding: 24px;
+        border-radius: 12px;
+        padding: 20px;
         text-align: center;
-        box-shadow: 0 8px 32px rgba(0,0,0,0.1);
+        box-shadow: 0 4px 24px rgba(0,0,0,0.08);
+        transition: all 0.3s ease;
+    }
+    .hero-tile:hover {
+        transform: translateY(-2px);
+        box-shadow: 0 8px 32px rgba(0,0,0,0.12);
     }
     .hero-value {
-        font-size: 2.5rem;
+        font-size: 2.2rem;
         font-weight: 700;
-        margin-bottom: 4px;
+        margin-bottom: 6px;
+        margin-top: 8px;
     }
     .hero-label {
-        font-size: 0.9rem;
-        opacity: 0.8;
+        font-size: 0.75rem;
+        opacity: 0.7;
         text-transform: uppercase;
-        letter-spacing: 1px;
+        letter-spacing: 0.5px;
+        font-weight: 600;
     }
-    .positive { color: #10B981; }
-    .negative { color: #EF4444; }
-    .neutral { color: #6B7280; }
     </style>
     """, unsafe_allow_html=True)
     
@@ -337,23 +380,29 @@ def _render_hero_tiles(summary: Dict[str, Any], active_count: int = 0, dormant_c
     sales_prefix = '+' if net_sales > 0 else ''
     
     with col1:
+        sales_border = f"border-left: 4px solid {positive_accent if net_sales > 0 else negative_accent if net_sales < 0 else neutral_accent};"
+        sales_bg = f"background: linear-gradient(135deg, {positive_glow if net_sales > 0 else negative_glow if net_sales < 0 else 'rgba(255,255,255,0.05)'} 0%, rgba(255,255,255,0.03) 100%);"
+        sales_color = positive_text if net_sales > 0 else negative_text if net_sales < 0 else neutral_text
+        
         st.markdown(f"""
-        <div class="hero-tile">
-            <div class="hero-value {sales_class}">{sales_prefix}${net_sales:,.0f}</div>
-            <div class="hero-label" title="Difference in total sales between the active period and the baseline period across all optimized targets.">💰 Net Sales Impact ℹ️</div>
+        <div class="hero-tile" style="{sales_border} {sales_bg}">
+            <div class="hero-label" title="Difference in total sales between the active period and the baseline period across all optimized targets.">{sales_icon}Net Sales Impact</div>
+            <div class="hero-value" style="color: {sales_color};">{sales_prefix}${net_sales:,.0f}</div>
         </div>
         """, unsafe_allow_html=True)
     
-    # Spend Change
+    # Spend Shift
     net_spend = summary['net_spend_change']
-    spend_class = 'positive' if net_spend < 0 else 'negative' if net_spend > 0 else 'neutral'
     spend_prefix = '+' if net_spend > 0 else ''
     
     with col2:
+        spend_border = f"border-left: 4px solid {neutral_accent};"
+        spend_bg = f"background: linear-gradient(135deg, rgba(255,255,255,0.05) 0%, rgba(255,255,255,0.03) 100%);"
+        
         st.markdown(f"""
-        <div class="hero-tile">
-            <div class="hero-value {spend_class}">{spend_prefix}${net_spend:,.0f}</div>
-            <div class="hero-label" title="Difference in total ad spend. Negative (Green) means cost savings; Positive (Red) means increased investment.">📉 Spend Change ℹ️</div>
+        <div class="hero-tile" style="{spend_border} {spend_bg}">
+            <div class="hero-label" title="Difference in total ad spend. Indicates shift in investment across optimized targets.">{spend_icon}Spend Shift</div>
+            <div class="hero-value" style="color: {neutral_text};">{spend_prefix}${net_spend:,.0f}</div>
         </div>
         """, unsafe_allow_html=True)
     
@@ -362,10 +411,14 @@ def _render_hero_tiles(summary: Dict[str, Any], active_count: int = 0, dormant_c
     win_class = 'positive' if win_rate >= 60 else 'negative' if win_rate < 40 else 'neutral'
     
     with col3:
+        win_border = f"border-left: 4px solid {positive_accent if win_rate >= 60 else negative_accent if win_rate < 40 else neutral_accent};"
+        win_bg = f"background: linear-gradient(135deg, {positive_glow if win_rate >= 60 else negative_glow if win_rate < 40 else 'rgba(255,255,255,0.05)'} 0%, rgba(255,255,255,0.03) 100%);"
+        win_color = positive_text if win_rate >= 60 else negative_text if win_rate < 40 else neutral_text
+        
         st.markdown(f"""
-        <div class="hero-tile">
-            <div class="hero-value {win_class}">{win_rate:.0f}%</div>
-            <div class="hero-label" title="Percentage of actions that resulted in a positive outcome (Sales Increase OR Cost Savings). Target > 50%.">🎯 Win Rate ℹ️</div>
+        <div class="hero-tile" style="{win_border} {win_bg}">
+            <div class="hero-label" title="Percentage of actions that resulted in a positive performance delta.">{target_icon}Win Rate</div>
+            <div class="hero-value" style="color: {win_color};">{win_rate:.0f}%</div>
         </div>
         """, unsafe_allow_html=True)
     
@@ -375,20 +428,32 @@ def _render_hero_tiles(summary: Dict[str, Any], active_count: int = 0, dormant_c
     profit_prefix = '+' if profit_impact > 0 else ''
     
     with col4:
+        profit_border = f"border-left: 4px solid {positive_accent if profit_impact > 0 else negative_accent if profit_impact < 0 else neutral_accent};"
+        profit_bg = f"background: linear-gradient(135deg, {positive_glow if profit_impact > 0 else negative_glow if profit_impact < 0 else 'rgba(255,255,255,0.05)'} 0%, rgba(255,255,255,0.03) 100%);"
+        profit_color = positive_text if profit_impact > 0 else negative_text if profit_impact < 0 else neutral_text
+        
         st.markdown(f"""
-        <div class="hero-tile">
-            <div class="hero-value {profit_class}">{profit_prefix}${profit_impact:,.0f}</div>
-            <div class="hero-label" title="(Net Sales Change) - (Spend Change). The actual net impact on your wallet. Green means you made more profit.">💸 Profit Impact ℹ️</div>
+        <div class="hero-tile" style="{profit_border} {profit_bg}">
+            <div class="hero-label" title="(Net Sales Change) - (Spend Change). The actual net impact on your wallet.">{profit_icon}Profit Impact</div>
+            <div class="hero-value" style="color: {profit_color};">{profit_prefix}${profit_impact:,.0f}</div>
         </div>
         """, unsafe_allow_html=True)
     
-    # Summary stats below tiles - now shows active/dormant split
+    # Brand icon color
+    icon_color = "#8F8CA3"
+    
+    up_icon = f'<svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="{icon_color}" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" style="vertical-align: middle; margin-right: 4px;"><polyline points="18 15 12 9 6 15"></polyline></svg>'
+    minus_icon = f'<svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="{icon_color}" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" style="vertical-align: middle; margin-right: 4px;"><line x1="5" y1="12" x2="19" y2="12"></line></svg>'
+    chart_icon = f'<svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="{icon_color}" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" style="vertical-align: middle; margin-right: 4px;"><line x1="18" y1="20" x2="18" y2="10"></line><line x1="12" y1="20" x2="12" y2="4"></line><line x1="6" y1="20" x2="6" y2="14"></line></svg>'
+    hourglass_icon = f'<svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="{icon_color}" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" style="vertical-align: middle; margin-right: 4px;"><path d="M6 2v6h.01M6 22v-6h.01M13.83 2H10.17A3.001 3.001 0 0 0 10 8h4a3.001 3.001 0 0 0-.17-6zM13.83 22H10.17a3.001 3.001 0 0 1-.17-6h4c.073.988-.06 1.996-.17 3z"></path></svg>'
+    
+    # Summary stats below tiles - now shows measured/pending split
     st.markdown(f"""
     <div style="text-align: center; margin-top: 16px; opacity: 0.7;">
-        <span style="margin: 0 16px;">✅ {summary['winners']} Winners</span>
-        <span style="margin: 0 16px;">❌ {summary['losers']} Losers</span>
-        <span style="margin: 0 16px;">💰 {active_count} Active</span>
-        <span style="margin: 0 16px;">😴 {dormant_count} Dormant</span>
+        <span style="margin: 0 16px;">{up_icon}{summary['winners']} Positive Impact</span>
+        <span style="margin: 0 16px;">{minus_icon}{summary['losers']} No Measurable Impact</span>
+        <span style="margin: 0 16px;">{chart_icon}{active_count} Measured Impact</span>
+        <span style="margin: 0 16px;">{hourglass_icon}{dormant_count} Pending Impact</span>
     </div>
     """, unsafe_allow_html=True)
 
@@ -396,7 +461,10 @@ def _render_hero_tiles(summary: Dict[str, Any], active_count: int = 0, dormant_c
 def _render_waterfall_chart(summary: Dict[str, Any]):
     """Render waterfall chart showing impact by action type."""
     
-    st.subheader("📊 Impact by Action Type")
+    # Target icon for action type
+    icon_color = "#8F8CA3"
+    target_icon = f'<svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="{icon_color}" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="vertical-align: middle; margin-right: 8px;"><circle cx="12" cy="12" r="10"></circle><circle cx="12" cy="12" r="6"></circle><circle cx="12" cy="12" r="2"></circle></svg>'
+    st.markdown(f"### {target_icon}Impact by Action Type", unsafe_allow_html=True)
     
     by_type = summary.get('by_action_type', {})
     
@@ -413,19 +481,18 @@ def _render_waterfall_chart(summary: Dict[str, Any]):
     action_types = [x[0] for x in sorted_data]
     net_impacts = [x[1] for x in sorted_data]
     
-    # Create waterfall chart
-    colors = ['#10B981' if v > 0 else '#EF4444' for v in net_impacts]
-    
+    # Create waterfall chart - using analytical palette with transparency
+    # Brand-aligned colors: Muted violet for positive, muted wine for negative
     fig = go.Figure(go.Waterfall(
         name="Impact",
         orientation="v",
         measure=["relative"] * len(net_impacts) + ["total"],
         x=action_types + ['Total'],
         y=net_impacts + [sum(net_impacts)],
-        connector={"line": {"color": "rgba(63, 63, 63, 0.3)"}},
-        decreasing={"marker": {"color": "#EF4444"}},
-        increasing={"marker": {"color": "#10B981"}},
-        totals={"marker": {"color": "#6366F1"}},
+        connector={"line": {"color": "rgba(148, 163, 184, 0.2)"}},
+        decreasing={"marker": {"color": "rgba(136, 19, 55, 0.5)"}}, # Muted Wine
+        increasing={"marker": {"color": "rgba(91, 85, 111, 0.6)"}}, # Logo purple
+        totals={"marker": {"color": "rgba(30, 41, 59, 0.8)"}},
         textposition="outside",
         text=[f"${v:+,.0f}" for v in net_impacts] + [f"${sum(net_impacts):+,.0f}"]
     ))
@@ -444,9 +511,12 @@ def _render_waterfall_chart(summary: Dict[str, Any]):
 
 
 def _render_winners_losers_chart(impact_df: pd.DataFrame):
-    """Render top winners and losers bar chart."""
+    """Render top positive impact and baseline bar chart."""
     
-    st.subheader("🏆 Top Winners & Losers")
+    # Trending up icon 
+    icon_color = "#8F8CA3"
+    trending_icon = f'<svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="{icon_color}" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="vertical-align: middle; margin-right: 8px;"><polyline points="23 6 13.5 15.5 8.5 10.5 1 18"></polyline><polyline points="17 6 23 6 23 12"></polyline></svg>'
+    st.markdown(f"### {trending_icon}Positive Impact & Baseline", unsafe_allow_html=True)
     
     if impact_df.empty or 'impact_score' not in impact_df.columns:
         st.info("No impact data available")
@@ -468,7 +538,10 @@ def _render_winners_losers_chart(impact_df: pd.DataFrame):
     # Combine for chart
     chart_df = pd.concat([winners, losers])
     chart_df['target_short'] = chart_df['target_text'].str[:25] + '...'
-    chart_df['color'] = chart_df['impact_score'].apply(lambda x: '#10B981' if x > 0 else '#EF4444')
+    # Brand-aligned palette: Muted violet for positive, muted wine for negative
+    chart_df['color'] = chart_df['impact_score'].apply(
+        lambda x: "rgba(91, 85, 111, 0.6)" if x > 0 else "rgba(136, 19, 55, 0.5)"
+    )
     
     fig = go.Figure()
     
@@ -535,7 +608,7 @@ def _render_drill_down_table(impact_df: pd.DataFrame, show_migration_badge: bool
         # Format is_winner
         if 'is_winner' in display_df.columns:
             display_df['is_winner'] = display_df['is_winner'].apply(
-                lambda x: "✅ Winner" if x else "❌ Loser" if pd.notna(x) else "-"
+                lambda x: "📈 Positive Impact" if x else "➖ No Measurable Impact" if pd.notna(x) else "-"
             )
         
         # Rename columns for display
@@ -591,8 +664,8 @@ def _render_dormant_table(dormant_df: pd.DataFrame):
     
     st.dataframe(display_df, use_container_width=True, hide_index=True)
     
-    st.caption(f"💡 These {len(dormant_df)} optimizations are in place but haven't received traffic yet. "
-              "They'll start impacting performance once the keywords/targets get impressions.")
+    st.caption(f"💡 These {len(dormant_df)} optimizations have an established baseline but are pending traffic. "
+              "They will appear in Measured Impact once the targets receive impressions.")
 
 
 def render_reference_data_badge():
@@ -628,3 +701,74 @@ def render_reference_data_badge():
             """, unsafe_allow_html=True)
     except Exception as e:
         pass  # Silently handle errors
+
+def get_recent_impact_summary() -> Optional[dict]:
+    """
+    Helper for Home Page cockpit.
+    Returns the EXACT same metrics as Impact tab's 30D view.
+    Reuses identical calculation logic - no separate path.
+    """
+    from datetime import timedelta
+    
+    db_manager = st.session_state.get('db_manager')
+    selected_client = (
+        st.session_state.get('active_account_id') or 
+        st.session_state.get('active_account_name') or 
+        st.session_state.get('last_stats_save', {}).get('client_id')
+    )
+    
+    if not db_manager or not selected_client:
+        return None
+        
+    try:
+        # Get available dates (same as Impact tab)
+        available_dates = db_manager.get_available_dates(selected_client)
+        if not available_dates:
+            return None
+        
+        # Get full impact data (same as Impact tab line 100)
+        impact_df = db_manager.get_action_impact(selected_client)
+        
+        if impact_df.empty:
+            return None
+        
+        # Apply 30D filter (same as Impact tab lines 120-130)
+        impact_df['action_date_dt'] = pd.to_datetime(impact_df['action_date'], errors='coerce')
+        latest_data_date = pd.to_datetime(available_dates[0])
+        cutoff_date = latest_data_date - timedelta(days=30)
+        impact_df = impact_df[impact_df['action_date_dt'] >= cutoff_date].copy()
+        
+        if impact_df.empty:
+            return None
+        
+        # Active filter (same as Impact tab lines 172-174)
+        active_mask = (impact_df['before_spend'].fillna(0) + impact_df['after_spend'].fillna(0)) > 0
+        active_df = impact_df[active_mask].copy()
+        
+        if active_df.empty:
+            return None
+        
+        # Calculate exactly like Impact tab (lines 192-212)
+        delta_sales = active_df['delta_sales'].fillna(0)
+        delta_spend = active_df['delta_spend'].fillna(0)
+        is_winner = active_df['is_winner'].fillna(False)
+        active_count = len(active_df)
+        
+        # Find top action type by net impact
+        top_action_type = None
+        if 'action_type' in active_df.columns:
+            by_type = active_df.groupby('action_type')['delta_sales'].sum()
+            if not by_type.empty:
+                top_action_type = by_type.idxmax()
+        
+        return {
+            'sales': delta_sales.sum(),
+            'roi': delta_sales.sum() / delta_spend.sum() if delta_spend.sum() != 0 else 0,
+            'win_rate': (is_winner.sum() / active_count * 100) if active_count > 0 else 0,
+            'top_action_type': top_action_type
+        }
+    except:
+        pass
+        
+    return None
+

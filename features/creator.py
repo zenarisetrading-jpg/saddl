@@ -44,14 +44,75 @@ class CreatorModule(BaseFeature):
     
     def render_ui(self):
         """Render main UI with tabs."""
-        self.render_header("Campaign Launcher", "launcher")
+        # Custom Chiclet Header for Launcher
+        icon_color = "#8F8CA3"
+        launcher_icon = f'<svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="{icon_color}" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="margin-right: 12px;"><path d="M4.5 16.5c-1.5 1.26-2 5-2 5s3.74-.5 5-2c.71-.84.71-2.16 0-3"></path><path d="m12 15-3-3m1.5 1.5L6 9"></path><path d="m13 4 4.07 3.52a2 2 0 0 1 .65 1.13L19 14l-5 2 4-7h-6l2 4h-3l4 8h-3l1-1 2 2h3l-1-1 1-2Z"></path><path d="m2.2 21.8 1.1-1.1c.7-.7.7-1.8 0-2.5a1.8 1.8 0 0 0-2.5 0l-1.1 1.1"></path></svg>'
         
-        tab_launch, tab_harvest = st.tabs(["Launch New Product", "Harvest Winners"])
+        st.markdown(f"""
+        <div style="background: linear-gradient(135deg, rgba(91, 85, 111, 0.1) 0%, rgba(91, 85, 111, 0.05) 100%); 
+                    border: 1px solid rgba(124, 58, 237, 0.2); 
+                    border-radius: 8px; 
+                    padding: 12px 16px; 
+                    margin-bottom: 24px;
+                    display: flex; 
+                    align-items: center; 
+                    justify-content: flex-start;">
+            <div style="display: flex; align-items: center;">
+                {launcher_icon}
+                <span style="color: #F5F5F7; font-size: 1.5rem; font-weight: 800; text-transform: uppercase; letter-spacing: 0.5px;">Campaign Launcher</span>
+            </div>
+        </div>
+        """, unsafe_allow_html=True)
         
-        with tab_launch:
-            self._render_launch_tab()
+        # === TAB NAVIGATION (Premium Button Style) ===
+        st.markdown("""
+        <style>
+        /* Premium Tab Buttons */
+        div[data-testid="stHorizontalBlock"] div.stButton > button {
+            background: rgba(143, 140, 163, 0.05) !important;
+            border: 1px solid rgba(143, 140, 163, 0.15) !important;
+            color: #8F8CA3 !important;
+            border-radius: 8px !important;
+            font-weight: 500 !important;
+            transition: all 0.2s ease !important;
+            padding: 8px 16px !important;
+        }
+        div[data-testid="stHorizontalBlock"] div.stButton > button:hover {
+            background: rgba(143, 140, 163, 0.1) !important;
+            border-color: rgba(91, 85, 111, 0.3) !important;
+            color: #F5F5F7 !important;
+        }
+        /* Active Tab Styling - Using Primary kind */
+        div[data-testid="stHorizontalBlock"] div.stButton > button[kind="primary"] {
+            background: linear-gradient(135deg, #5B556F 0%, #464156 100%) !important;
+            border: 1px solid rgba(255, 255, 255, 0.1) !important;
+            color: #F5F5F7 !important;
+            font-weight: 700 !important;
+            box-shadow: 0 4px 12px rgba(0, 0, 0, 0.15) !important;
+        }
+        </style>
+        """, unsafe_allow_html=True)
+
+        if 'active_creator_tab' not in st.session_state:
+            st.session_state['active_creator_tab'] = "Launch New Product"
             
-        with tab_harvest:
+        c1, c2 = st.columns(2)
+        with c1:
+            is_active = st.session_state['active_creator_tab'] == "Launch New Product"
+            if st.button("🚀 Launch New Product", key="btn_tab_launch", use_container_width=True, type="primary" if is_active else "secondary"):
+                st.session_state['active_creator_tab'] = "Launch New Product"
+                st.rerun()
+        with c2:
+            is_active = st.session_state['active_creator_tab'] == "Harvest Winners"
+            if st.button("🌿 Harvest Winners", key="btn_tab_harvest", use_container_width=True, type="primary" if is_active else "secondary"):
+                st.session_state['active_creator_tab'] = "Harvest Winners"
+                st.rerun()
+                
+        st.markdown("<br>", unsafe_allow_html=True)
+        
+        if st.session_state['active_creator_tab'] == "Launch New Product":
+            self._render_launch_tab()
+        else:
             self._render_harvest_tab()
 
     # =========================================================================
@@ -59,7 +120,11 @@ class CreatorModule(BaseFeature):
     # =========================================================================
     def _render_launch_tab(self):
         """Render the cold start launch UI."""
-        st.markdown("### 🚀 New Campaign Launcher")
+        icon_color = "#8F8CA3"
+        rocket_icon = f'<svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="{icon_color}" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="vertical-align: middle; margin-right: 8px;"><path d="M4.5 16.5c-1.5 1.26-2 5-2 5s3.74-.5 5-2c.71-.84.71-2.16 0-3"></path><path d="M12 15l-3-3m1.5 1.5L6 9"></path><path d="M13 4l4.07 3.52a2 2 0 0 1 .65 1.13L19 14l-5 2 4-7h-6l2 4h-3l4 8h-3l1-1 2 2h3l-1-1 1-2Z"></path></svg>'
+        
+        st.markdown(f"<h3 style='display: flex; align-items: center; font-family: Inter, sans-serif; font-weight: 600; margin-bottom: 5px;'>{rocket_icon} New Campaign Launcher</h3>", unsafe_allow_html=True)
+        st.markdown("<hr style='margin-top: 0; margin-bottom: 10px; border-color: rgba(255,255,255,0.1);'>", unsafe_allow_html=True)
         st.info("Generates a full-funnel structure (Auto + Manual + PT) with smart budget allocation.")
 
         # --- INPUTS ---
@@ -91,7 +156,7 @@ class CreatorModule(BaseFeature):
                 use_auto_pt = st.checkbox("Enable Auto-PT Multipliers", value=True)
                 top_n_kw = st.number_input("Limit Keywords (0=All)", 0, 500, 0)
         
-        if st.button("Generate Launch Campaigns", type="primary"):
+        if st.button("Generate Launch Campaigns", type="primary", use_container_width=True):
             if not sku_input:
                 st.error("Please enter at least one SKU.")
                 return
@@ -104,12 +169,24 @@ class CreatorModule(BaseFeature):
                 keywords = keywords[:top_n_kw]
             
             # Calculate Base Bid
+            target_icon = f'<svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#4ade80" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" style="vertical-align: middle; margin-right: 8px;"><circle cx="12" cy="12" r="10"></circle><circle cx="12" cy="12" r="6"></circle><circle cx="12" cy="12" r="2"></circle></svg>'
             base_bid = self._calc_base_bid(price, acos, cvr)
-            st.success(f"🎯 Calculated Base Bid: **AED {base_bid:.2f}** (Price {price} * CVR {cvr}% * ACoS {acos}%)")
+            st.markdown(f"""
+            <div style="background: rgba(74, 222, 128, 0.05); border-left: 4px solid #4ade80; padding: 12px 20px; border-radius: 0 8px 8px 0; margin-bottom: 20px; display: flex; align-items: center;">
+                {target_icon}
+                <span style="color: #F5F5F7; font-size: 0.95rem;">Calculated Base Bid: <strong style="color: #4ade80;">AED {base_bid:.2f}</strong> (Price {price} * CVR {cvr}% * ACoS {acos}%)</span>
+            </div>
+            """, unsafe_allow_html=True)
             
             # Allocate Budget
+            money_icon = f'<svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#22d3ee" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" style="vertical-align: middle; margin-right: 8px;"><line x1="12" y1="1" x2="12" y2="23"></line><path d="M17 5H9.5a3.5 3.5 0 0 0 0 7h5a3.5 3.5 0 0 1 0 7H6"></path></svg>'
             allocation = self._allocate_budget(total_budget, campaign_types)
-            st.info(f"💰 Budget Split: {', '.join([f'{k}: {v} AED' for k,v in allocation.items()])}")
+            st.markdown(f"""
+            <div style="background: rgba(34, 211, 238, 0.05); border-left: 4px solid #22d3ee; padding: 12px 20px; border-radius: 0 8px 8px 0; margin-bottom: 20px; display: flex; align-items: center;">
+                {money_icon}
+                <span style="color: #F5F5F7; font-size: 0.95rem;">Budget Split: <strong style="color: #22d3ee;">{', '.join([f'{k}: {v} AED' for k,v in allocation.items()])}</strong></span>
+            </div>
+            """, unsafe_allow_html=True)
             
             # Generate Rows
             bulk_df = self._generate_launch_bulk_rows(
@@ -287,7 +364,8 @@ class CreatorModule(BaseFeature):
              return
              
         df_harvest = st.session_state['harvest_payload']
-        st.success(f"🌾 Loaded {len(df_harvest)} harvest candidates from Optimizer")
+        harvest_icon = f'<svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="#4ade80" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="vertical-align: middle; margin-right: 8px;"><path d="M11 20A7 7 0 0 1 9.8 6.1C15.5 5 17 4.48 19 2c1 2 2 4.18 2 8a8 8 0 0 1-10 10Z"></path><path d="M11 20s.2-4.5 4-7"></path></svg>'
+        st.markdown(f"<div style='display: flex; align-items: center; background: rgba(74, 222, 128, 0.05); padding: 12px; border-radius: 8px; border: 1px solid rgba(74, 222, 128, 0.1); margin-bottom: 20px;'><span style='color: #4ade80; font-weight: 600;'>{harvest_icon} Loaded {len(df_harvest)} harvest candidates from Optimizer</span></div>", unsafe_allow_html=True)
 
         with st.expander("⚙️ Harvest Configuration", expanded=True):
             col1, col2 = st.columns(2)
@@ -315,30 +393,55 @@ class CreatorModule(BaseFeature):
                 if purchased_report is not None:
                      df_harvest, msg = self.map_skus_from_df(df_harvest, purchased_report)
                      if "Matches found" in msg:
-                        st.success(f"✅ Auto-mapped SKUs using Data Hub: {msg}")
+                        check_icon = f'<svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#4ade80" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" style="vertical-align: middle; margin-right: 8px;"><polyline points="20 6 9 17 4 12"></polyline></svg>'
+                        st.markdown(f"""
+                        <div style="background: rgba(74, 222, 128, 0.05); border-left: 4px solid #4ade80; padding: 12px 20px; border-radius: 0 8px 8px 0; margin-bottom: 20px; display: flex; align-items: center;">
+                            {check_icon}
+                            <span style="color: #F5F5F7; font-size: 0.95rem;">Auto-mapped SKUs using Data Hub: <strong style="color: #4ade80;">{msg}</strong></span>
+                        </div>
+                        """, unsafe_allow_html=True)
                         st.session_state['harvest_payload'] = df_harvest
                      else:
                         st.warning("⚠️ SKUs missing. Detailed SKU mapping required.")
                         sku_file = st.file_uploader("Upload SKU Map (Purchased Product Report)", type=['csv', 'xlsx'], key="harvest_sku_map")
                         if sku_file:
                             df_harvest, msg = self.map_skus_from_file(df_harvest, sku_file)
-                            st.success(msg)
+                            check_icon = f'<svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#4ade80" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" style="vertical-align: middle; margin-right: 8px;"><polyline points="20 6 9 17 4 12"></polyline></svg>'
+                            st.markdown(f"""
+                            <div style="background: rgba(74, 222, 128, 0.05); border-left: 4px solid #4ade80; padding: 12px 20px; border-radius: 0 8px 8px 0; margin-bottom: 20px; display: flex; align-items: center;">
+                                {check_icon}
+                                <span style="color: #F5F5F7; font-size: 0.95rem;">{msg}</span>
+                            </div>
+                            """, unsafe_allow_html=True)
                             st.session_state['harvest_payload'] = df_harvest
                 else:
                     st.warning("⚠️ SKUs missing. detailed SKU mapping required.")
                     sku_file = st.file_uploader("Upload SKU Map (Purchased Product Report)", type=['csv', 'xlsx'], key="harvest_sku_map")
                     if sku_file:
                         df_harvest, msg = self.map_skus_from_file(df_harvest, sku_file)
-                        st.success(msg)
+                        check_icon = f'<svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#4ade80" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" style="vertical-align: middle; margin-right: 8px;"><polyline points="20 6 9 17 4 12"></polyline></svg>'
+                        st.markdown(f"""
+                        <div style="background: rgba(74, 222, 128, 0.05); border-left: 4px solid #4ade80; padding: 12px 20px; border-radius: 0 8px 8px 0; margin-bottom: 20px; display: flex; align-items: center;">
+                            {check_icon}
+                            <span style="color: #F5F5F7; font-size: 0.95rem;">{msg}</span>
+                        </div>
+                        """, unsafe_allow_html=True)
                         st.session_state['harvest_payload'] = df_harvest # Save back
             
-        st.subheader("📋 Verify Candidates")
+        list_icon = f'<svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="#8F8CA3" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="vertical-align: middle; margin-right: 8px;"><line x1="8" y1="6" x2="21" y2="6"></line><line x1="8" y1="12" x2="21" y2="12"></line><line x1="8" y1="18" x2="21" y2="18"></line><line x1="3" y1="6" x2="3.01" y2="6"></line><line x1="3" y1="12" x2="3.01" y2="12"></line><line x1="3" y1="18" x2="3.01" y2="18"></line></svg>'
+        st.markdown(f"<h4 style='display: flex; align-items: center; font-family: Inter, sans-serif; font-weight: 600; margin-bottom: 12px;'>{list_icon} Verify Candidates</h4>", unsafe_allow_html=True)
         st.dataframe(df_harvest, use_container_width=True)
         
-        if st.button("Generate Harvest Campaigns", type="primary", key="btn_gen_harvest"):
+        if st.button("Generate Harvest Campaigns", type="primary", key="btn_gen_harvest", use_container_width=True):
             bulk_df = self.generate_harvest_bulk_file(df_harvest, portfolio_id, daily_budget, launch_date)
             
-            st.success(f"✅ Generated {len(bulk_df)} bulk file rows")
+            check_icon = f'<svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#4ade80" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" style="vertical-align: middle; margin-right: 8px;"><polyline points="20 6 9 17 4 12"></polyline></svg>'
+            st.markdown(f"""
+            <div style="background: rgba(74, 222, 128, 0.05); border-left: 4px solid #4ade80; padding: 12px 20px; border-radius: 0 8px 8px 0; margin-bottom: 20px; display: flex; align-items: center;">
+                {check_icon}
+                <span style="color: #F5F5F7; font-size: 0.95rem;">Generated <strong style="color: #4ade80;">{len(bulk_df)}</strong> bulk file rows successfully.</span>
+            </div>
+            """, unsafe_allow_html=True)
             
             # Preview
             with st.expander("👁️ Preview Rows", expanded=False):

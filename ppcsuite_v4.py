@@ -108,6 +108,65 @@ if 'db_manager' not in st.session_state:
     st.session_state['db_manager'] = None
 
 # ==========================================
+# PERFORMANCE HUB (Snapshot + Report Card)
+# ==========================================
+# ==========================================
+# PERFORMANCE HUB (Snapshot + Report Card)
+# ==========================================
+def run_performance_hub():
+    """Consolidated Account Overview + Report Card."""
+    # === TAB NAVIGATION (Premium Button Style) ===
+    st.markdown("""
+    <style>
+    /* Premium Tab Buttons */
+    div[data-testid="stHorizontalBlock"] div.stButton > button {
+        background: rgba(143, 140, 163, 0.05) !important;
+        border: 1px solid rgba(143, 140, 163, 0.15) !important;
+        color: #8F8CA3 !important;
+        border-radius: 8px !important;
+        font-weight: 500 !important;
+        transition: all 0.2s ease !important;
+        padding: 8px 16px !important;
+    }
+    div[data-testid="stHorizontalBlock"] div.stButton > button:hover {
+        background: rgba(143, 140, 163, 0.1) !important;
+        border-color: rgba(91, 85, 111, 0.3) !important;
+        color: #F5F5F7 !important;
+    }
+    /* Active Tab Styling - Using Primary kind */
+    div[data-testid="stHorizontalBlock"] div.stButton > button[kind="primary"] {
+        background: linear-gradient(135deg, #5B556F 0%, #464156 100%) !important;
+        border: 1px solid rgba(255, 255, 255, 0.1) !important;
+        color: #F5F5F7 !important;
+        font-weight: 700 !important;
+        box-shadow: 0 4px 12px rgba(0, 0, 0, 0.15) !important;
+    }
+    </style>
+    """, unsafe_allow_html=True)
+    
+    if 'active_perf_tab' not in st.session_state:
+        st.session_state['active_perf_tab'] = "Account Health"
+        
+    c1, c2 = st.columns(2)
+    with c1:
+        is_active = st.session_state['active_perf_tab'] == "Account Health"
+        if st.button("🛡️ ACCOUNT HEALTH", key="btn_tab_report", use_container_width=True, type="primary" if is_active else "secondary"):
+            st.session_state['active_perf_tab'] = "Account Health"
+            st.rerun()
+    with c2:
+        is_active = st.session_state['active_perf_tab'] == "Performance Overview"
+        if st.button("🧭 PERFORMANCE OVERVIEW", key="btn_tab_perf", use_container_width=True, type="primary" if is_active else "secondary"):
+            st.session_state['active_perf_tab'] = "Performance Overview"
+            st.rerun()
+            
+    st.markdown("<br>", unsafe_allow_html=True)
+    
+    if st.session_state['active_perf_tab'] == "Account Health":
+        ReportCardModule().run()
+    else:
+        PerformanceSnapshotModule().run()
+
+# ==========================================
 # CONSOLIDATED V4 OPTIMIZER
 # ==========================================
 def run_consolidated_optimizer():
@@ -449,12 +508,11 @@ def run_consolidated_optimizer():
     # Order: Overview | Negatives | Competitor Shield | Bids | Harvest | Audit | Download
     tabs = st.tabs([
         "Overview",   
-        "Negatives",
-        "Competitor Shield",
+        "Defence",
         "Bids",
         "Harvest",
         "Audit",
-        "Download"
+        "Bulk Export"
     ])
     
     # Core Tabs
@@ -466,23 +524,24 @@ def run_consolidated_optimizer():
         })
         
     with tabs[1]:
-        opt._display_negatives(neg_kw, neg_pt)
+        defence_tabs = st.tabs(["Keyword Defence", "ASIN Defence"])
+        with defence_tabs[0]:
+            opt._display_negatives(neg_kw, neg_pt)
+        with defence_tabs[1]:
+            st.subheader("ASIN Defence")
+            asin_module = ASINMapperModule()
+            asin_module.run()
         
     with tabs[2]:
-        st.subheader("Competitor Shield")
-        asin_module = ASINMapperModule()
-        asin_module.run()
-        
-    with tabs[3]:
         opt._display_bids(bids_exact=bids_exact, bids_pt=bids_pt, bids_agg=bids_agg, bids_auto=bids_auto)
         
-    with tabs[4]:
+    with tabs[3]:
         opt._display_harvest(harvest_df)
         
-    with tabs[5]:
+    with tabs[4]:
         opt._display_heatmap(heatmap_df)
 
-    with tabs[6]:
+    with tabs[5]:
         res = {
             "harvest": harvest_df,
             "neg_kw": neg_kw, "neg_pt": neg_pt,
@@ -527,18 +586,18 @@ def main():
         
         if st.button("Home", use_container_width=True):
             st.session_state['current_module'] = 'home'
+        if st.button("Account Overview", use_container_width=True):
+            st.session_state['current_module'] = 'performance'
+        if st.button("Report Card", use_container_width=True):
+            st.session_state['current_module'] = 'report_card'
         
         st.markdown("##### SYSTEM")
         if st.button("Data Hub", use_container_width=True):
             st.session_state['current_module'] = 'data_hub'
         
         st.markdown("##### ANALYZE")
-        if st.button("Account Overview", use_container_width=True):
-            st.session_state['current_module'] = 'performance'
         if st.button("Impact Analyzer", use_container_width=True):
             st.session_state['current_module'] = 'impact'
-        if st.button("Report Card", use_container_width=True):
-            st.session_state['current_module'] = 'report_card'
         if st.button("Optimization Hub", use_container_width=True):
             st.session_state['current_module'] = 'optimizer'
         if st.button("Simulator", use_container_width=True):
@@ -599,7 +658,7 @@ def main():
         SimulatorModule().run()
         
     elif current == 'performance':
-        PerformanceSnapshotModule().run()
+        run_performance_hub()
     
     elif current == 'creator':
         creator = CreatorModule()
@@ -615,8 +674,12 @@ def main():
         AIInsightsModule().run()
     elif current == 'impact':
         render_impact_dashboard()
-    elif current == 'report_card':
-        ReportCardModule().run()
+
+    # Render Floating Chat Bubble (unless already on assistant page)
+    if current != 'assistant':
+        assistant = AssistantModule()
+        assistant.render_floating_interface()
+        assistant.render_interface()
 
 if __name__ == "__main__":
     main()

@@ -6,13 +6,14 @@ Reusable UI elements to ensure consistent styling across modules.
 
 import streamlit as st
 
-def metric_card(label: str, value: str, delta: str = None, color: str = None, border_color: str = "#333", subtitle: str = None):
+def metric_card(label: str, value: str, icon_name: str = None, delta: str = None, color: str = None, border_color: str = "#333", subtitle: str = None):
     """
     Render a styled metric card using HTML.
     
     Args:
         label: The label text (e.g. "Spend")
         value: The value text (e.g. "AED 1,234")
+        icon_name: Optional icon name (Feather icon)
         delta: Optional percentage change (e.g. "+12%")
         color: Text color for the value (default white)
         border_color: Border color for the card (default dark grey)
@@ -31,15 +32,35 @@ def metric_card(label: str, value: str, delta: str = None, color: str = None, bo
 
     subtitle_html = ""
     if subtitle:
-        subtitle_html = f'<p style="color: #888; font-size: 11px; margin: 4px 0 0 0;">{subtitle}</p>'
+        subtitle_html = f'<p style="color: #64748b; font-size: 11px; margin: 4px 0 0 0;">{subtitle}</p>'
 
-    label_color = "var(--text-color)"
-    if not color:
-        color = "var(--text-color)"
+    icon_html = ""
+    if icon_name:
+        icon_color = "#8F8CA3"
+        icons = {
+            "spend": f'<svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="{icon_color}" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" style="margin-right: 8px;"><line x1="12" y1="1" x2="12" y2="23"></line><path d="M17 5H9.5a3.5 3.5 0 0 0 0 7h5a3.5 3.5 0 0 1 0 7H6"></path></svg>',
+            "revenue": f'<svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="{icon_color}" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" style="margin-right: 8px;"><line x1="12" y1="1" x2="12" y2="23"></line><path d="M17 5H9.5a3.5 3.5 0 0 0 0 7h5a3.5 3.5 0 0 1 0 7H6"></path></svg>',
+            "acos": f'<svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="{icon_color}" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" style="margin-right: 8px;"><circle cx="12" cy="12" r="10"></circle><line x1="15" y1="9" x2="9" y2="15"></line><line x1="9" y1="9" x2="15" y2="15"></line></svg>',
+            "roas": f'<svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="{icon_color}" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" style="margin-right: 8px;"><polyline points="22 7 13.5 15.5 8.5 10.5 2 17"></polyline><polyline points="16 7 22 7 22 13"></polyline></svg>',
+            "orders": f'<svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="{icon_color}" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" style="margin-right: 8px;"><circle cx="9" cy="21" r="1"></circle><circle cx="20" cy="21" r="1"></circle><path d="M1 1h4l2.68 13.39a2 2 0 0 0 2 1.61h9.72a2 2 0 0 0 2-1.61L23 6H6"></path></svg>',
+            "impressions": f'<svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="{icon_color}" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" style="margin-right: 8px;"><path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"></path><circle cx="12" cy="12" r="3"></circle></svg>',
+            "clicks": f'<svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="{icon_color}" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" style="margin-right: 8px;"><path d="m13 10 3.5 3.5M2 2l20 20M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"></path></svg>',
+            "layers": f'<svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="{icon_color}" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" style="margin-right: 8px;"><polygon points="12 2 2 7 12 12 22 7 12 2"></polygon><polyline points="2 17 12 22 22 17"></polyline><polyline points="2 12 12 17 22 12"></polyline></svg>',
+            "check": f'<svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="{icon_color}" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" style="margin-right: 8px;"><polyline points="20 6 9 17 4 12"></polyline></svg>',
+            "shield": f'<svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="{icon_color}" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" style="margin-right: 8px;"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"></path></svg>',
+            "sliders": f'<svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="{icon_color}" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" style="margin-right: 8px;"><line x1="4" y1="21" x2="4" y2="14"></line><line x1="4" y1="10" x2="4" y2="3"></line><line x1="12" y1="21" x2="12" y2="12"></line><line x1="12" y1="8" x2="12" y2="3"></line><line x1="20" y1="21" x2="20" y2="16"></line><line x1="20" y1="12" x2="20" y2="3"></line><line x1="1" y1="14" x2="7" y2="14"></line><line x1="9" y1="8" x2="15" y2="8"></line><line x1="17" y1="16" x2="23" y2="16"></line></svg>',
+            "leaf": f'<svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="{icon_color}" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" style="margin-right: 8px;"><path d="M11 20A7 7 0 0 1 9.8 6.1C15.5 5 17 4.48 19 2c1 2 2 4.18 2 8a8 8 0 0 1-10 10Z"></path><path d="M11 20s.2-4.5 4-7"></path></svg>'
+        }
+        icon_html = icons.get(icon_name, "")
+
+    label_color = "#94a3b8"
+    val_color = "#F5F5F7"
+    if color: val_color = color
     
-    # Use custom border color if provided
-    border_style = f"border: 1px solid {border_color};" if border_color else "border: 1px solid var(--border-color);"
+    # Premium background and border
+    bg_color = "rgba(15, 23, 42, 0.6)" # Darker slate
+    border_color = "rgba(255, 255, 255, 0.05)"
     
-    # Build HTML as single line to avoid Streamlit rendering issues
-    html = f'<div style="background-color: var(--card-bg); padding: 15px; border-radius: 8px; {border_style} margin-bottom: 10px; height: 100%;"><p style="color: {label_color}; opacity: 0.7; font-size: 12px; margin: 0 0 5px 0;">{label}</p><div style="display: flex; align-items: baseline;"><p style="color: {color}; font-size: 20px; font-weight: bold; margin: 0;">{value}</p>{delta_html}</div>{subtitle_html}</div>'
+    # Force a single-line, clean HTML string with no newlines or leading spaces
+    html = f'<div style="background-color: {bg_color}; padding: 20px 16px; border-radius: 12px; border: 1px solid {border_color}; margin-bottom: 10px; height: 100%; display: flex; flex-direction: column; align-items: center; justify-content: center; text-align: center;"><div style="color: {label_color}; font-size: 0.7rem; font-weight: 700; text-transform: uppercase; letter-spacing: 0.1em; margin-bottom: 12px; display: flex; align-items: center; justify-content: center; width: 100%;">{icon_html}{label}</div><div style="margin: 0; padding: 0; display: flex; align-items: baseline; gap: 8px; justify-content: center; width: 100%;"><span style="color: {val_color}; font-size: 1.6rem; font-weight: 800; line-height: 1;">{value}</span>{delta_html}</div>{subtitle_html}</div>'
     st.markdown(html, unsafe_allow_html=True)

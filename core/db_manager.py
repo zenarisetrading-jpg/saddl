@@ -212,8 +212,30 @@ class DatabaseManager:
                 )
             """)
             
+            # ==========================================
+            # ACCOUNT HEALTH METRICS TABLE (Persistent)
+            # ==========================================
+            cursor.execute("""
+                CREATE TABLE IF NOT EXISTS account_health_metrics (
+                    client_id TEXT PRIMARY KEY,
+                    health_score REAL DEFAULT 0,
+                    roas_score REAL DEFAULT 0,
+                    waste_score REAL DEFAULT 0,
+                    cvr_score REAL DEFAULT 0,
+                    waste_ratio REAL DEFAULT 0,
+                    wasted_spend REAL DEFAULT 0,
+                    current_roas REAL DEFAULT 0,
+                    current_acos REAL DEFAULT 0,
+                    cvr REAL DEFAULT 0,
+                    total_spend REAL DEFAULT 0,
+                    total_sales REAL DEFAULT 0,
+                    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+                )
+            """)
+            
             # default_client auto-creation REMOVED.
             # Explicit account creation required.
+
     
     # ==========================================
     # UPSERT OPERATIONS
@@ -494,6 +516,63 @@ class DatabaseManager:
         if self.db_path.exists():
             return "Connected", "green"
         return "Not Connected (File missing)", "red"
+
+    # ==========================================
+    # ACCOUNT HEALTH METRICS OPERATIONS
+    # ==========================================
+    
+    def save_account_health(self, client_id: str, metrics: Dict[str, Any]) -> bool:
+        """
+        Save or update account health metrics.
+        
+        Args:
+            client_id: Account identifier
+            metrics: Dict with health_score, roas_score, waste_score, cvr_score, etc.
+            
+        Returns:
+            True if successful
+        """
+        with self._get_connection() as conn:
+            cursor = conn.cursor()
+            cursor.execute("""
+                INSERT OR REPLACE INTO account_health_metrics 
+                (client_id, health_score, roas_score, waste_score, cvr_score, 
+                 waste_ratio, wasted_spend, current_roas, current_acos, cvr,
+                 total_spend, total_sales, updated_at)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP)
+            """, (
+                client_id,
+                metrics.get('health_score', 0),
+                metrics.get('roas_score', 0),
+                metrics.get('waste_score', 0),
+                metrics.get('cvr_score', 0),
+                metrics.get('waste_ratio', 0),
+                metrics.get('wasted_spend', 0),
+                metrics.get('current_roas', 0),
+                metrics.get('current_acos', 0),
+                metrics.get('cvr', 0),
+                metrics.get('total_spend', 0),
+                metrics.get('total_sales', 0)
+            ))
+            return True
+    
+    def get_account_health(self, client_id: str) -> Optional[Dict[str, Any]]:
+        """
+        Get account health metrics from database.
+        
+        Args:
+            client_id: Account identifier
+            
+        Returns:
+            Dict with health metrics or None if not found
+        """
+        with self._get_connection() as conn:
+            cursor = conn.cursor()
+            cursor.execute("""
+                SELECT * FROM account_health_metrics WHERE client_id = ?
+            """, (client_id,))
+            row = cursor.fetchone()
+            return dict(row) if row else None
 
     
     def get_stats_summary(self) -> Dict[str, Any]:
@@ -994,8 +1073,18 @@ class DatabaseManager:
             DataFrame with impact metrics per action
         """
         with self._get_connection() as conn:
+            # Build date filter clause
+            date_filter = ""
+            params = [client_id]
+            if after_date:
+                date_filter += " AND DATE(a.action_date) >= ?"
+                params.append(str(after_date))
+            if before_date:
+                date_filter += " AND DATE(a.action_date) <= ?"
+                params.append(str(before_date))
+            
             # Get all UNIQUE actions with their dates (dedupe by target+action_type+date)
-            actions_query = """
+            actions_query = f"""
                 SELECT 
                     MIN(a.id) as id, a.batch_id, a.action_type, a.entity_name,
                     a.old_value, a.new_value, a.reason,
@@ -1003,11 +1092,12 @@ class DatabaseManager:
                     MIN(a.action_date) as action_date,
                     DATE(a.action_date) as action_day
                 FROM actions_log a
-                WHERE a.client_id = ?
+                WHERE a.client_id = ?{date_filter}
                 GROUP BY a.target_text, a.action_type, DATE(a.action_date), a.campaign_name
                 ORDER BY action_date DESC
             """
-            actions_df = pd.read_sql_query(actions_query, conn, params=(client_id,))
+            actions_df = pd.read_sql_query(actions_query, conn, params=tuple(params))
+
             
             if actions_df.empty:
                 return pd.DataFrame()

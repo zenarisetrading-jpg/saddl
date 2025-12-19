@@ -81,11 +81,14 @@ def render_account_selector():
                 current_idx = idx
                 break
     
+    key_svg = '<svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="#94a3b8" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" style="margin-right: 8px;"><circle cx="7.5" cy="15.5" r="5.5"/><path d="m21 2-9.6 9.6"/><path d="m15.5 7.5 3 3L22 7l-3-3z"/></svg>'
+    st.markdown(f'<div style="display: flex; align-items: center; justify-content: center; margin-bottom: 8px;">{key_svg}<span style="color: #94a3b8; font-size: 0.8rem; font-weight: 700; text-transform: uppercase; letter-spacing: 0.1em;">Active Account</span></div>', unsafe_allow_html=True)
     selected = st.selectbox(
         "Active Account",
         options=options.keys(),
         index=current_idx,
-        key="account_selector"
+        key="account_selector",
+        label_visibility="collapsed"
     )
     
     selected_value = options[selected]

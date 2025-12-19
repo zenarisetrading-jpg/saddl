@@ -24,6 +24,7 @@ from core.data_loader import safe_numeric, is_asin
 from utils.formatters import format_currency, dataframe_to_excel
 from utils.matchers import ExactMatcher
 from ui.components import metric_card
+import plotly.graph_objects as go
 
 # ==========================================
 # CONSTANTS
@@ -1697,12 +1698,17 @@ class OptimizerModule(BaseFeature):
     
     def _render_sidebar(self):
         """Render sidebar configuration panels."""
+        # SVG Icons for Sidebar
+        icon_color = "#8F8CA3"
+        settings_icon = f'<svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="{icon_color}" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="vertical-align: middle; margin-right: 6px;"><circle cx="12" cy="12" r="3"></circle><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1 0 2.83 2 2 0 0 1-2.83 0l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-2 2 2 2 0 0 1-2-2v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83 0 2 2 0 0 1 0-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1-2-2 2 2 0 0 1 2-2h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 0-2.83 2 2 0 0 1 2.83 0l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 2-2 2 2 0 0 1 2 2v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 0 2 2 0 0 1 0 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 2 2 2 2 0 0 1-2 2h-.09a1.65 1.65 0 0 0-1.51 1z"></path></svg>'
+        bolt_icon = f'<svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="{icon_color}" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="vertical-align: middle; margin-right: 6px;"><polygon points="13 2 3 14 12 14 11 22 21 10 12 10 13 2"></polygon></svg>'
+
         with st.sidebar:
             st.divider()
-            st.markdown("##### OPTIMIZER SETTINGS")
+            st.markdown(f'<div style="color: #8F8CA3; font-size: 0.75rem; text-transform: uppercase; letter-spacing: 1.2px; font-weight: 600; margin-bottom: 12px;">{settings_icon}Optimizer Settings</div>', unsafe_allow_html=True)
             
             # === PRESETS ===
-            st.markdown("**⚙️ Quick Presets**")
+            st.markdown(f'<div style="color: #F5F5F7; font-size: 0.85rem; font-weight: 600; margin-bottom: 8px;">{bolt_icon}Quick Presets</div>', unsafe_allow_html=True)
             preset = st.radio(
                 "preset_selector",
                 ["Conservative", "Balanced", "Aggressive"],
@@ -1755,8 +1761,129 @@ class OptimizerModule(BaseFeature):
             st.caption("*Select preset or customize below*")
             st.divider()
             
-            # === HARVEST SETTINGS ===
-            with st.expander("🌾 Harvest Graduation", expanded=False):
+            # === PRIMARY ACTION PANEL ===
+            st.subheader("Ready to optimize")
+            
+            st.markdown(
+                "The system will adjust bids, add negatives, and harvest high-performing terms "
+                "based on current account performance."
+            )
+            
+            # Brand purple/wine palette: 
+            # Primary: #5B556F (Wine/Slate Purple)
+            # Secondary: rgba(91, 85, 111, 0.8)
+            
+            st.markdown("""
+            <style>
+            /* Primary CTA Button - Brand Wine Gradient */
+            [data-testid="stSidebar"] div[data-testid="stButton"] > button[kind="primary"] {
+                background: linear-gradient(135deg, #5B556F 0%, #464156 100%) !important;
+                border: 1px solid rgba(255, 255, 255, 0.05) !important;
+                font-weight: 600 !important;
+                letter-spacing: 0.3px !important;
+                box-shadow: 0 4px 12px rgba(0, 0, 0, 0.1) !important;
+            }
+            [data-testid="stSidebar"] div[data-testid="stButton"] > button[kind="primary"]:hover {
+                background: linear-gradient(135deg, #6A6382 0%, #5B556F 100%) !important;
+                transform: translateY(-1px);
+                box-shadow: 0 6px 16px rgba(0, 0, 0, 0.15) !important;
+            }
+
+            /* Slider Styling - Brand Wine Accents */
+            /* Track / Base */
+            div[data-testid="stSlider"] div[aria-label="slider-track"] {
+                background: rgba(91, 85, 111, 0.15) !important;
+            }
+            /* Progress Bar */
+            div[data-testid="stSlider"] div[data-baseweb="slider"] > div:first-child > div:nth-child(2) {
+                background: #5B556F !important;
+            }
+            /* Handle / Thumb */
+            div[data-testid="stSlider"] div[role="slider"] {
+                background-color: #5B556F !important;
+                border: 2px solid #F5F5F7 !important;
+                box-shadow: 0 2px 6px rgba(0,0,0,0.2) !important;
+            }
+            /* Value Label */
+            div[data-testid="stSlider"] div[data-testid="stMarkdownContainer"] p {
+                color: #B6B4C2 !important;
+            }
+            div[data-testid="stSlider"] span[data-baseweb="typography"] {
+                color: #5B556F !important;
+                font-weight: 700 !important;
+            }
+            </style>
+            """, unsafe_allow_html=True)
+            
+            # Primary CTA
+            if st.button(
+                "Run optimization with recommended settings",
+                type="primary",
+                use_container_width=True,
+                key="opt_run_primary"
+            ):
+                st.session_state["run_optimizer"] = True
+                st.rerun()
+            
+            # Preview metrics (if results available from previous run)
+            if "optimizer_results" in st.session_state:
+                results = st.session_state["optimizer_results"]
+                harvest = results.get("harvest", pd.DataFrame())
+                neg_kw = results.get("neg_kw", pd.DataFrame())
+                neg_pt = results.get("neg_pt", pd.DataFrame())
+                direct_bids = results.get("direct_bids", pd.DataFrame())
+                agg_bids = results.get("agg_bids", pd.DataFrame())
+                
+                bid_count = len(direct_bids) + len(agg_bids) if direct_bids is not None and agg_bids is not None else 0
+                neg_count = len(neg_kw) + len(neg_pt) if neg_kw is not None and neg_pt is not None else 0
+                harvest_count = len(harvest) if harvest is not None else 0
+                
+                # Paused count (targets with new bid = 0 or state = paused)
+                pause_count = 0
+                if direct_bids is not None and not direct_bids.empty and "New Bid" in direct_bids.columns:
+                    pause_count += (direct_bids["New Bid"] == 0).sum()
+                if agg_bids is not None and not agg_bids.empty and "New Bid" in agg_bids.columns:
+                    pause_count += (agg_bids["New Bid"] == 0).sum()
+                
+                st.caption("**Last run preview:**")
+                c1, c2, c3, c4 = st.columns(4)
+                with c1:
+                    st.metric("Bid updates", f"{bid_count:,}")
+                with c2:
+                    st.metric("Negatives", f"{neg_count:,}")
+                with c3:
+                    st.metric("Harvests", f"{harvest_count:,}")
+                with c4:
+                    st.metric("Paused", f"{pause_count:,}")
+            
+            # === ADVANCED SETTINGS (ALL CONTROLS COLLAPSED) ===
+            # Advanced Settings Icon
+            sliders_icon = f'<svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="{icon_color}" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="vertical-align: middle; margin-right: 8px;"><line x1="4" y1="21" x2="4" y2="14"></line><line x1="4" y1="10" x2="4" y2="3"></line><line x1="12" y1="21" x2="12" y2="12"></line><line x1="12" y1="8" x2="12" y2="3"></line><line x1="20" y1="21" x2="20" y2="16"></line><line x1="20" y1="12" x2="20" y2="3"></line><line x1="1" y1="14" x2="7" y2="14"></line><line x1="9" y1="8" x2="15" y2="8"></line><line x1="17" y1="16" x2="23" y2="16"></line></svg>'
+            
+            # Helper for Sidebar Chiclet Header
+            def sidebar_chiclet_header(label, icon_html):
+                st.markdown(f"""
+                <div style="background: linear-gradient(135deg, rgba(91, 85, 111, 0.15) 0%, rgba(91, 85, 111, 0.08) 100%); 
+                            border: 1px solid rgba(91, 85, 111, 0.3); 
+                            border-radius: 8px; 
+                            padding: 8px 12px; 
+                            margin-top: 20px; 
+                            margin-bottom: -10px;
+                            display: flex; 
+                            align-items: center; 
+                            gap: 8px;">
+                    {icon_html}
+                    <span style="color: #F5F5F7; font-size: 0.8rem; font-weight: 600; text-transform: uppercase; letter-spacing: 0.8px;">{label}</span>
+                </div>
+                """, unsafe_allow_html=True)
+
+            sidebar_chiclet_header("Configuration", sliders_icon)
+            with st.expander("Expand settings", expanded=False):
+                st.caption("Fine-tune optimization behavior — defaults work well for most accounts")
+                
+                # === HARVEST SETTINGS ===
+                leaf_icon = f'<svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="{icon_color}" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="vertical-align: middle; margin-right: 6px;"><path d="M11 20A7 7 0 0 1 9.8 6.1C15.5 5 17 4.48 19 2c1 2 2 4.18 2 8a8 8 0 0 1-8 8Z"></path><path d="M11 20c0-2.5 2-5.5 2-5.5"></path></svg>'
+                st.markdown(f'<div style="color: #F5F5F7; font-size: 0.8rem; font-weight: 600; margin-top: 10px; margin-bottom: 5px;">{leaf_icon}Harvest Graduation</div>', unsafe_allow_html=True)
                 st.caption("Graduate keywords from Auto/Broad → Exact")
                 
                 col1, col2 = st.columns(2)
@@ -1794,7 +1921,9 @@ class OptimizerModule(BaseFeature):
                     )
             
             # === BID SETTINGS ===
-            with st.expander("💰 Bid Adjustments", expanded=False):
+            trending_icon = f'<svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="{icon_color}" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="vertical-align: middle;"><polyline points="23 6 13.5 15.5 8.5 10.5 1 18"></polyline><polyline points="17 6 23 6 23 12"></polyline></svg>'
+            sidebar_chiclet_header("Bid Adjustments", trending_icon)
+            with st.expander("Fine-tune bids", expanded=False):
                 st.caption("How aggressively to change bids")
                 
                 col1, col2 = st.columns(2)
@@ -1837,7 +1966,9 @@ class OptimizerModule(BaseFeature):
                     )
             
             # === NEGATIVE SETTINGS ===
-            with st.expander("🛑 Negative Blocking", expanded=False):
+            shield_icon = f'<svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="{icon_color}" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="vertical-align: middle;"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"></path></svg>'
+            sidebar_chiclet_header("Negative Blocking", shield_icon)
+            with st.expander("Auto-block rules", expanded=False):
                 st.caption("Auto-block keywords with zero sales")
                 
                 col1, col2 = st.columns(2)
@@ -1861,8 +1992,9 @@ class OptimizerModule(BaseFeature):
                 
                 st.info("💡 Thresholds auto-adjust based on your conversion rate")
             
-            # === ADVANCED SETTINGS (COLLAPSED) ===
-            with st.expander("⚙️ Advanced Settings", expanded=False):
+            # === REACTION SPEED ===
+            sidebar_chiclet_header("Reaction Speed", sliders_icon)
+            with st.expander("Fine-tune reaction", expanded=False):
                 st.caption("Fine-tune reaction speed")
                 
                 st.markdown("**Bid Data Requirements**")
@@ -1907,14 +2039,13 @@ class OptimizerModule(BaseFeature):
                     st.text_input("Min Bid", value="$0.30", disabled=True, help="Minimum bid floor")
                 with col2:
                     st.text_input("Max Bid", value="3× current", disabled=True, help="Maximum bid ceiling")
-            
-            # === SIMULATION TOGGLE ===
-            st.divider()
-            st.checkbox(
-                "📊 Include Simulation & Forecasting",
-                key="opt_run_simulation",
-                help="Generate impact projections and scenario analysis"
-            )
+                
+                st.divider()
+                st.checkbox(
+                    "Include Simulation & Forecasting",
+                    key="opt_run_simulation",
+                    help="Generate impact projections and scenario analysis"
+                )
             
             # Sync all session state values to self.config (convert integers to decimals)
             self.config["HARVEST_CLICKS"] = st.session_state["opt_harvest_clicks"]
@@ -1931,22 +2062,7 @@ class OptimizerModule(BaseFeature):
             self.config["MIN_CLICKS_PT"] = st.session_state["opt_min_clicks_pt"]
             self.config["MIN_CLICKS_BROAD"] = st.session_state["opt_min_clicks_broad"]
             self.config["MIN_CLICKS_AUTO"] = st.session_state["opt_min_clicks_auto"]
-            
-            # Teal button styling
-            st.markdown("""
-            <style>
-            [data-testid="stSidebar"] .stButton > button[kind="primary"] {
-                background: linear-gradient(135deg, #14B8A6 0%, #0D9488 100%) !important;
-                border: none !important;
-            }
-            </style>
-            """, unsafe_allow_html=True)
-            
-            # RUN BUTTON
-            st.divider()
-            if st.button("🚀 Run Optimization", type="primary", use_container_width=True, key="opt_run_btn"):
-                st.session_state["run_optimizer"] = True
-                st.rerun()
+
 
     def _calculate_account_health(self, df: pd.DataFrame, r: dict) -> dict:
         """Calculate account health diagnostics for dashboard display."""
@@ -1958,25 +2074,53 @@ class OptimizerModule(BaseFeature):
         current_roas = total_sales / total_spend if total_spend > 0 else 0
         current_acos = (total_spend / total_sales * 100) if total_sales > 0 else 0
         
-        zero_order_mask = df['Orders'] == 0
-        wasted_spend = df.loc[zero_order_mask, 'Spend'].sum()
-        waste_ratio = (wasted_spend / total_spend * 100) if total_spend > 0 else 0
+        # Efficiency calculation at TARGETING level (grouped)
+        # Measures % of spend that goes to converting targets (orders > 0)
+        if 'Targeting' in df.columns:
+            targeting_agg = df.groupby('Targeting').agg({'Spend': 'sum', 'Orders': 'sum'}).reset_index()
+            converting_spend = targeting_agg[targeting_agg['Orders'] > 0]['Spend'].sum()
+        else:
+            converting_spend = df.loc[df['Orders'] > 0, 'Spend'].sum()
+        
+        efficiency_rate = (converting_spend / total_spend * 100) if total_spend > 0 else 0
+        wasted_spend = total_spend - converting_spend
+        waste_ratio = 100 - efficiency_rate
         
         cvr = (total_orders / total_clicks * 100) if total_clicks > 0 else 0
         
         roas_score = min(100, current_roas / 4.0 * 100)
-        waste_score = max(0, 100 - waste_ratio * 3)
+        efficiency_score = efficiency_rate  # Direct: 46% converting = score of 46
         cvr_score = min(100, cvr / 5.0 * 100)
-        health_score = (roas_score * 0.4 + waste_score * 0.4 + cvr_score * 0.2)
+        health_score = (roas_score * 0.4 + efficiency_score * 0.4 + cvr_score * 0.2)
         
-        return {
+        health_metrics = {
             "health_score": health_score,
+            "roas_score": roas_score,
+            "efficiency_score": efficiency_score,  # Renamed from waste_score
+            "cvr_score": cvr_score,
+            "efficiency_rate": efficiency_rate,
             "waste_ratio": waste_ratio,
             "wasted_spend": wasted_spend,
+
             "current_roas": current_roas,
             "current_acos": current_acos,
-            "cvr": cvr
+            "cvr": cvr,
+            "total_spend": total_spend,
+            "total_sales": total_sales
         }
+        
+        # Persist to database for Home tab cockpit
+        try:
+            from core.db_manager import get_db_manager
+            db = get_db_manager(st.session_state.get('test_mode', False))
+            client_id = st.session_state.get('active_account_id')
+            if db and client_id:
+                db.save_account_health(client_id, health_metrics)
+        except Exception:
+            pass  # Don't break optimizer if DB save fails
+        
+        return health_metrics
+
 
     def _display_summary(self, df):
         c1, c2, c3, c4 = st.columns(4)
@@ -2019,44 +2163,31 @@ class OptimizerModule(BaseFeature):
         direct_bids = results.get("direct_bids", pd.DataFrame())
         agg_bids = results.get("agg_bids", pd.DataFrame())
         sim = results.get("simulation", {})
+        date_info = results.get("date_info", {})
         
+        # Baseline metrics removed to prevent duplication (shown in main Dataset Context section)
         
-        # 2. Key Action Stats (5 columns)
-        st.markdown("##### 🎯 Optimization Summary")
-        c1, c2, c3, c4, c5 = st.columns(5)
-        
-        with c1: metric_card("Ad Groups", f"{df['Ad Group Name'].nunique():,}")
-        with c2: metric_card("Search Terms", f"{len(df):,}")
-        with c3: metric_card("Negatives", f"{len(neg_kw)}")
-        with c4: metric_card("Bid Changes", f"{len(direct_bids) + len(agg_bids)}")
-        with c5: metric_card("Harvest Ops", f"{len(harvest)}")
-        
-        st.divider()
-        
-        # 3. Account Health (5 columns)
-        st.markdown("##### 🩺 Account Health Diagnostics")
-        health = self._calculate_account_health(df, results)
-        hc1, hc2, hc3, hc4, hc5 = st.columns(5)
-        
-        with hc1:
-            score = health['health_score']
-            color = "#22c55e" if score >= 80 else "#eab308" if score >= 60 else "#ef4444"
-            metric_card("Health Score", f"{score:.0f}/100", border_color=color)
-        with hc2:
-            waste = health['waste_ratio']
-            w_color = "#22c55e" if waste < 15 else "#ef4444"
-            metric_card("Waste Ratio", f"{waste:.1f}%", subtitle="Spend on 0 orders", border_color=w_color)
-        with hc3:
-             metric_card("Wasted Spend", format_currency(health.get('wasted_spend', 0)), subtitle="Drain on profit", border_color="#f43f5e")
-        with hc4:
-             metric_card("Current ROAS", f"{health['current_roas']:.2f}x", subtitle="Account Baseline")
-        with hc5:
-            metric_card("Target ROAS", f"{self.config.get('TARGET_ROAS', 2.5):.1f}x", subtitle="Config Goal", border_color="#a855f7")
+        # Keep health calculation for internal use, but don't display prominently
         
         # 4. Forecasted Impact
         if sim and "forecast" in sim:
-            st.markdown("---")
-            st.markdown("#### 🚀 Forecasted Impact (Expected Scenario)")
+            icon_color = "#8F8CA3"
+            bolt_icon = f'<svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="{icon_color}" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="vertical-align: middle; margin-right: 8px;"><polygon points="13 2 3 14 12 14 11 22 21 10 12 10 13 2"></polygon></svg>'
+            
+            st.markdown(f"""
+            <div style="background: linear-gradient(135deg, rgba(91, 85, 111, 0.1) 0%, rgba(91, 85, 111, 0.05) 100%); 
+                        border: 1px solid rgba(124, 58, 237, 0.2); 
+                        border-radius: 8px; 
+                        padding: 12px 16px; 
+                        margin-top: 24px;
+                        margin-bottom: 20px;
+                        display: flex; 
+                        align-items: center; 
+                        gap: 10px;">
+                {bolt_icon}
+                <span style="color: #F5F5F7; font-size: 1rem; font-weight: 700; text-transform: uppercase; letter-spacing: 1px;">Forecasted Impact (Expected Scenario)</span>
+            </div>
+            """, unsafe_allow_html=True)
             fc1, fc2, fc3 = st.columns(3)
             
             baseline = sim["baseline"]
@@ -2070,54 +2201,194 @@ class OptimizerModule(BaseFeature):
             fc3.metric("Weekly Spend Adjust", format_currency(forecast['spend']), f"{(forecast['spend']/baseline['spend']-1)*100:+.1f}%")
 
     def _display_negatives(self, neg_kw, neg_pt):
-        st.subheader("🛑 Negative Keywords")
-        if not neg_kw.empty:
-            st.dataframe(neg_kw, use_container_width=True)
+        # Icons
+        icon_color = "#8F8CA3"
+        shield_icon = f'<svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="{icon_color}" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="vertical-align: middle; margin-right: 8px;"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"></path></svg>'
+        
+        def tab_header(label, icon_html):
+            st.markdown(f"""
+            <div style="background: linear-gradient(135deg, rgba(91, 85, 111, 0.1) 0%, rgba(91, 85, 111, 0.05) 100%); 
+                        border: 1px solid rgba(124, 58, 237, 0.2); 
+                        border-radius: 8px; 
+                        padding: 12px 16px; 
+                        margin-bottom: 20px;
+                        display: flex; 
+                        align-items: center; 
+                        gap: 10px;">
+                {icon_html}
+                <span style="color: #F5F5F7; font-size: 1rem; font-weight: 700; text-transform: uppercase; letter-spacing: 1px;">{label}</span>
+            </div>
+            """, unsafe_allow_html=True)
+
+        # sub-navigation for negatives
+        neg_tabs = [
+            {"name": "Keyword Negatives", "icon": "🛑 "},
+            {"name": "Product Targeting Negatives", "icon": "🎯 "}
+        ]
+        
+        if 'active_neg_tab' not in st.session_state:
+            st.session_state['active_neg_tab'] = "Keyword Negatives"
+        
+        # Use horizontal radio for clean tertiary navigation
+        active_neg = st.radio(
+            "Select Negative Type",
+            options=["🛑 Keyword Negatives", "🎯 Product Targeting Negatives"],
+            label_visibility="collapsed",
+            horizontal=True,
+            key="neg_radio_nav"
+        )
+        st.session_state['active_neg_tab'] = active_neg.split(" ", 1)[1]  # Strip emoji
+
+
+        st.markdown("<br>", unsafe_allow_html=True)
+        
+        active_tab = st.session_state['active_neg_tab']
+        if active_tab == "Keyword Negatives":
+            tab_header("Negative Keywords Identified", shield_icon)
+            if not neg_kw.empty:
+                st.dataframe(neg_kw, use_container_width=True)
+            else:
+                st.info("No negative keywords found.")
         else:
-            st.info("No negative keywords found.")
-            
-        st.subheader("🛑 Product Targeting Negatives")
-        if not neg_pt.empty:
-            st.dataframe(neg_pt, use_container_width=True)
-        else:
-            st.info("No product targeting negatives found.")
+            tab_header("Product Targeting Candidates", shield_icon)
+            if not neg_pt.empty:
+                st.dataframe(neg_pt, use_container_width=True)
+            else:
+                st.info("No product targeting negatives found.")
 
     def _display_bids(self, bids_exact=None, bids_pt=None, bids_agg=None, bids_auto=None):
-        st.subheader("💰 Bid Optimizations")
+        icon_color = "#8F8CA3"
+        sliders_icon = f'<svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="{icon_color}" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="vertical-align: middle; margin-right: 8px;"><line x1="4" y1="21" x2="4" y2="14"></line><line x1="4" y1="10" x2="4" y2="3"></line><line x1="12" y1="21" x2="12" y2="12"></line><line x1="12" y1="8" x2="12" y2="3"></line><line x1="20" y1="21" x2="20" y2="16"></line><line x1="20" y1="12" x2="20" y2="3"></line><line x1="1" y1="14" x2="7" y2="14"></line><line x1="9" y1="8" x2="15" y2="8"></line><line x1="17" y1="16" x2="23" y2="16"></line></svg>'
+        
+        st.markdown(f"""
+        <div style="background: linear-gradient(135deg, rgba(91, 85, 111, 0.1) 0%, rgba(91, 85, 111, 0.05) 100%); 
+                    border: 1px solid rgba(124, 58, 237, 0.2); 
+                    border-radius: 8px; 
+                    padding: 12px 16px; 
+                    margin-bottom: 20px;
+                    display: flex; 
+                    align-items: center; 
+                    gap: 10px;">
+            {sliders_icon}
+            <span style="color: #F5F5F7; font-size: 1rem; font-weight: 700; text-transform: uppercase; letter-spacing: 1px;">Bid Optimizations</span>
+        </div>
+        """, unsafe_allow_html=True)
+        
         # Define preferred column order
         preferred_cols = ["Targeting", "Campaign Name", "Match Type", "Clicks", "Orders", "Sales", "ROAS", "Current Bid", "CPC", "New Bid", "Reason", "Decision_Basis", "Bucket"]
         
-        t1, t2, t3, t4 = st.tabs(["Exact", "Product Targeting", "Broad/Phrase", "Auto/Category"])
+        # sub-navigation for bids
+        bid_tabs = [
+            {"name": "Exact Keywords", "icon": "🎯 "},
+            {"name": "Product Targeting", "icon": "📦 "},
+            {"name": "Broad / Phrase", "icon": "📈 "},
+            {"name": "Auto / Category", "icon": "⚡ "}
+        ]
+        
+        if 'active_bid_tab' not in st.session_state:
+            st.session_state['active_bid_tab'] = "Exact Keywords"
+        
+        # Use horizontal radio for clean tertiary navigation
+        active_bid = st.radio(
+            "Select Bid Category",
+            options=["🎯 Exact Keywords", "📦 Product Targeting", "📈 Broad / Phrase", "⚡ Auto / Category"],
+            label_visibility="collapsed",
+            horizontal=True,
+            key="bid_radio_nav"
+        )
+        st.session_state['active_bid_tab'] = active_bid.split(" ", 1)[1]  # Strip emoji
+
+
+        st.markdown("<br>", unsafe_allow_html=True)
         
         def safe_display(df):
             if df is not None and not df.empty:
-                # Only show columns that exist in the dataframe
                 available_cols = [c for c in preferred_cols if c in df.columns]
                 st.dataframe(df[available_cols], use_container_width=True)
             else:
-                st.info("No data available.")
+                st.info("No bid adjustments needed for this bucket.")
 
-        with t1: safe_display(bids_exact)
-        with t2: safe_display(bids_pt)
-        with t3: safe_display(bids_agg)
-        with t4: safe_display(bids_auto)
+        active_tab = st.session_state['active_bid_tab']
+        if active_tab == "Exact Keywords": safe_display(bids_exact)
+        elif active_tab == "Product Targeting": safe_display(bids_pt)
+        elif active_tab == "Broad / Phrase": safe_display(bids_agg)
+        elif active_tab == "Auto / Category": safe_display(bids_auto)
 
     def _display_harvest(self, harvest_df):
-        st.subheader("🌾 Harvest Candidates")
+        icon_color = "#8F8CA3"
+        leaf_icon = f'<svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="{icon_color}" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="vertical-align: middle; margin-right: 8px;"><path d="M11 20A7 7 0 0 1 9.8 6.1C15.5 5 17 4.48 19 2c1 2 2 4.18 2 8a8 8 0 0 1-8 8Z"></path><path d="M11 20c0-2.5 2-5.5 2-5.5"></path></svg>'
+        
+        st.markdown(f"""
+        <div style="background: linear-gradient(135deg, rgba(91, 85, 111, 0.1) 0%, rgba(91, 85, 111, 0.05) 100%); 
+                    border: 1px solid rgba(124, 58, 237, 0.2); 
+                    border-radius: 8px; 
+                    padding: 12px 16px; 
+                    margin-bottom: 20px;
+                    display: flex; 
+                    align-items: center; 
+                    gap: 10px;">
+            {leaf_icon}
+            <span style="color: #F5F5F7; font-size: 1rem; font-weight: 700; text-transform: uppercase; letter-spacing: 1px;">Harvest Candidates</span>
+        </div>
+        """, unsafe_allow_html=True)
+
         if harvest_df is not None and not harvest_df.empty:
-            st.markdown("**What this does:** Identifies high-performing search terms that should be promoted to Exact Match campaigns.")
+            st.markdown("""
+            <div style="background: rgba(91, 85, 111, 0.05); border-left: 4px solid #5B556F; padding: 12px 20px; border-radius: 0 8px 8px 0; margin-bottom: 20px;">
+                <p style="color: #B6B4C2; font-size: 0.9rem; margin: 0;">
+                    <strong>Success Strategy</strong>: These high-performing search terms have been identified for promotion to Exact Match campaigns to secure placement and improve ROI.
+                </p>
+            </div>
+            """, unsafe_allow_html=True)
             
-            # Bridge to Campaign Creator
-            st.info("💡 **Action Required**: You can download the list below or send these terms to the [**Campaign Creator**](/?feature=creator) to build new campaigns automatically.")
+            # Bridge to Campaign Creator with Streamlit button (no page reload)
+            cta_left, cta_right = st.columns([3, 1])
+            with cta_left:
+                st.markdown("""
+                <div style="background: rgba(124, 58, 237, 0.08); border: 1px solid rgba(124, 58, 237, 0.2); padding: 15px; border-radius: 12px; display: flex; align-items: center;">
+                    <div style="color: #F5F5F7; font-size: 0.95rem;">
+                        💡 <strong>Ready to Scale?</strong> Export these terms directly to the Campaign Creator.
+                    </div>
+                </div>
+                """, unsafe_allow_html=True)
+            with cta_right:
+                # Store harvest data for Creator and navigate
+                if st.button("OPEN CAMPAIGN CREATOR", type="primary", use_container_width=True):
+                    st.session_state['harvest_payload'] = harvest_df
+                    st.session_state['active_creator_tab'] = "Harvest Winners"
+                    st.session_state['current_module'] = 'creator'
+                    st.rerun()
             
             st.dataframe(harvest_df, use_container_width=True)
         else:
-            st.info("No harvest candidates found.")
+            st.info("No harvest candidates met the performance criteria for this period.")
 
     def _display_heatmap(self, heatmap_df):
-        st.markdown("### 🔥 Wasted Spend Heatmap with Action Tracking")
+        icon_color = "#8F8CA3"
+        search_icon = f'<svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="{icon_color}" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="vertical-align: middle; margin-right: 8px;"><circle cx="11" cy="11" r="8"></circle><line x1="21" y1="21" x2="16.65" y2="16.65"></line></svg>'
+        
+        st.markdown(f"""
+        <div style="background: linear-gradient(135deg, rgba(91, 85, 111, 0.1) 0%, rgba(91, 85, 111, 0.05) 100%); 
+                    border: 1px solid rgba(124, 58, 237, 0.2); 
+                    border-radius: 8px; 
+                    padding: 12px 16px; 
+                    margin-bottom: 20px;
+                    display: flex; 
+                    align-items: center; 
+                    gap: 10px;">
+            {search_icon}
+            <span style="color: #F5F5F7; font-size: 1rem; font-weight: 700; text-transform: uppercase; letter-spacing: 1px;">Wasted Spend Heatmap</span>
+        </div>
+        """, unsafe_allow_html=True)
+
         if heatmap_df is not None and not heatmap_df.empty:
-            st.info("💡 **Visual Performance Heatmap**: Red = Fix immediately | Yellow = Monitor | Green = Good Performance\n\n**NEW:** See which issues the optimizer is already addressing (harvests, negatives, bids)")
+            st.markdown("""
+            <div style="background: rgba(91, 85, 111, 0.05); border-left: 4px solid #5B556F; padding: 12px 20px; border-radius: 0 8px 8px 0; margin-bottom: 20px;">
+                <p style="color: #B6B4C2; font-size: 0.9rem; margin: 0;">
+                    <strong>Visual Intelligence</strong>: Red indicates immediate fix required, Yellow requires monitoring, and Green shows efficient performance.
+                </p>
+            </div>
+            """, unsafe_allow_html=True)
             
             # --- 1. Top Cards ---
             p1, p2, p3 = st.columns(3)
@@ -2125,25 +2396,104 @@ class OptimizerModule(BaseFeature):
             med_count = len(heatmap_df[heatmap_df["Priority"].str.contains("Medium")])
             good_count = len(heatmap_df[heatmap_df["Priority"].str.contains("Good")])
             
-            with p1: metric_card("High Priority", str(high_count), border_color="#ef4444")
-            with p2: metric_card("Medium Priority", str(med_count), border_color="#eab308")
-            with p3: metric_card("Good Performance", str(good_count), border_color="#22c55e")
+            with p1: metric_card("High Priority", str(high_count), "shield", color="#f87171")
+            with p2: metric_card("Medium Priority", str(med_count), "shield", color="#fbbf24")
+            with p3: metric_card("Good Performance", str(good_count), "check", color="#4ade80")
             
             st.divider()
             
             # --- 2. Action Status Cards ---
-            st.markdown("#### 🚀 Optimizer Actions Status")
-            a1, a2, a3, a4 = st.columns(4)
             addressed_mask = ~heatmap_df["Actions_Taken"].str.contains("Hold|No action", na=False)
             addressed_count = addressed_mask.sum()
             needs_attn_count = len(heatmap_df) - addressed_count
             high_addressed = (heatmap_df[heatmap_df["Priority"].str.contains("High") & addressed_mask]).shape[0]
             coverage = (addressed_count / len(heatmap_df) * 100) if len(heatmap_df) > 0 else 0
+
+            # --- PREMIUM HERO TILES (Impact Dashboard Style) - Neutralized ---
+            theme_mode = st.session_state.get('theme_mode', 'dark')
+            # Saddle brand colors extracted from logo (Neutralized version)
+            brand_purple = "#5B556F"
+            brand_muted = "#8F8CA3"
+            brand_slate = "#444357"
+            brand_text = "#F5F5F7"
+            brand_muted_text = "#B6B4C2"
             
-            with a1: metric_card("✅ Being Addressed", str(addressed_count))
-            with a2: metric_card("⚠️ Needs Attention", str(needs_attn_count), border_color="#eab308")
-            with a3: metric_card("🔴 High Priority Fixed", f"{high_addressed}/{high_count}", border_color="#ef4444")
-            with a4: metric_card("📊 Coverage", f"{coverage:.0f}%")
+            # Surface and Glow
+            surface_glow = "rgba(91, 85, 111, 0.08)"
+            
+            icon_color = brand_muted
+            
+            # Action Icons
+            check_icon = f'<svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="{icon_color}" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="vertical-align: middle; margin-right: 6px;"><polyline points="20 6 9 17 4 12"></polyline></svg>'
+            warning_icon = f'<svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="{icon_color}" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="vertical-align: middle; margin-right: 6px;"><path d="M10.29 3.86L1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z"></path><line x1="12" y1="9" x2="12" y2="13"></line><line x1="12" y1="17" x2="12.01" y2="17"></line></svg>'
+            bolt_icon = f'<svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="{icon_color}" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="vertical-align: middle; margin-right: 6px;"><polygon points="13 2 3 14 12 14 11 22 21 10 12 10 13 2"></polygon></svg>'
+            target_icon = f'<svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="{icon_color}" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="vertical-align: middle; margin-right: 6px;"><circle cx="12" cy="12" r="10"></circle><circle cx="12" cy="12" r="6"></circle><circle cx="12" cy="12" r="2"></circle></svg>'
+
+            st.markdown("""
+            <style>
+            .hero-tile {
+                background: linear-gradient(135deg, rgba(255,255,255,0.08) 0%, rgba(255,255,255,0.03) 100%);
+                backdrop-filter: blur(10px);
+                border-radius: 12px;
+                padding: 16px;
+                text-align: center;
+                box-shadow: 0 4px 24px rgba(0,0,0,0.08);
+                transition: all 0.3s ease;
+                margin-bottom: 10px;
+            }
+            .hero-tile:hover {
+                transform: translateY(-2px);
+                box-shadow: 0 8px 32px rgba(0,0,0,0.12);
+            }
+            .hero-value {
+                font-size: 1.25rem;
+                font-weight: 700;
+                margin-bottom: 4px;
+                margin-top: 8px;
+            }
+            .hero-label {
+                font-size: 0.75rem;
+                opacity: 0.7;
+                text-transform: uppercase;
+                letter-spacing: 0.8px;
+                font-weight: 600;
+            }
+            </style>
+            """, unsafe_allow_html=True)
+
+            c1, c2, c3, c4 = st.columns(4)
+            
+            with c1:
+                st.markdown(f"""
+                <div class="hero-tile" style="border-left: 4px solid {brand_purple}; background: linear-gradient(135deg, {surface_glow} 0%, rgba(255,255,255,0.02) 100%);">
+                    <div class="hero-label">{check_icon}Being Addressed</div>
+                    <div class="hero-value" style="color: {brand_text};">{addressed_count}</div>
+                </div>
+                """, unsafe_allow_html=True)
+            
+            with c2:
+                st.markdown(f"""
+                <div class="hero-tile" style="border-left: 4px solid {brand_slate}; background: linear-gradient(135deg, {surface_glow} 0%, rgba(255,255,255,0.02) 100%);">
+                    <div class="hero-label">{warning_icon}Needs Attention</div>
+                    <div class="hero-value" style="color: {brand_muted_text};">{needs_attn_count}</div>
+                </div>
+                """, unsafe_allow_html=True)
+            
+            with c3:
+                st.markdown(f"""
+                <div class="hero-tile" style="border-left: 4px solid {brand_purple}; background: linear-gradient(135deg, {surface_glow} 0%, rgba(255,255,255,0.02) 100%);">
+                    <div class="hero-label">{bolt_icon}High Priority Fixed</div>
+                    <div class="hero-value" style="color: {brand_text};">{high_addressed}/{high_count}</div>
+                </div>
+                """, unsafe_allow_html=True)
+            
+            with c4:
+                st.markdown(f"""
+                <div class="hero-tile" style="border-left: 4px solid {brand_slate}; background: linear-gradient(135deg, {surface_glow} 0%, rgba(255,255,255,0.02) 100%);">
+                    <div class="hero-label">{target_icon}Coverage</div>
+                    <div class="hero-value" style="color: {brand_muted_text};">{coverage:.0f}%</div>
+                </div>
+                """, unsafe_allow_html=True)
             
             st.divider()
             
@@ -2163,7 +2513,10 @@ class OptimizerModule(BaseFeature):
             elif has_action == "Only Holds/No Action":
                 filtered_df = filtered_df[filtered_df["Actions_Taken"].str.contains("Hold|No action", na=False)]
                 
-            st.markdown(f"#### 📊 Performance Heatmap with Actions ({len(filtered_df)} items)")
+            # Heatmap icon
+            icon_color = "#8F8CA3"
+            heat_icon = f'<svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="{icon_color}" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="vertical-align: middle; margin-right: 8px;"><rect x="3" y="3" width="7" height="7"></rect><rect x="14" y="3" width="7" height="7"></rect><rect x="14" y="14" width="7" height="7"></rect><rect x="3" y="14" width="7" height="7"></rect></svg>'
+            st.markdown(f"#### {heat_icon}Performance Heatmap with Actions ({len(filtered_df)} items)", unsafe_allow_html=True)
             
             cols = ["Priority", "Campaign Name", "Ad Group Name", "Actions_Taken", "Spend", "Sales", "ROAS", "CVR"]
             display_df = filtered_df[[c for c in cols if c in filtered_df.columns]].copy()
@@ -2183,109 +2536,90 @@ class OptimizerModule(BaseFeature):
         else:
             st.info("No heatmap data available.")
 
-    def _display_simulation(self, results):
-        """Display simulation results with weekly baseline vs forecast."""
-        if not results:
-            st.info("Run optimization to see simulation results.")
-            return
-            
-        sim = results.get("simulation", {})
-        if not sim:
-            st.warning("Simulation data missing.")
-            return
-            
-        st.subheader("📊 Optimization Forecast")
-        st.markdown("**What this does:** Predicted weekly impact of applying all recommended bid changes and harvest actions.")
-        
-        baseline = sim["scenarios"]["current"]
-        forecast = sim["scenarios"]["expected"]
-        
-        # 1. Weekly Comparison Cards
-        c1, c2, c3, c4 = st.columns(4)
-        
-        def delta_metric(col, label, current, forecast, suffix="", prefix="", inverse=False):
-            delta = (forecast / current - 1) * 100 if current > 0 else 0
-            delta_color = "normal" if not inverse else "inverse"
-            col.metric(label, f"{prefix}{forecast:,.1f}{suffix}", f"{delta:+.1f}%", delta_color=delta_color)
-
-        with c1: delta_metric(c1, "Weekly Sales", baseline['sales'], forecast['sales'], prefix="$")
-        with c2: delta_metric(c2, "Weekly Orders", baseline['orders'], forecast['orders'])
-        with c3:
-            roas_delta = forecast['roas'] - baseline['roas']
-            c3.metric("Weekly ROAS", f"{forecast['roas']:.2f}x", f"{roas_delta:+.2f}x")
-        with c4: delta_metric(c4, "Weekly Spend", baseline['spend'], forecast['spend'], prefix="$", inverse=True)
-        
-        st.divider()
-        
-        # 2. Risk & Diagnostics
-        col_r1, col_r2 = st.columns(2)
-        with col_r1:
-            st.markdown("##### ⚠️ Risk Analysis")
-            risk = sim.get("risk_analysis", {})
-            sumry = risk.get("summary", {})
-            
-            rc1, rc2, rc3 = st.columns(3)
-            rc1.metric("High Risk", sumry.get("high_risk_count", 0))
-            rc2.metric("Med Risk", sumry.get("medium_risk_count", 0))
-            rc3.metric("Low Risk", sumry.get("low_risk_count", 0))
-            
-            if risk.get("high_risk"):
-                with st.expander("View High Risk Items"):
-                    st.table(risk["high_risk"])
-                    
-        with col_r2:
-            st.markdown("##### 🔍 Forecast Diagnostics")
-            diag = sim.get("diagnostics", {})
-            dc1, dc2 = st.columns(2)
-            dc1.write(f"✅ **Active Changes**: {diag.get('actual_changes', 0)}")
-            dc1.write(f"⏸️ **Holds**: {diag.get('hold_count', 0)}")
-            dc2.write(f"🌾 **Harvest Ops**: {diag.get('harvest_count', 0)}")
-            dc2.write(f"📅 **Data Period**: {results.get('date_info', {}).get('days', 0)} days")
-
-        # 3. Sensitivity Chart
-        st.markdown("---")
-        st.markdown("##### 📈 Bid Sensitivity Analysis (Total Account Impact)")
-        sens_df = sim.get("sensitivity", pd.DataFrame())
-        if not sens_df.empty:
-            st.line_chart(sens_df.set_index("Bid_Adjustment")[["Spend", "Sales"]])
-            st.caption("Simulated weekly impact if you scaled ALL bid overrides by the percentage on the X-axis.")
     def _display_downloads(self, results):
-        st.subheader("📥 Download Bulk Files")
-        st.markdown("Download the optimized bulk files for immediate upload to Amazon Advertising Console.")
+        icon_color = "#8F8CA3"
+        dl_icon = f'<svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="{icon_color}" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="vertical-align: middle; margin-right: 8px;"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v4"></path><polyline points="7 10 12 15 17 10"></polyline><line x1="12" y1="15" x2="12" y2="3"></line></svg>'
+        
+        st.markdown(f"""
+        <div style="background: linear-gradient(135deg, rgba(91, 85, 111, 0.1) 0%, rgba(91, 85, 111, 0.05) 100%); 
+                    border: 1px solid rgba(124, 58, 237, 0.2); 
+                    border-radius: 8px; 
+                    padding: 12px 16px; 
+                    margin-bottom: 20px;
+                    display: flex; 
+                    align-items: center; 
+                    gap: 10px;">
+            {dl_icon}
+            <span style="color: #F5F5F7; font-size: 1rem; font-weight: 700; text-transform: uppercase; letter-spacing: 1px;">Export optimizations</span>
+        </div>
+        """, unsafe_allow_html=True)
+        
+        st.markdown("""
+        <p style="color: #B6B4C2; font-size: 0.95rem; margin-bottom: 24px;">
+            Download formatted Amazon Bulk Files to apply these optimizations instantly.
+        </p>
+        """, unsafe_allow_html=True)
         
         # 1. Negative Keywords
         neg_kw = results.get("neg_kw", pd.DataFrame())
         if not neg_kw.empty:
-            st.markdown("### 🛑 Negative Keywords Bulk")
+            shield_icon_sub = f'<svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="{icon_color}" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="vertical-align: middle; margin-right: 8px;"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"></path></svg>'
+            st.markdown(f"<div style='color: #F5F5F7; font-weight: 600; margin-bottom: 12px; display: flex; align-items: center;'>{shield_icon_sub}Negative Keywords Bulk</div>", unsafe_allow_html=True)
             kw_bulk = generate_negatives_bulk(neg_kw, pd.DataFrame())
-            with st.expander("👁️ Preview Negative Keywords", expanded=False):
+            with st.expander("👁️ Preview File Content", expanded=False):
                 st.dataframe(kw_bulk.head(5), use_container_width=True)
             
             buf = dataframe_to_excel(kw_bulk)
-            st.download_button("📥 Download Negative Keywords (.xlsx)", buf, "negative_keywords.xlsx", "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet")
+            st.download_button(
+                label="📥 Download Negative Keywords (.xlsx)", 
+                data=buf, 
+                file_name="negative_keywords.xlsx", 
+                mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+                key="dl_neg_btn",
+                type="primary",
+                use_container_width=True
+            )
+            st.markdown("<br>", unsafe_allow_html=True)
 
         # 2. Bids
         all_bids = pd.concat([results.get("direct_bids", pd.DataFrame()), results.get("agg_bids", pd.DataFrame())], ignore_index=True)
         if not all_bids.empty:
-            st.markdown("### 💰 Bid Optimizations Bulk")
+            sliders_icon_sub = f'<svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="{icon_color}" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="vertical-align: middle; margin-right: 8px;"><line x1="4" y1="21" x2="4" y2="14"></line><line x1="4" y1="10" x2="4" y2="3"></line><line x1="12" y1="21" x2="12" y2="12"></line><line x1="12" y1="8" x2="12" y2="3"></line><line x1="20" y1="21" x2="20" y2="16"></line><line x1="20" y1="12" x2="20" y2="3"></line><line x1="1" y1="14" x2="7" y2="14"></line><line x1="9" y1="8" x2="15" y2="8"></line><line x1="17" y1="16" x2="23" y2="16"></line></svg>'
+            st.markdown(f"<div style='color: #F5F5F7; font-weight: 600; margin-bottom: 12px; display: flex; align-items: center;'>{sliders_icon_sub}Bid Optimizations Bulk</div>", unsafe_allow_html=True)
             bid_bulk, _ = generate_bids_bulk(all_bids)
-            with st.expander("👁️ Preview Bid Bulk", expanded=False):
+            with st.expander("👁️ Preview File Content", expanded=False):
                 st.dataframe(bid_bulk.head(5), use_container_width=True)
             
             buf = dataframe_to_excel(bid_bulk)
-            st.download_button("📥 Download Bid Bulk (.xlsx)", buf, "bid_optimizations.xlsx", "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet")
+            st.download_button(
+                label="📥 Download Bid Adjustments (.xlsx)", 
+                data=buf, 
+                file_name="bid_optimizations.xlsx", 
+                mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+                key="dl_bid_btn",
+                type="primary",
+                use_container_width=True
+            )
+            st.markdown("<br>", unsafe_allow_html=True)
 
         # 3. Harvest
         harvest = results.get("harvest", pd.DataFrame())
         if not harvest.empty:
-            st.markdown("### 🌾 Harvest Candidates Bulk")
-            # For harvest, we normally just export the list for Creator, 
-            # but we can provide a basic excel export here too.
-            with st.expander("👁️ Preview Harvest List", expanded=False):
+            leaf_icon_sub = f'<svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="{icon_color}" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="vertical-align: middle; margin-right: 8px;"><path d="M11 20A7 7 0 0 1 9.8 6.1C15.5 5 17 4.48 19 2c1 2 2 4.18 2 8a8 8 0 0 1-8 8Z"></path><path d="M11 20c0-2.5 2-5.5 2-5.5"></path></svg>'
+            st.markdown(f"<div style='color: #F5F5F7; font-weight: 600; margin-bottom: 12px; display: flex; align-items: center;'>{leaf_icon_sub}Harvest Candidates</div>", unsafe_allow_html=True)
+            with st.expander("👁️ Preview Candidate List", expanded=False):
                 st.dataframe(harvest.head(5), use_container_width=True)
             
             buf = dataframe_to_excel(harvest)
-            st.download_button("📥 Download Harvest List (.xlsx)", buf, "harvest_candidates.xlsx", "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet")
+            st.download_button(
+                label="📥 Download Harvest List (.xlsx)", 
+                data=buf, 
+                file_name="harvest_candidates.xlsx", 
+                mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+                key="dl_harvest_btn",
+                type="primary",
+                use_container_width=True
+            )
 
     def validate_data(self, data): return True, ""
     def analyze(self, data): return self.results
@@ -2296,11 +2630,10 @@ class OptimizerModule(BaseFeature):
     
     def _display_results(self):
         """Internal router for multi-tab display."""
-        tabs = st.tabs(["Overview", "Negatives", "Bids", "Harvest", "Audit", "Simulation", "Downloads"])
+        tabs = st.tabs(["Overview", "Negatives", "Bids", "Harvest", "Audit", "Downloads"])
         with tabs[0]: self._display_dashboard_v2(self.results)
         with tabs[1]: self._display_negatives(self.results["neg_kw"], self.results["neg_pt"])
         with tabs[2]: self._display_bids(self.results["bids_exact"], self.results["bids_pt"], self.results["bids_agg"], self.results["bids_auto"])
         with tabs[3]: self._display_harvest(self.results["harvest"])
         with tabs[4]: self._display_heatmap(self.results["heatmap"])
-        with tabs[5]: self._display_simulation(self.results)
-        with tabs[6]: self._display_downloads(self.results)
+        with tabs[5]: self._display_downloads(self.results)

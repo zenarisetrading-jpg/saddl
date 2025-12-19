@@ -31,8 +31,11 @@ class PerformanceSnapshotModule(BaseFeature):
         # USE ACTIVE ACCOUNT from session state
         client_id = st.session_state.get('active_account_id', 'default_client')
         
+        hide_header = st.session_state.get('active_perf_tab') is not None
+        
         if not client_id:
-            st.title("📊 Account Overview")
+            if not hide_header:
+                st.title("📊 Account Overview")
             st.error("⚠️ No account selected! Please select an account in the sidebar.")
             return
         
@@ -40,7 +43,8 @@ class PerformanceSnapshotModule(BaseFeature):
         db_data = db.get_target_stats_df(client_id)
         
         if db_data.empty:
-            st.title("📊 Account Overview")
+            if not hide_header:
+                st.title("📊 Account Overview")
             st.warning(f"⚠️ No data found for account '{st.session_state.get('active_account_name', client_id)}'. Please upload a Search Term Report in the Data Hub.")
             return
 
@@ -213,26 +217,25 @@ class PerformanceSnapshotModule(BaseFeature):
 
         # ---------------------
         
-        # 3. Compact Header Layout (Title + Date Picker)
-        
-        # 3. Compact Header Layout (Title + Date Picker)
-        col_header, col_date = st.columns([8, 3])
-        
-        with col_header:
-            import base64
-            try:
-                with open("assets/icons/dashboard.png", "rb") as f:
-                    encoded = base64.b64encode(f.read()).decode()
-                st.markdown(f"""
+        if not hide_header:
+            st.markdown(f"""
+            <div style="background: linear-gradient(135deg, rgba(91, 85, 111, 0.1) 0%, rgba(91, 85, 111, 0.05) 100%); 
+                        border: 1px solid rgba(91, 85, 111, 0.2); 
+                        border-radius: 8px; 
+                        padding: 12px 16px; 
+                        margin-bottom: 32px;
+                        display: flex; 
+                        align-items: center; 
+                        justify-content: space-between;">
                 <div style="display: flex; align-items: center;">
-                    <img src="data:image/png;base64,{encoded}" width="50" style="margin-right: 15px;">
-                    <h1 style="margin: 0; padding: 0; line-height: 1.2;">Account Overview</h1>
+                    {overview_icon}
+                    <span style="color: #F5F5F7; font-size: 1.5rem; font-weight: 800; text-transform: uppercase; letter-spacing: 0.5px;">Account Overview</span>
                 </div>
-                """, unsafe_allow_html=True)
-            except:
-                st.title("Account Overview")
-            
-
+                <div style="color: #8F8CA3; font-size: 0.8rem; font-weight: 600;">
+                    Snapshot: {st.session_state.get('active_account_name', client_id)}
+                </div>
+            </div>
+            """, unsafe_allow_html=True)
             
         self.date_filter = None
         if not self.data.empty:
@@ -243,16 +246,31 @@ class PerformanceSnapshotModule(BaseFeature):
                     if not dates.empty:
                         min_d, max_d = dates.min().date(), dates.max().date()
                         
-                        with col_date:
-                            # Top margin to align with Title
-                            st.markdown('<div style="margin-top: 20px;"></div>', unsafe_allow_html=True)
+                        # --- Unified Control Bar ---
+                        c1, c2, c3 = st.columns([2, 5, 3])
+                        with c1:
+                            comp_days = st.radio(
+                                "Compare",
+                                options=[7, 14],
+                                index=0,
+                                horizontal=True,
+                                key="overview_comp_radio",
+                                label_visibility="collapsed"
+                            )
+                        with c2:
+                            st.markdown(f'<div style="margin-top: 8px; color: #8F8CA3; font-size: 0.9rem;">Showing comparison for Last <b>{comp_days}</b> Days vs. Previous <b>{comp_days}</b> Days</div>', unsafe_allow_html=True)
+                        with c3:
                             self.date_filter = st.date_input(
-                                "📅 Date Range",
+                                "Date Range",
                                 value=(min_d, max_d),
                                 min_value=min_d,
                                 max_value=max_d,
-                                label_visibility="collapsed"
+                                label_visibility="collapsed",
+                                key="overview_date_picker"
                             )
+                            st.markdown('<div style="text-align: right; margin-top: -10px; color: #8F8CA3; font-size: 0.75rem;">📅 Period Analysis</div>', unsafe_allow_html=True)
+                        
+                        st.session_state['overview_comp_days'] = comp_days
                 except Exception:
                     pass
 
@@ -407,10 +425,9 @@ class PerformanceSnapshotModule(BaseFeature):
         # 1. Executive Dashboard (KPI Cards with Trends)
         # ==========================================
         
-        # Calculate comparison deltas (Default to 7-day change)
-        # Check if user wants 7D or 14D
-        comp_days = st.radio("Trend Comparison Period", [7, 14], index=0, horizontal=True, label_visibility="collapsed")
-        st.caption(f"Showing comparison for Last {comp_days} Days vs. Previous {comp_days} Days")
+        # Calculate comparison
+        # Comparison Period from unified bar
+        comp_days = st.session_state.get('overview_comp_days', 7)
         
         deltas = self._calculate_comparison_metrics(df, comp_days)
         
@@ -432,18 +449,18 @@ class PerformanceSnapshotModule(BaseFeature):
         from ui.components import metric_card
         
         c1, c2, c3, c4, c5 = st.columns(5)
-        with c1: metric_card("Spend", f"AED {total_spend:,.0f}", delta=deltas.get('spend'))
-        with c2: metric_card("Revenue", f"AED {total_sales:,.0f}", delta=deltas.get('sales'))
-        with c3: metric_card("ACOS", f"{total_acos:.2f}%", delta=deltas.get('acos'))
-        with c4: metric_card("ROAS", f"{total_roas:.2f}x", delta=deltas.get('roas'))
-        with c5: metric_card("Orders", f"{total_orders:,.0f}", delta=deltas.get('orders'))
+        with c1: metric_card("Spend", f"AED {total_spend:,.0f}", icon_name="spend", delta=deltas.get('spend'))
+        with c2: metric_card("Revenue", f"AED {total_sales:,.0f}", icon_name="revenue", delta=deltas.get('sales'))
+        with c3: metric_card("ACOS", f"{total_acos:.2f}%", icon_name="acos", delta=deltas.get('acos'))
+        with c4: metric_card("ROAS", f"{total_roas:.2f}x", icon_name="roas", delta=deltas.get('roas'))
+        with c5: metric_card("Orders", f"{total_orders:,.0f}", icon_name="orders", delta=deltas.get('orders'))
         
         c6, c7, c8, c9, c10 = st.columns(5)
-        with c6: metric_card("Impressions", f"{total_impr:,.0f}")
-        with c7: metric_card("Clicks", f"{total_clicks:,.0f}")
-        with c8: metric_card("CTR", f"{total_ctr:.2f}%")
-        with c9: metric_card("CPC", f"AED {total_cpc:.2f}")
-        with c10: metric_card("Conv. Rate", f"{total_cvr:.2f}%")
+        with c6: metric_card("Impressions", f"{total_impr:,.0f}", icon_name="impressions")
+        with c7: metric_card("Clicks", f"{total_clicks:,.0f}", icon_name="clicks")
+        with c8: metric_card("CTR", f"{total_ctr:.2f}%", icon_name="acos")
+        with c9: metric_card("CPC", f"AED {total_cpc:.2f}", icon_name="spend")
+        with c10: metric_card("CVR", f"{total_cvr:.2f}%", icon_name="roas")
         
         st.markdown("---")
 
@@ -496,7 +513,9 @@ class PerformanceSnapshotModule(BaseFeature):
                     x=resampled['Date'], 
                     y=resampled[metric_bar], 
                     name=metric_bar,
-                    marker_color='#6366f1'  # Indigo
+                    marker_color='#5B556F', # Brand Purple
+                    marker_line_width=0,
+                    opacity=0.9
                 ))
                 
                 # Line Chart (Dual Axis)
@@ -505,7 +524,7 @@ class PerformanceSnapshotModule(BaseFeature):
                     y=resampled[metric_line], 
                     name=metric_line,
                     yaxis='y2',
-                    line=dict(color='#f97316', width=3) # Orange
+                    line=dict(color='#22d3ee', width=3) # Accent Cyan
                 ))
                 
                 # Get dynamic template
@@ -587,9 +606,9 @@ class PerformanceSnapshotModule(BaseFeature):
                         sizeref=2. * max(camp_agg['Orders']) / (40.**2) if not camp_agg.empty and max(camp_agg['Orders']) > 0 else 1, # Scaling
                         sizemin=4,
                         color=camp_agg['ROAS'],
-                        colorscale='Viridis',
+                        colorscale=[[0, '#5B556F'], [1, '#22d3ee']], # Brand Purple to Cyan
                         showscale=False,
-                        line=dict(color='white', width=1) if chart_template == 'plotly_dark' else dict(color='black', width=1)
+                        line=dict(color='rgba(255,255,255,0.2)', width=1) if chart_template == 'plotly_dark' else dict(color='black', width=1)
                     ),
                     hovertemplate="<b>%{text}</b><br>CVR: %{x:.2f}%<br>ROAS: %{y:.2f}x<br>Orders: %{marker.size}<extra></extra>"
                 ))
@@ -751,7 +770,7 @@ class PerformanceSnapshotModule(BaseFeature):
                     names=group_col, 
                     title=f"Sales by {view_by}",
                     hole=0.4,
-                    color_discrete_sequence=px.colors.qualitative.Prism
+                    color_discrete_sequence=['#5B556F', '#8F8CA3', '#22d3ee', '#334155', '#475569']
                 )
                 
                 is_dark = st.session_state.get('theme_mode', 'dark') == 'dark'

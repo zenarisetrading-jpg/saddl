@@ -262,6 +262,28 @@ If Auto outperforms Manual: Discovery is working - harvest more aggressively
             else:
                 master[col] = 0
         
+        # =============================================
+        # 30-DAY DATE FILTER (matches Impact tab logic)
+        # =============================================
+        from datetime import timedelta
+        date_cols = ['Date', 'Start Date', 'date', 'Report Date', 'start_date']
+        date_col = None
+        for col in date_cols:
+            if col in master.columns:
+                date_col = col
+                break
+        
+        if date_col:
+            try:
+                master[date_col] = pd.to_datetime(master[date_col], errors='coerce')
+                valid_dates = master[date_col].dropna()
+                if not valid_dates.empty:
+                    max_date = valid_dates.max()
+                    cutoff_date = max_date - timedelta(days=30)
+                    master = master[master[date_col] >= cutoff_date]
+            except:
+                pass  # If date filtering fails, use full dataset
+        
         # 2. Get Optimizer Results (if available)
         opt_res = st.session_state.get('optimizer_results') or st.session_state.get('latest_optimizer_run')
         
@@ -1280,46 +1302,46 @@ If Auto outperforms Manual: Discovery is working - harvest more aggressively
     def render_floating_interface(self):
         """Renders the chat interface as a floating widget in the bottom-right corner."""
         
-        # CSS for floating button
         st.markdown("""
         <style>
-        [data-testid="stPopover"] {
-            position: fixed;
-            bottom: 30px;
-            right: 30px;
-            z-index: 99999;
+        /* SIBLING ANCHOR STRATEGY - ROBUST */
+        /* Use General Sibling (~) instead of Adjacent (+) to be safer */
+        span#zenny-anchor ~ [data-testid="stPopover"] {
+            position: fixed !important;
+            bottom: 30px !important;
+            right: 30px !important;
+            z-index: 999999 !important;
+            display: inline-block !important;
+            width: auto !important;
+            height: auto !important;
         }
         
-        [data-testid="stPopover"] > button {
-            width: auto;
-            height: 50px;
-            border-radius: 25px;
-            padding: 0 20px;
-            background-color: #6366f1 !important;
+        span#zenny-anchor ~ [data-testid="stPopover"] > button {
+            width: 56px !important; /* FAB Size */
+            height: 56px !important;
+            border-radius: 50% !important; /* Perfect Circle */
+            padding: 0 !important;
+            background: linear-gradient(135deg, #5B556F 0%, #464156 100%) !important; /* Brand Wine Gradient */
             color: #ffffff !important;
-            border: 1px solid rgba(255,255,255,0.1) !important;
-            box-shadow: 0 4px 12px rgba(0,0,0,0.3) !important;
-            font-size: 16px;
-            font-weight: 600;
-            display: flex;
-            align_items: center;
-            justify_content: center;
-            transition: transform 0.2s;
+            border: 1px solid rgba(255,255,255,0.2) !important;
+            box-shadow: 0 4px 15px rgba(0,0,0,0.3) !important;
+            font-size: 24px !important; /* Larger Icon */
+            display: flex !important;
+            align-items: center !important;
+            justify-content: center !important;
+            transition: transform 0.2s cubic-bezier(0.34, 1.56, 0.64, 1) !important;
         }
         
-        [data-testid="stPopover"] > button:hover {
-            transform: scale(1.05);
-            background-color: #4f46e5 !important;
+        span#zenny-anchor ~ [data-testid="stPopover"] > button:hover {
+            transform: scale(1.1) rotate(5deg) !important;
+            background: linear-gradient(135deg, #6A6382 0%, #5B556F 100%) !important;
+            box-shadow: 0 6px 20px rgba(0,0,0,0.4) !important;
             color: #ffffff !important;
         }
         
-        /* Fix Chat Input White Band */
-        div[data-testid="stChatInput"] {
-            background-color: #1f2937 !important;
-            border-color: #374151 !important;
-        }
-        div[data-testid="stChatInput"] input {
-            color: white !important;
+        /* Hide the caret/arrow if possible */
+        span#zenny-anchor ~ [data-testid="stPopover"] > button::after {
+            display: none !important;
         }
         </style>
         """, unsafe_allow_html=True)
@@ -1359,26 +1381,32 @@ If Auto outperforms Manual: Discovery is working - harvest more aggressively
         else:
             # === FLOATING MODE (POPOVER) ===
             # This is displayed on other pages
-            with st.popover("🤖 Ask Zenny", use_container_width=False):
+            
+            # Inject Anchor Span
+            st.markdown('<span id="zenny-anchor"></span>', unsafe_allow_html=True)
+            
+            # Use icon-only label for the FAB result
+            with st.popover("✨", use_container_width=False):
                 col1, col2 = st.columns([0.2, 0.8])
                 with col1:
                     st.markdown("""
                     <div style="
                         width: 40px;
                         height: 40px;
-                        background: linear-gradient(135deg, #6366f1 0%, #06b6d4 100%);
+                        background: linear-gradient(135deg, #5B556F 0%, #464156 100%);
                         border-radius: 10px;
                         display: flex;
                         align-items: center;
                         justify-content: center;
                         font-size: 20px;
-                        box-shadow: 0 4px 12px rgba(99, 102, 241, 0.3);
+                        box-shadow: 0 4px 12px rgba(91, 85, 111, 0.3);
+                        color: white;
                     ">✨</div>
                     """, unsafe_allow_html=True)
                 with col2:
                     st.subheader("Ask Zenny")
                 
-                st.caption("AI Campaign Strategist")
+                st.markdown('<div style="margin-bottom: 10px; color: #8F8CA3; font-size: 0.9em;">AI Campaign Strategist</div>', unsafe_allow_html=True)
                 self._render_chat_content(height=400)
 
     def _render_chat_content(self, height=400):
@@ -1429,3 +1457,186 @@ If Auto outperforms Manual: Discovery is working - harvest more aggressively
                         
             st.session_state.messages.append({"role": "assistant", "content": response})
             st.rerun()
+
+
+def get_dynamic_key_insights() -> list:
+    """
+    Extract ranked signals from the assistant's knowledge graph.
+    Returns: List of 3 insight dicts (2 positives + 1 watchout)
+    
+    Signal schema:
+    {
+        "type": "positive" | "watch",
+        "category": "Efficiency" | "Growth" | "Risk" | "Opportunity",
+        "strength": 0-100,
+        "title": str,
+        "subtitle": str,
+        "icon_type": "success" | "info" | "warning" | "note"
+    }
+    """
+    import streamlit as st
+    
+    # Default insights when no data
+    default_insights = [
+        {"type": "positive", "title": "Ready to analyze", "subtitle": "Upload data to start", "icon_type": "info", "strength": 0},
+        {"type": "positive", "title": "Optimizer available", "subtitle": "Run to get recommendations", "icon_type": "info", "strength": 0},
+        {"type": "watch", "title": "Impact tracking", "subtitle": "Configure and run", "icon_type": "note", "strength": 0}
+    ]
+    
+    try:
+        # Try to get the assistant's knowledge graph
+        assistant = AssistantModule()
+        df = assistant._construct_granular_dataset()
+        
+        if df.empty:
+            return default_insights
+        
+        knowledge = assistant._build_knowledge_graph(df)
+        
+        if "error" in knowledge:
+            return default_insights
+        
+        signals = []
+        
+        # ===============================
+        # EXTRACT SIGNALS FROM KNOWLEDGE GRAPH
+        # ===============================
+        
+        # 1. Account Health Signals
+        health = knowledge.get('account_health', {})
+        if health:
+            roas_score = health.get('roas_score', 0)
+            waste_score = health.get('waste_score', 0)
+            wasted_spend = health.get('wasted_spend', 0)
+            
+            # ROAS signal
+            if roas_score >= 75:
+                signals.append({
+                    "type": "positive", "category": "Growth", "strength": roas_score,
+                    "title": f"ROAS at {roas_score/25:.1f}x", "subtitle": "Strong profitability",
+                    "icon_type": "success"
+                })
+            elif roas_score >= 50:
+                signals.append({
+                    "type": "positive", "category": "Growth", "strength": roas_score,
+                    "title": f"ROAS at {roas_score/25:.1f}x", "subtitle": "Healthy returns",
+                    "icon_type": "info"
+                })
+            else:
+                signals.append({
+                    "type": "watch", "category": "Risk", "strength": 100 - roas_score,
+                    "title": f"ROAS at {roas_score/25:.1f}x", "subtitle": "Below target",
+                    "icon_type": "warning"
+                })
+            
+            # Efficiency signal
+            if waste_score >= 70:
+                signals.append({
+                    "type": "positive", "category": "Efficiency", "strength": waste_score,
+                    "title": f"{waste_score:.0f}% efficient", "subtitle": "Low waste",
+                    "icon_type": "success"
+                })
+            elif waste_score >= 50:
+                signals.append({
+                    "type": "positive", "category": "Efficiency", "strength": waste_score,
+                    "title": f"{waste_score:.0f}% efficient", "subtitle": "Room to optimize",
+                    "icon_type": "info"
+                })
+            else:
+                signals.append({
+                    "type": "watch", "category": "Risk", "strength": 100 - waste_score,
+                    "title": f"AED {wasted_spend:,.0f} efficiency gap", "subtitle": "Spend optimization needed",
+                    "icon_type": "warning"
+                })
+        
+        # 2. Strategic Insights Signals
+        strategic = knowledge.get('strategic_insights', [])
+        for insight in strategic:
+            insight_type = insight.get('type', '')
+            severity = insight.get('severity', 'low')
+            
+            if insight_type == 'untapped_scalers':
+                potential = insight.get('potential_additional_sales', 0)
+                signals.append({
+                    "type": "positive", "category": "Opportunity", "strength": 85,
+                    "title": f"AED {potential:,.0f} growth potential", "subtitle": "Scaling opportunities found",
+                    "icon_type": "success"
+                })
+            
+            elif insight_type == 'high_spend_zero_return':
+                wasted = insight.get('total_wasted', 0)
+                if wasted > 100:
+                    signals.append({
+                        "type": "watch", "category": "Risk", "strength": min(95, wasted / 10),
+                        "title": f"AED {wasted:,.0f} bleed detected", "subtitle": "Top wasters identified",
+                        "icon_type": "warning"
+                    })
+            
+            elif insight_type == 'harvest_negative_paradox':
+                count = len(insight.get('terms', []))
+                if count > 0:
+                    signals.append({
+                        "type": "watch", "category": "Efficiency", "strength": 60,
+                        "title": f"{count} split terms", "subtitle": "Segmentation opportunity",
+                        "icon_type": "note"
+                    })
+            
+            elif insight_type == 'campaign_bleeders':
+                bleed = insight.get('total_bleed', 0)
+                if bleed > 100:
+                    signals.append({
+                        "type": "watch", "category": "Risk", "strength": min(90, bleed / 10),
+                        "title": f"AED {bleed:,.0f} campaign bleed", "subtitle": "Net-negative campaigns",
+                        "icon_type": "warning"
+                    })
+        
+        # 3. Optimization Opportunities
+        opps = health.get('optimization_opportunities', {})
+        harvest_count = opps.get('harvest_candidates', 0)
+        negative_count = opps.get('negative_candidates', 0)
+        
+        if harvest_count > 10:
+            signals.append({
+                "type": "positive", "category": "Opportunity", "strength": min(80, harvest_count),
+                "title": f"{harvest_count} harvests ready", "subtitle": "Keywords to promote",
+                "icon_type": "success"
+            })
+        
+        if negative_count > 20:
+            signals.append({
+                "type": "watch", "category": "Efficiency", "strength": min(75, negative_count / 2),
+                "title": f"{negative_count} negatives pending", "subtitle": "Cleanup recommended",
+                "icon_type": "note"
+            })
+        
+        # ===============================
+        # RANK AND SELECT TOP INSIGHTS
+        # ===============================
+        
+        if not signals:
+            return default_insights
+        
+        # Sort by strength descending
+        signals.sort(key=lambda x: x['strength'], reverse=True)
+        
+        # Select top 2 positives + top 1 watch
+        positives = [s for s in signals if s['type'] == 'positive'][:2]
+        watches = [s for s in signals if s['type'] == 'watch'][:1]
+        
+        result = positives + watches
+        
+        # Fill remaining slots if needed
+        while len(result) < 3:
+            if len(positives) < 2 and watches:
+                result.append(watches.pop(0))
+            elif signals:
+                result.append(signals.pop(0))
+            else:
+                result.append(default_insights[len(result)])
+        
+        return result[:3]
+        
+    except Exception as e:
+        # Fail gracefully
+        return default_insights
+

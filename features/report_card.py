@@ -24,7 +24,29 @@ class ReportCardModule(BaseFeature):
     
     def render_ui(self):
         """Render the feature's user interface."""
-        st.title("Optimization Report Card")
+        icon_color = "#8F8CA3"
+        report_icon = f'<svg xmlns="http://www.w3.org/2000/svg" width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="{icon_color}" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="vertical-align: middle; margin-right: 12px;"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/><line x1="16" y1="13" x2="8" y2="13"/><line x1="16" y1="17" x2="8" y2="17"/><polyline points="10 9 9 9 8 9"/></svg>'
+        
+        hide_header = st.session_state.get('active_perf_tab') is not None
+        if not hide_header:
+            st.markdown(f"""
+            <div style="background: linear-gradient(135deg, rgba(91, 85, 111, 0.1) 0%, rgba(91, 85, 111, 0.05) 100%); 
+                        border: 1px solid rgba(91, 85, 111, 0.2); 
+                        border-radius: 8px; 
+                        padding: 12px 16px; 
+                        margin-bottom: 24px;
+                        display: flex; 
+                        align-items: center; 
+                        justify-content: space-between;">
+                <div style="display: flex; align-items: center;">
+                    {report_icon}
+                    <span style="color: #F5F5F7; font-size: 1.5rem; font-weight: 800; text-transform: uppercase; letter-spacing: 0.5px;">Account Report Card</span>
+                </div>
+                <div style="color: #8F8CA3; font-size: 0.8rem; font-weight: 600;">
+                    {datetime.now().strftime('%B %Y')} Summary
+                </div>
+            </div>
+            """, unsafe_allow_html=True)
         
     def validate_data(self, data: pd.DataFrame) -> tuple[bool, str]:
         """Validate input data has required columns."""
@@ -419,17 +441,16 @@ class ReportCardModule(BaseFeature):
             mode = "gauge+number+delta"
             delta_config = {'reference': target_val, 'increasing': {'color': "green"}, 'decreasing': {'color': "red"}}
 
-        # Traffic Light Colors
-        # Standard: Red -> Yellow -> Green
-        c_low = "#ef4444"   # Red
-        c_mid = "#eab308"   # Yellow
-        c_high = "#22c55e"  # Green
+        # Muted Brand Colors
+        c_low = "#5B556F"    # Muted Purple
+        c_mid = "#8F8CA3"    # Slate
+        c_high = "#22d3ee"   # Accent Cyan
         
         # Invert for Risk metrics (where High is Bad)
         if "Risk" in title:
-            c_low = "#22c55e"   # Green (Low Risk)
-            c_mid = "#eab308"   # Yellow
-            c_high = "#ef4444"  # Red (High Risk)
+            c_low = "#22d3ee"   # Cyan (Low Risk)
+            c_mid = "#8F8CA3"   # Slate
+            c_high = "#5B556F"  # Muted Purple (High Risk)
 
         steps_config = [
             {'range': [min_val, min_val + (max_val-min_val)*0.4], 'color': c_low},       # 0-40%
@@ -483,7 +504,7 @@ class ReportCardModule(BaseFeature):
 
     def _render_section_1_health(self, metrics: Dict[str, Any]):
         """Render top section with semi-circular gauges."""
-        st.markdown("<h3 style='font-family: Inter, sans-serif; font-weight: 600; margin-bottom: 5px;'>Performance Snapshot</h3>", unsafe_allow_html=True)
+        st.markdown("<h3 style='font-family: Inter, sans-serif; font-weight: 800; margin-bottom: 8px; text-transform: uppercase; letter-spacing: 1px; color: #F5F5F7;'>Account Health</h3>", unsafe_allow_html=True)
         st.markdown("<hr style='margin-top: 0; margin-bottom: 10px; border-color: rgba(255,255,255,0.1);'>", unsafe_allow_html=True)
         
         c1, c2, c3, c4 = st.columns(4)
@@ -519,15 +540,15 @@ class ReportCardModule(BaseFeature):
             fig = self._create_gauge(coverage_val, "Coverage Health", 0, 20, "%")
             st.plotly_chart(fig, use_container_width=True, config={'displayModeBar': False})
             
-            # Determine color based on coverage zones
+            # Determine color based on coverage zones (Muted Brand Palette)
             if coverage_val <= 3:
-                zone_color = "#ef4444"  # Red - Under-active
+                zone_color = "#8F8CA3"  # Slate - Under-active
             elif coverage_val <= 8:
-                zone_color = "#eab308"  # Yellow - Selective/healthy
+                zone_color = "#5B556F"  # Purple - Selective/healthy
             elif coverage_val <= 15:
-                zone_color = "#22c55e"  # Green - Active but controlled
+                zone_color = "#22d3ee"  # Cyan - Active but controlled
             else:
-                zone_color = "#ef4444"  # Red - Over-tuning risk
+                zone_color = "#5B556F"  # Purple - Over-tuning risk
             
             st.markdown(
                 f"<div style='text-align: center; font-size: 13px; font-weight: 600; color: {zone_color}; margin-top: -10px;'>% of eligible targets adjusted this cycle</div>",
@@ -561,29 +582,25 @@ class ReportCardModule(BaseFeature):
             x=[-removed],
             orientation='h',
             marker=dict(
-                color='rgba(234, 179, 8, 0.8)', # Amber-500 with opacity
-                line=dict(color='rgba(234, 179, 8, 1.0)', width=2)
+                color='rgba(91, 85, 111, 0.8)', # Brand Purple
+                line=dict(color='rgba(91, 85, 111, 1.0)', width=2)
             ),
             hoverinfo='none',
             showlegend=False
         ))
-        
-        # Arrow Shape (Left) - Pointing Left (Removal)
-        # We can't easily put shapes inside bars dynamically without complex coord math, 
-        # but we can place an annotation with an arrow.
         
         # Label Badge (Left)
         if removed > 0:
             fig.add_annotation(
                 x=-removed/2 if removed > 2 else -removed, 
                 y=0, 
-                yshift=45, # Shifted higher to be clearly above
+                yshift=45, 
                 text=f"-{removed:.1f}%",
                 showarrow=False,
-                bgcolor="#1e293b", # Slate-800
-                bordercolor="rgba(234, 179, 8, 0.5)",
+                bgcolor="#1e293b", 
+                bordercolor="rgba(91, 85, 111, 0.5)",
                 borderwidth=1,
-                font=dict(color="#fbbf24", size=20, family="Inter, sans-serif", weight="bold"), # Larger modern font
+                font=dict(color="#A5A2BA", size=18, family="Inter, sans-serif", weight="bold"), 
                 height=35,
                 width=90
             )
@@ -596,8 +613,8 @@ class ReportCardModule(BaseFeature):
             x=[added],
             orientation='h',
             marker=dict(
-                color='rgba(34, 197, 94, 0.8)', # Green-500
-                line=dict(color='rgba(34, 197, 94, 1.0)', width=2)
+                color='rgba(34, 211, 238, 0.8)', # Accent Cyan
+                line=dict(color='rgba(34, 211, 238, 1.0)', width=2)
             ),
             hoverinfo='none',
             showlegend=False
@@ -608,13 +625,13 @@ class ReportCardModule(BaseFeature):
             fig.add_annotation(
                 x=added/2 if added > 2 else added,
                 y=0,
-                yshift=45, # Shifted higher
+                yshift=45, 
                 text=f"+{added:.1f}%",
                 showarrow=False,
                 bgcolor="#1e293b",
-                bordercolor="rgba(34, 197, 94, 0.5)",
+                bordercolor="rgba(34, 211, 238, 0.5)",
                 borderwidth=1,
-                font=dict(color="#4ade80", size=20, family="Inter, sans-serif", weight="bold"), 
+                font=dict(color="#22d3ee", size=18, family="Inter, sans-serif", weight="bold"), 
                 height=35,
                 width=90
             )
@@ -624,25 +641,32 @@ class ReportCardModule(BaseFeature):
         
         # Bottom Annotations (Context)
         fig.add_annotation(
-            x=-max_val/2, y=-0.8, # Positioned below bar
+            x=-max_val/2, y=-0.8, 
             text="Inefficient Spend Removed",
             showarrow=False,
-            font=dict(color="#fbbf24", size=12, family="Inter, sans-serif")
+            font=dict(color="#A5A2BA", size=12, family="Inter, sans-serif")
         )
         fig.add_annotation(
             x=max_val/2, y=-0.8,
             text="Invested in Growth",
             showarrow=False,
-            font=dict(color="#4ade80", size=12, family="Inter, sans-serif")
+            font=dict(color="#22d3ee", size=12, family="Inter, sans-serif")
         )
         
         # Central "0"
         fig.add_annotation(
+            x=0, y=-1.1,
+            text="CURRENT BALANCE",
+            showarrow=False,
+            font=dict(color="#94a3b8", size=10, family="Inter, sans-serif", weight="bold"),
+            bgcolor="rgba(15, 23, 42, 0.8)"
+        )
+        fig.add_annotation(
             x=0, y=-0.5,
             text="0",
             showarrow=False,
-            font=dict(color="white", size=14, family="Inter, sans-serif"),
-            bgcolor="#0f172a" # Match bg to hide line overlap if needed
+            font=dict(color="white", size=14, family="Inter, sans-serif", weight="bold"),
+            bgcolor="#1e293b"
         )
 
         fig.update_layout(
@@ -665,7 +689,7 @@ class ReportCardModule(BaseFeature):
 
     def _render_section_2_actions(self, metrics: Dict[str, Any]):
         """Render middle section: Actions & Results with visual charts."""
-        st.markdown("<h3 style='font-family: Inter, sans-serif; font-weight: 600; margin-bottom: 5px;'>Actions & Results</h3>", unsafe_allow_html=True)
+        st.markdown("<h3 style='font-family: Inter, sans-serif; font-weight: 800; margin-bottom: 8px; text-transform: uppercase; letter-spacing: 1px; color: #F5F5F7;'>Actions & Results</h3>", unsafe_allow_html=True)
         st.markdown("<hr style='margin-top: 0; margin-bottom: 10px; border-color: rgba(255,255,255,0.1);'>", unsafe_allow_html=True)
         
         actions = metrics['actions']
@@ -674,26 +698,45 @@ class ReportCardModule(BaseFeature):
         details = metrics.get('details', {'removed': [], 'added': []})
         fin = metrics['financials']
         
-        # Helper to format string
+        # Helper to format string with premium badge
         def fmt_stat(val, total, context):
             pct = (val / total * 100) if total > 0 else 0
-            return f"**{val}** <span style='color: #94a3b8; font-weight: 400; font-size: 14px;'>({pct:.1f}% of {context})</span>"
+            # Stripping newlines to prevent Streamlit markdown parsing issues
+            return f"<span style='background:rgba(143,140,163,0.15);padding:2px 10px;border-radius:12px;font-weight:800;font-size:15px;color:#F5F5F7;border:1px solid rgba(143,140,163,0.2);margin-right:8px;'>{val}</span><span style='color:#94a3b8;font-weight:400;font-size:13px;'>({pct:.1f}% of {context})</span>"
             
+        # Icon Definitions
+        icon_color = "#8F8CA3"
+        up_icon = f'<svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#4ade80" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" style="margin-right: 8px;"><polyline points="23 6 13.5 15.5 8.5 10.5 1 18"></polyline><polyline points="17 6 23 6 23 12"></polyline></svg>'
+        down_icon = f'<svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#f87171" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" style="margin-right: 8px;"><polyline points="23 18 13.5 8.5 8.5 13.5 1 6"></polyline><polyline points="17 18 23 18 23 12"></polyline></svg>'
+        neg_icon = f'<svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#94a3b8" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" style="margin-right: 8px;"><circle cx="12" cy="12" r="10"></circle><line x1="15" y1="9" x2="9" y2="15"></line><line x1="9" y1="9" x2="15" y2="15"></line></svg>'
+        star_icon = f'<svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#fbbf24" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" style="margin-right: 8px;"><polygon points="12 2 15.09 8.26 22 9.27 17 14.14 18.18 21.02 12 17.77 5.82 21.02 7 14.14 2 9.27 8.91 8.26 12 2"></polygon></svg>'
+        money_icon = f'<svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="#4ade80" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" style="margin-right: 10px;"><line x1="12" y1="1" x2="12" y2="23"></line><path d="M17 5H9.5a3.5 3.5 0 0 0 0 7h5a3.5 3.5 0 0 1 0 7H6"></path></svg>'
+        waste_icon = f'<svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#f87171" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" style="margin-right: 8px;"><circle cx="12" cy="12" r="10"></circle><line x1="15" y1="9" x2="9" y2="15"></line><line x1="9" y1="9" x2="15" y2="15"></line></svg>'
+        growth_icon = f'<svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#22d3ee" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" style="margin-right: 8px;"><path d="m12 14 4-4-4-4"></path><path d="M3.34 19a10 10 0 1 1 17.32 0"></path></svg>'
+
         # Row 1: Stats & Chart
         c1, c2 = st.columns([1, 1.5])
         
         with c1:
-            st.markdown("<div style='text-align: center;'>", unsafe_allow_html=True)
-            st.markdown("<div style='font-family: Inter, sans-serif; font-size: 17px; font-weight: 700; color: #cbd5e1; margin-bottom: 10px;'>System Executed Adjustments</div>", unsafe_allow_html=True)
-            st.markdown(f"⬆️ Bid Increases: &nbsp; {fmt_stat(actions['bid_increases'], counts['targets'], 'targets')}", unsafe_allow_html=True)
-            st.markdown(f"⬇️ Bid Decreases: &nbsp; {fmt_stat(actions['bid_decreases'], counts['targets'], 'targets')}", unsafe_allow_html=True)
-            st.markdown(f"⏸️ Paused Targets: &nbsp; {fmt_stat(actions['negatives'], counts['terms'], 'terms')}", unsafe_allow_html=True)
-            st.markdown(f"⭐ Promoted Keywords: &nbsp; {fmt_stat(actions['harvests'], counts['terms'], 'terms')}", unsafe_allow_html=True)
-            st.markdown("</div>", unsafe_allow_html=True)
+            # Anchoring the header at the top and centering the callout contents (stats) in the remaining space
+            # Using a simplified HTML structure to ensure reliability
+            st.markdown(f"""
+            <div style="display: flex; flex-direction: column; min-height: 280px; width: 100%;">
+                <div style="font-family: Inter, sans-serif; font-size: 17px; font-weight: 800; color: #F5F5F7; margin-bottom: 24px; text-transform: uppercase; letter-spacing: 1px; text-align: center;">System Executed Adjustments</div>
+                <div style="flex-grow: 1; display: flex; justify-content: center; align-items: center;">
+                    <div style="display: flex; flex-direction: column; gap: 16px;">
+                        <div style="display: flex; align-items: center; justify-content: flex-start;"><span style="width: 24px; display: flex; justify-content: center; margin-right: 8px;">{up_icon}</span><span style="min-width:140px; color:#8F8CA3; font-weight:600; font-size:14px;">Bid Increases:</span>{fmt_stat(actions['bid_increases'], counts['targets'], 'targets')}</div>
+                        <div style="display: flex; align-items: center; justify-content: flex-start;"><span style="width: 24px; display: flex; justify-content: center; margin-right: 8px;">{down_icon}</span><span style="min-width:140px; color:#8F8CA3; font-weight:600; font-size:14px;">Bid Decreases:</span>{fmt_stat(actions['bid_decreases'], counts['targets'], 'targets')}</div>
+                        <div style="display: flex; align-items: center; justify-content: flex-start;"><span style="width: 24px; display: flex; justify-content: center; margin-right: 8px;">{neg_icon}</span><span style="min-width:140px; color:#8F8CA3; font-weight:600; font-size:14px;">Paused Targets:</span>{fmt_stat(actions['negatives'], counts['terms'], 'terms')}</div>
+                        <div style="display: flex; align-items: center; justify-content: flex-start;"><span style="width: 24px; display: flex; justify-content: center; margin-right: 8px;">{star_icon}</span><span style="min-width:140px; color:#8F8CA3; font-weight:600; font-size:14px;">Promoted Keywords:</span>{fmt_stat(actions['harvests'], counts['terms'], 'terms')}</div>
+                    </div>
+                </div>
+            </div>
+            """, unsafe_allow_html=True)
             
         with c2:
-            st.markdown("<div style='font-family: Inter, sans-serif; font-size: 17px; font-weight: 700; color: #cbd5e1; margin-bottom: 5px;'>Net Spend Reallocation (This Cycle)</div>", unsafe_allow_html=True)
-            st.caption("Directional spend movement driven by optimization actions")
+            st.markdown("<div style='font-family: Inter, sans-serif; font-size: 17px; font-weight: 800; color: #F5F5F7; margin-bottom: 5px; text-transform: uppercase; letter-spacing: 1px; text-align: center;'>Net Spend Reallocation</div>", unsafe_allow_html=True)
+            st.markdown("<div style='color: #8F8CA3; font-size: 0.85rem; text-align: center; margin-bottom: 10px;'>Directional spend movement driven by optimization actions</div>", unsafe_allow_html=True)
             fig = self._create_reallocation_chart(realloc)
             st.plotly_chart(fig, use_container_width=True, config={'displayModeBar': False})
             
@@ -703,12 +746,8 @@ class ReportCardModule(BaseFeature):
         r2_c1, r2_c2 = st.columns([1, 1.5])
         
         with r2_c1:
-            # Financial Impact aligned with lists
-            st.markdown("<div style='text-align: center;'>", unsafe_allow_html=True)
-            st.markdown("<div style='font-family: Inter, sans-serif; font-size: 17px; font-weight: 700; color: #cbd5e1; margin-bottom: 5px;'>💰 Spend Preserved</div>", unsafe_allow_html=True)
-            st.markdown(f"<div style='font-family: Inter, sans-serif; font-size: 28px; font-weight: 700; color: #22c55e;'>AED {fin['savings']:,.0f}</div>", unsafe_allow_html=True)
-            st.markdown("<div style='font-size: 12px; color: #4ade80;'>↑ Annualized Savings</div>", unsafe_allow_html=True)
-            st.markdown("</div>", unsafe_allow_html=True)
+            # BRAND-PURPLE SPEND PRESERVED CARD
+            st.markdown(f"<div style='text-align: center; background: rgba(91, 85, 111, 0.08); padding: 24px; border-radius: 12px; border: 1px solid rgba(91, 85, 111, 0.2); height: 100%; display: flex; flex-direction: column; justify-content: center; align-items: center;'><div style='display: flex; align-items: center; justify-content: center; font-family: Inter, sans-serif; font-size: 15px; font-weight: 700; color: #8F8CA3; margin-bottom: 15px; text-transform: uppercase; letter-spacing: 1px;'>{money_icon} Spend Preserved</div><div style='font-family: Inter, sans-serif; font-size: 36px; font-weight: 800; color: #22d3ee; margin-bottom: 5px;'>AED {fin['savings']:,.0f}</div><div style='font-size: 11px; color: #8F8CA3; font-weight: 600; text-transform: uppercase; letter-spacing: 0.5px;'>↑ Annualized Savings Potential</div></div>", unsafe_allow_html=True)
             
         with r2_c2:
              # Top Contributors Lists
@@ -720,36 +759,29 @@ class ReportCardModule(BaseFeature):
             name_style = "font-weight: 500; color: #e2e8f0;"
             
             with k1:
-                st.markdown("<div style='font-family: Inter, sans-serif; font-size: 17px; font-weight: 700; color: #cbd5e1; margin-bottom: 10px;'>Top Sources of Waste Removed</div>", unsafe_allow_html=True)
+                st.markdown(f"<div style='display: flex; align-items: center; font-family: Inter, sans-serif; font-size: 15px; font-weight: 800; color: #F5F5F7; margin-bottom: 15px; text-transform: uppercase; letter-spacing: 0.5px;'>{waste_icon} Sources of Waste Removed</div>", unsafe_allow_html=True)
                 if details['removed']:
                     for item in details['removed']:
                         val_str = f"AED {item['val']:,.0f}"
-                        icon = "⛔" if item['type'] == 'Negative' else "⬇️"
+                        # Simple icon logic
+                        row_icon = waste_icon if item['type'] == 'Negative' else down_icon
                         
-                        html = f"""
-                        <div style="{item_style}">
-                            <div style="display: flex; justify-content: space-between;">
-                                <span style="{name_style}">{icon} {item['name']}</span>
-                                <span style="color: #fbbf24; font-weight: 600;">{val_str}</span>
-                            </div>
-                            <span style="{camp_style}">{item['camp']}</span>
-                        </div>
-                        """
+                        html = f"<div style=\"{item_style}\"><div style=\"display: flex; justify-content: space-between; align-items: center;\"><div style=\"display: flex; align-items: center;\"><span style=\"{name_style}\">{row_icon} {item['name']}</span></div><span style=\"color: #fbbf24; font-weight: 600;\">{val_str}</span></div><span style=\"{camp_style}\">{item['camp']}</span></div>"
                         st.markdown(html, unsafe_allow_html=True)
                 else:
                     st.caption("No significant removal actions.")
 
             with k2:
-                st.markdown("<div style='font-family: Inter, sans-serif; font-size: 17px; font-weight: 700; color: #cbd5e1; margin-bottom: 10px;'>Top Investments in Growth</div>", unsafe_allow_html=True)
+                st.markdown(f"<div style='display: flex; align-items: center; font-family: Inter, sans-serif; font-size: 15px; font-weight: 800; color: #F5F5F7; margin-bottom: 15px; text-transform: uppercase; letter-spacing: 0.5px;'>{growth_icon} Top Investments in Growth</div>", unsafe_allow_html=True)
                 if details['added']:
                     for item in details['added']:
                         val_str = f"AED {item['val']:,.0f}" # Revenue Potential
-                        icon = "✨" if item['type'] == 'Harvest' else "⬆️"
+                        row_icon = star_icon if item['type'] == 'Harvest' else up_icon
                         
                         html = f"""
                         <div style="{item_style}">
-                            <div style="display: flex; justify-content: space-between;">
-                                <span style="{name_style}">{icon} {item['name']}</span>
+                            <div style="display: flex; justify-content: space-between; align-items: center;">
+                                <div style="display: flex; align-items: center;"><span style="{name_style}">{row_icon} {item['name']}</span></div>
                                 <span style="color: #4ade80; font-weight: 600;">Est. Rev: {val_str}</span>
                             </div>
                              <span style="{camp_style}">{item['camp']}</span>
@@ -764,20 +796,22 @@ class ReportCardModule(BaseFeature):
     def _render_section_3_ai_summary(self, metrics: Dict[str, Any]):
         """Render bottom section: Isolated AI Summary."""
         
-        st.markdown("<h3 style='font-family: Inter, sans-serif; font-weight: 600; margin-bottom: 5px;'>🧠 Zenny's Insight Summary</h3>", unsafe_allow_html=True)
+        icon_color = "#8F8CA3"
+        ai_icon = f'<svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="{icon_color}" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="vertical-align: middle; margin-right: 10px;"><path d="M12 2v10l4.5 4.5"></path><circle cx="12" cy="12" r="10"></circle></svg>'
+        st.markdown(f"<h3 style='display: flex; align-items: center; font-family: Inter, sans-serif; font-weight: 800; margin-bottom: 8px; text-transform: uppercase; letter-spacing: 1px; color: #F5F5F7;'>{ai_icon} Zenny's Insight Summary</h3>", unsafe_allow_html=True)
         st.markdown("<hr style='margin-top: 0; margin-bottom: 10px; border-color: rgba(255,255,255,0.1);'>", unsafe_allow_html=True)
         
         # Check for existing summary in session state to avoid re-generating
         if 'report_card_ai_summary' not in st.session_state:
             st.info("Click to get Zenny's interpretation of these results.")
-            if st.button("✨ Zenny's POV"):
+            if st.button("✨ Zenny's POV", type="primary"):
                 with st.spinner("Zenny is analyzing optimization patterns..."):
                     summary = self._generate_ai_insight(metrics)
                     st.session_state['report_card_ai_summary'] = summary
                     st.rerun()
         else:
             st.markdown(st.session_state['report_card_ai_summary'])
-            if st.button("Regenerate"):
+            if st.button("Regenerate", type="primary"):
                 del st.session_state['report_card_ai_summary']
                 st.rerun()
             
@@ -1173,3 +1207,158 @@ class ReportCardModule(BaseFeature):
                 image_bytes = f.read()
         
         return image_bytes
+
+def get_account_health_score() -> Optional[float]:
+    """
+    Helper for Home Page cockpit.
+    Returns pre-calculated health score from database, or calculates on-demand if not available.
+    Returns None if no data.
+    """
+    from core.db_manager import get_db_manager
+    
+    # Check for test mode - also check session state for db_manager type
+    test_mode = st.session_state.get('test_mode', False)
+    
+    # DEBUG: Print connection info
+    print(f"[Health Score] test_mode={test_mode}")
+    
+    db_manager = get_db_manager(test_mode)
+    
+    # Fallback chain for account ID (matches impact_dashboard logic)
+    selected_client = (
+        st.session_state.get('active_account_id') or 
+        st.session_state.get('active_account_name') or 
+        st.session_state.get('last_stats_save', {}).get('client_id')
+    )
+    
+    print(f"[Health Score] selected_client={selected_client}, db_manager exists={db_manager is not None}")
+    
+    if not db_manager or not selected_client:
+        print(f"[Health Score] Early return - missing db_manager or client")
+        return None
+        
+    try:
+        # PRIORITY 1: Check persistent DB for pre-calculated health score
+        stored_health = db_manager.get_account_health(selected_client)
+        print(f"[Health Score] stored_health={stored_health}")
+        if stored_health and stored_health.get('health_score') is not None:
+            st.session_state['_cockpit_data_source'] = 'db_persistent'
+            return stored_health['health_score']
+        
+        # PRIORITY 2: Calculate on-demand from data
+        st.session_state['_cockpit_data_source'] = 'calculating'
+        
+        # DEFAULT: Always use DB as primary data source (most reliable, uses new formula)
+        print(f"[Health Score] Loading from DB for {selected_client}")
+        df = db_manager.get_target_stats_by_account(selected_client, limit=50000)
+            
+        if df is None or df.empty:
+            print(f"[Health Score] No data in DB for {selected_client}")
+            return None
+        
+        print(f"[Health Score] Found {len(df)} rows from DB")
+
+
+            
+        # Ensure Spend and Sales are numeric
+        from core.data_loader import safe_numeric
+        
+        # Normalize column names for matching (handle both Spend and spend)
+        col_lower_map = {c.lower(): c for c in df.columns}
+        
+        # Find spend column
+        spend_col = None
+        for pattern in ['spend', 'cost', 'total_spend']:
+            if pattern in col_lower_map:
+                spend_col = col_lower_map[pattern]
+                break
+        
+        # Find sales column
+        sales_col = None
+        for pattern in ['sales', 'revenue', 'total_sales']:
+            if pattern in col_lower_map:
+                sales_col = col_lower_map[pattern]
+                break
+            
+        if not spend_col or not sales_col:
+            print(f"[Health Score] Missing columns: spend_col={spend_col}, sales_col={sales_col}")
+            return None
+
+            
+        df[spend_col] = safe_numeric(df[spend_col])
+        df[sales_col] = safe_numeric(df[sales_col])
+        
+        total_spend = df[spend_col].sum()
+        total_sales = df[sales_col].sum()
+        
+        if total_spend <= 0:
+            return 0.0
+            
+        # 1. Spend Quality (% of spend that converts)
+        # Check for common conversion columns
+        conv_col = next((c for c in df.columns if c.lower() in ['orders', 'conversions', '7 day total orders']), None)
+        
+        if conv_col:
+            converting_spend = df[safe_numeric(df[conv_col]) > 0][spend_col].sum()
+        else:
+            converting_spend = df[df[sales_col] > 0][spend_col].sum()
+        
+        spend_quality = (converting_spend / total_spend) * 100
+        
+        # 1. ROAS Score (Target 4.0x -> 100%)
+        actual_roas = total_sales / total_spend
+        roas_score = min(100, (actual_roas / 4.0) * 100)
+        
+        # 2. Efficiency Score at TARGETING level - % of spend that converts
+        targeting_col = next((c for c in df.columns if c.lower() in ['targeting', 'target_text']), None)
+        if targeting_col and conv_col:
+            targeting_agg = df.groupby(targeting_col).agg({spend_col: 'sum', conv_col: 'sum'}).reset_index()
+            converting_spend = targeting_agg[targeting_agg[conv_col] > 0][spend_col].sum()
+        else:
+            # Fallback to row level
+            converting_spend = df.loc[safe_numeric(df[conv_col]) > 0, spend_col].sum() if conv_col else df.loc[df[sales_col] > 0, spend_col].sum()
+        
+        efficiency_rate = (converting_spend / total_spend) * 100
+        efficiency_score = efficiency_rate  # Direct mapping: 46% converting = score of 46
+        wasted_spend = total_spend - converting_spend
+        waste_ratio = 100 - efficiency_rate
+        
+        # 3. CVR Score (Target 5% -> 100%)
+        clicks_col = next((c for c in df.columns if c.lower() == 'clicks'), None)
+        total_clicks = df[clicks_col].sum() if clicks_col else 0
+        total_orders = df[conv_col].sum() if conv_col else 0
+        
+        cvr = (total_orders / total_clicks * 100) if total_clicks > 0 else 0
+        cvr_score = min(100, (cvr / 5.0) * 100)
+        
+        # Aggregate Health Score
+        health_score = (roas_score * 0.4) + (efficiency_score * 0.4) + (cvr_score * 0.2)
+        final_score = min(100, max(0, health_score))
+
+        
+        # Persist to database for future requests
+        try:
+            db_manager.save_account_health(selected_client, {
+                'health_score': final_score,
+                'roas_score': roas_score,
+                'waste_score': efficiency_score,  # Actually efficiency_score, DB column kept for compat
+                'cvr_score': cvr_score,
+                'waste_ratio': waste_ratio,
+                'wasted_spend': wasted_spend,
+                'current_roas': actual_roas,
+                'current_acos': (1 / actual_roas * 100) if actual_roas > 0 else 0,
+                'cvr': cvr,
+                'total_spend': total_spend,
+                'total_sales': total_sales
+            })
+        except Exception:
+            pass  # Don't fail if save fails
+        
+        return final_score
+        
+    except Exception as e:
+        # st.write(f"DEBUG: Error in health calc: {e}")
+        pass
+        
+    return None
+

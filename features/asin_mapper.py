@@ -69,8 +69,33 @@ class ASINMapperModule(BaseFeature):
 
     def render_ui(self):
         """Render the ASIN Mapper UI."""
+        # Icons
+        icon_color = "#8F8CA3"
+        shield_icon = f'<svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="{icon_color}" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="vertical-align: middle; margin-right: 8px;"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"></path></svg>'
+        
+        def tab_header(label, icon_html):
+            st.markdown(f"""
+            <div style="background: linear-gradient(135deg, rgba(91, 85, 111, 0.1) 0%, rgba(91, 85, 111, 0.05) 100%); 
+                        border: 1px solid rgba(124, 58, 237, 0.2); 
+                        border-radius: 8px; 
+                        padding: 12px 16px; 
+                        margin-bottom: 20px;
+                        display: flex; 
+                        align-items: center; 
+                        gap: 10px;">
+                {icon_html}
+                <span style="color: #F5F5F7; font-size: 1rem; font-weight: 700; text-transform: uppercase; letter-spacing: 1px;">{label}</span>
+            </div>
+            """, unsafe_allow_html=True)
 
-        st.markdown("Identify competitor ASINs, wasted spend, and negative targeting opportunities.")
+        tab_header("Competitor Discovery", shield_icon)
+        st.markdown("""
+        <div style="background: rgba(91, 85, 111, 0.05); border-left: 4px solid #5B556F; padding: 12px 20px; border-radius: 0 8px 8px 0; margin-bottom: 24px;">
+            <p style="color: #B6B4C2; font-size: 0.95rem; margin: 0;">
+                Automatically identify competitor ASINs, detect wasted spend on your own listings, and discover negative targeting opportunities.
+            </p>
+        </div>
+        """, unsafe_allow_html=True)
         
         # Check if data loaded in Data Hub
         from core.data_hub import DataHub
@@ -131,15 +156,15 @@ class ASINMapperModule(BaseFeature):
             else:
                 results = None
             
-            # Start Analysis automatically or via button
-            if st.button("🚀 Analyze ASIN Search Terms", type="primary", use_container_width=True):
-                with st.spinner("Classifying ASINs..."):
-                    results = self.analyze(self.data)
-                    st.session_state['latest_asin_analysis'] = results
-            
-            # Display results if available
-            if results:
-                self.display_results(results)
+        if st.button("🚀 Analyze Search Terms for ASIN Intent", type="primary", use_container_width=True):
+            with st.spinner("Classifying ASINs..."):
+                results = self.analyze(self.data)
+                st.session_state['latest_asin_analysis'] = results
+        
+        # Display results if available
+        if results:
+            st.markdown("<br>", unsafe_allow_html=True)
+            self.display_results(results)
     
     def validate_data(self, data: pd.DataFrame) -> tuple[bool, str]:
         """Validate search term report data."""
@@ -248,20 +273,29 @@ class ASINMapperModule(BaseFeature):
             return
 
         col1, col2, col3, col4 = st.columns(4)
-        with col1: metric_card("Total ASINs", f"{results['asins_found']:,}")
-        with col2: metric_card("Converting", f"{results.get('converting_count', 0):,}")
-        with col3: metric_card("Non-Converting", f"{results.get('non_converting_count', 0):,}")
-        with col4: metric_card("Wasted Spend", f"AED {results.get('total_wasted', 0):,.2f}")
+        with col1: metric_card("Total ASINs", f"{results['asins_found']:,}", "layers")
+        with col2: metric_card("Converting", f"{results.get('converting_count', 0):,}", "check")
+        with col3: metric_card("Non-Converting", f"{results.get('non_converting_count', 0):,}", "x_circle")
+        with col4: metric_card("Wasted Spend", f"AED {results.get('total_wasted', 0):,.2f}", "trending_up")
         
         # 2. High Priority List
         high_priority = results.get('high_priority', pd.DataFrame())
-        st.write(f"### 🔍 High-Priority ASINs ({len(high_priority)} candidates)")
+        
+        icon_color = "#8F8CA3"
+        search_icon = f'<svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="{icon_color}" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="vertical-align: middle; margin-right: 8px;"><circle cx="11" cy="11" r="8"></circle><line x1="21" y1="21" x2="16.65" y2="16.65"></line></svg>'
+        
+        st.markdown(f"""
+        <div style="margin-top: 30px; margin-bottom: 15px; display: flex; align-items: center; gap: 8px;">
+            {search_icon}
+            <span style="color: #F5F5F7; font-size: 1.1rem; font-weight: 600;">High-Priority ASIN Candidates ({len(high_priority)})</span>
+        </div>
+        """, unsafe_allow_html=True)
         
         if high_priority.empty:
-            st.info("No high-priority non-converting ASINs found")
+            st.info("No high-priority non-converting ASINs found based on current thresholds.")
             return
         
-        st.dataframe(high_priority[['asin', 'impressions', 'clicks', 'spend']])
+        st.dataframe(high_priority[['asin', 'impressions', 'clicks', 'spend']], use_container_width=True)
         
         # 3. API Lookup Logic (The Action)
         # Check if we already have API results (persisted in results dict)
@@ -273,9 +307,9 @@ class ASINMapperModule(BaseFeature):
             # ACTUAL REPLACEMENT LOGIC
             # I will insert the Clear Cache button right before the Lookup button check
             
-            if st.button("🗑️ Force Refresh / Clear Cache", key="clear_cache_btn", type="secondary", help="Click this if you see 'N/A' to force fresh data"):
+            if st.button("🗑️ Force Refresh / Clear Cache", key="clear_cache_btn", type="secondary", use_container_width=True):
                 try:
-                    import os
+                    import os, time
                     if os.path.exists("data/asin_cache.db"):
                         os.remove("data/asin_cache.db")
                         st.toast("Cache cleared! fetching fresh data...", icon="🧹")
@@ -285,7 +319,7 @@ class ASINMapperModule(BaseFeature):
                 except Exception as e:
                     st.error(f"Could not clear cache: {e}")
 
-            if st.button(f"🚀 Lookup {len(high_priority)} ASINs via API", key="asin_lookup_trigger_v2"):
+            if st.button(f"🚀 Enrich {len(high_priority)} ASINs via Rainforest API", key="asin_lookup_trigger_v2", type="primary", use_container_width=True):
                 
                 # Fresh secrets read (bypass cached config)
                 api_key = None
@@ -363,17 +397,25 @@ class ASINMapperModule(BaseFeature):
 
     def _display_enriched_results(self, results):
         """Helper to show the advanced view (Competitors, Diagnostics) AFTER API lookup."""
-        st.success("✅ API Lookup Complete")
+        st.markdown("""
+        <div style="background: rgba(16, 185, 129, 0.1); border: 1px solid rgba(16, 185, 129, 0.2); padding: 12px 20px; border-radius: 8px; margin-bottom: 24px; color: #10B981; font-weight: 600; display: flex; align-items: center; gap: 10px;">
+            <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M22 11.08V12a10 10 0 1 1-5.93-9.14"></path><polyline points="22 4 12 14.01 9 11.01"></polyline></svg>
+            API Lookup Complete & Brand Data Synchronized
+        </div>
+        """, unsafe_allow_html=True)
         
-        # Download Button (now that we have enriched data)
+        # Download Button with Brand Style
         output = self.generate_output(results)
         st.download_button(
-            label="📥 Download Full Results",
+            label="📥 Export Full Enrichment Report (.xlsx)",
             data=output,
             file_name="asin_analysis_results.xlsx",
             mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-            key="asin_download_btn"
+            key="asin_download_btn",
+            type="primary",
+            use_container_width=True
         )
+        st.markdown("<br>", unsafe_allow_html=True)
         
         competitors = results['competitors']
         your_products = results['your_products']
@@ -381,55 +423,62 @@ class ASINMapperModule(BaseFeature):
         
         # Metrics
         col1, col2, col3 = st.columns(3)
-        with col1: metric_card("Competitor Products", len(competitors))
-        with col2: metric_card("Your Products (not converting)", len(your_products))
-        with col3: metric_card("🎯 Flagged for Negation", len(flagged))
+        with col1: metric_card("Competitors", len(competitors), "layers")
+        with col2: metric_card("Your Products", len(your_products), "check")
+        with col3: metric_card("Negation Flagged", len(flagged), "shield")
         
         # 1. Flagged Competitors
+        icon_color = "#8F8CA3"
+        shield_icon = f'<svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="{icon_color}" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="vertical-align: middle; margin-right: 8px;"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"></path></svg>'
+        bolt_icon = f'<svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="{icon_color}" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="vertical-align: middle; margin-right: 8px;"><polygon points="13 2 3 14 12 14 11 22 21 10 12 10 13 2"></polygon></svg>'
+        search_alt_icon = f'<svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="{icon_color}" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="vertical-align: middle; margin-right: 8px;"><circle cx="11" cy="11" r="8"></circle><line x1="21" y1="21" x2="16.65" y2="16.65"></line></svg>'
+
         if not flagged.empty:
             st.divider()
-            st.markdown("#### 🎯 Auto-Flagged for Negation")
-            st.success(f"**{len(flagged)} competitor ASINs** recommended for negation")
-            st.info(f"💰 **Estimated monthly savings:** AED {flagged['original_spend'].sum():.2f}")
+            st.markdown(f"#### {shield_icon}Competitors Recommended for Negation", unsafe_allow_html=True)
+            st.markdown(f"""
+            <div style="background: rgba(124, 58, 237, 0.05); border-left: 4px solid #7C3AED; padding: 12px 20px; border-radius: 0 8px 8px 0; margin-bottom: 20px;">
+                <p style="color: #F5F5F7; font-size: 0.95rem; margin: 0;">
+                    <strong>Recommendation</strong>: These {len(flagged)} competitor products are showing significant wasted spend without conversions. Monthly savings: <strong>AED {flagged['original_spend'].sum():.2f}</strong>.
+                </p>
+            </div>
+            """, unsafe_allow_html=True)
             
-            # Display with proper column handling
             flagged_display = flagged.copy()
-            
-            # Ensure all required columns exist, fill NaN with 'N/A'
             for col in ['asin', 'brand', 'title', 'original_clicks', 'original_spend']:
                 if col not in flagged_display.columns:
                     flagged_display[col] = 'N/A'
-            
-            # Select and rename columns
             flagged_display = flagged_display[['asin', 'brand', 'title', 'original_clicks', 'original_spend']].copy()
             flagged_display.columns = ['ASIN', 'Brand', 'Product', 'Clicks', 'Wasted Spend']
-            
-            # Fill any NaN values with 'N/A'
             flagged_display = flagged_display.fillna('N/A')
-            
             st.dataframe(flagged_display, use_container_width=True)
 
         # 2. Your Non-Converting Products (Diagnostics)
         if not your_products.empty:
             st.divider()
-            st.markdown("#### ⚠️ Your Products Not Converting - Diagnostics")
-            st.warning(f"Found {len(your_products)} of YOUR products that customers searched but didn't buy")
+            st.markdown(f"#### {bolt_icon}Listing Diagnostics (Your Products)", unsafe_allow_html=True)
+            st.markdown(f"""
+            <div style="background: rgba(245, 158, 11, 0.05); border-left: 4px solid #F59E0B; padding: 12px 20px; border-radius: 0 8px 8px 0; margin-bottom: 20px;">
+                <p style="color: #F5F5F7; font-size: 0.95rem; margin: 0;">
+                    <strong>Alert</strong>: Found {len(your_products)} of your own products that are receiving traffic but failing to convert. Review listings for stock or price issues.
+                </p>
+            </div>
+            """, unsafe_allow_html=True)
             
             for idx, product in your_products.iterrows():
                 with st.expander(f"🔍 {product['asin']} - {product.get('brand', 'N/A')} ({product['original_clicks']} clicks, AED {product['original_spend']:.2f} wasted)", expanded=False):
-                    self._render_diagnostic_card(product) # Extracted to helper if possible, or inline
+                    self._render_diagnostic_card(product)
 
         # 3. All Competitors
         if not competitors.empty:
             st.divider()
-            st.markdown("#### 📊 All Competitor ASINs")
+            st.markdown(f"#### {search_alt_icon}Consolidated Competitor Footprint", unsafe_allow_html=True)
             
             if 'brand' in competitors.columns:
                 comp_summary = competitors.groupby('brand').agg({'asin': 'count', 'original_spend': 'sum'}).sort_values('original_spend', ascending=False)
                 comp_summary.columns = ['Count', 'Total Wasted Spend']
                 st.dataframe(comp_summary, use_container_width=True)
             else:
-                # No brand column, just show the raw competitors table
                 st.dataframe(competitors, use_container_width=True)
 
     def _render_diagnostic_card(self, product):

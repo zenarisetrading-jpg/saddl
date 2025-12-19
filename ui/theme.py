@@ -93,19 +93,27 @@ class ThemeManager:
             [data-testid="stSidebar"] span, 
             [data-testid="stSidebar"] label, 
             [data-testid="stSidebar"] .stMarkdown,
-            [data-testid="stSidebar"] h1,
-            [data-testid="stSidebar"] h2,
-            [data-testid="stSidebar"] h3,
-            [data-testid="stSidebar"] h4,
-            [data-testid="stSidebar"] h5,
             [data-testid="stSidebar"] em,
             [data-testid="stSidebar"] strong {{
                 color: var(--sidebar-text) !important;
             }}
             
+            [data-testid="stSidebar"] h1,
+            [data-testid="stSidebar"] h2,
+            [data-testid="stSidebar"] h3,
+            [data-testid="stSidebar"] h4,
+            [data-testid="stSidebar"] h5 {{
+                color: var(--sidebar-text) !important;
+                text-transform: uppercase !important;
+                letter-spacing: 0.1em !important;
+            }}
+            
             /* Sidebar button text */
             [data-testid="stSidebar"] button {{
                 color: var(--sidebar-text) !important;
+                text-transform: uppercase !important;
+                letter-spacing: 0.05em !important;
+                font-weight: 600 !important;
             }}
 
             /* Metric Values Fix */
@@ -118,6 +126,21 @@ class ThemeManager:
                 background-color: var(--secondary-bg);
                 color: var(--text-color);
                 border-color: var(--border-color);
+            }}
+            
+            /* Sidebar Specific Selectbox Styling */
+            [data-testid="stSidebar"] div[data-baseweb="select"] > div {{
+                background-color: rgba(30, 41, 59, 0.8) !important;
+                border: 1px solid rgba(255, 255, 255, 0.1) !important;
+                border-radius: 8px !important;
+            }}
+            [data-testid="stSidebar"] div[data-baseweb="select"] > div:hover {{
+                border-color: rgba(255, 255, 255, 0.2) !important;
+            }}
+            [data-testid="stSidebar"] div[data-baseweb="select"] span {{
+                color: white !important;
+                font-family: inherit !important;
+                font-weight: 500 !important;
             }}
             
             /* Streamlit Metrics (Built-in) */
@@ -139,12 +162,35 @@ class ThemeManager:
                 background-color: var(--accent-hover) !important;
             }}
             
-            /* Primary button styling */
+            /* Primary button styling - Brand Purple Gradient */
             .stButton > button[kind="primary"] {{
-                background-color: var(--accent) !important;
+                background: linear-gradient(135deg, #5B556F 0%, #464156 100%) !important;
+                color: white !important;
+                border: 1px solid rgba(255, 255, 255, 0.1) !important;
+                box-shadow: 0 4px 12px rgba(0, 0, 0, 0.2) !important;
+            }}
+            .stButton > button[kind="primary"]:hover {{
+                background: linear-gradient(135deg, #6c6684 0%, #5b556f 100%) !important;
+                box-shadow: 0 6px 16px rgba(0, 0, 0, 0.3) !important;
             }}
             
-            /* Tabs accent */
+            /* Download button - use Primary styling */
+            .stDownloadButton > button {{
+                background: linear-gradient(135deg, #5B556F 0%, #464156 100%) !important;
+                color: white !important;
+                border: 1px solid rgba(255, 255, 255, 0.1) !important;
+            }}
+            .stDownloadButton > button:hover {{
+                background: linear-gradient(135deg, #6c6684 0%, #5b556f 100%) !important;
+            }}
+            
+            /* Tabs accent and Boldness */
+            .stTabs [data-baseweb="tab"] {{
+                font-weight: 800 !important;
+                font-size: 1rem !important;
+                letter-spacing: 0.5px !important;
+                text-transform: uppercase !important;
+            }}
             .stTabs [data-baseweb="tab-highlight"] {{
                 background-color: var(--accent) !important;
             }}
@@ -177,12 +223,6 @@ class ThemeManager:
             .stInfo {{
                 background-color: var(--card-bg) !important;
                 border: 1px solid var(--border-color) !important;
-            }}
-            
-            /* Download button - keep accent */
-            .stDownloadButton > button {{
-                background-color: var(--accent) !important;
-                color: white !important;
             }}
             
             /* Caption text - muted */

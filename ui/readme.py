@@ -1,167 +1,260 @@
 """
-Help and Documentation Page - Saddle AdPulse V4
+Knowledge Guide - Saddle AdPulse
 """
 
 import streamlit as st
 
 def render_readme():
-    """Render the comprehensive help & documentation page."""
+    """Render the knowledge guide."""
     
-    st.title("📚 Saddle AdPulse Documentation")
-    st.caption("Version 4.0 | The Intelligent PPC Operating System")
+    # Icon styling
+    icon_color = "#94a3b8"
+    book_icon = f'<svg xmlns="http://www.w3.org/2000/svg" width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="{icon_color}" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M2 3h6a4 4 0 0 1 4 4v14a3 3 0 0 0-3-3H2z"></path><path d="M22 3h-6a4 4 0 0 0-4 4v14a3 3 0 0 1 3-3h7z"></path></svg>'
     
-    tab_overview, tab_modules, tab_setup = st.tabs(["🚀 Platform Overview", "📖 Module Guides", "⚙️ Setup & Config"])
+    st.markdown(f"""
+    <h1 style="font-family: Inter, sans-serif; font-weight: 700; display: flex; align-items: center; gap: 12px;">
+        {book_icon}
+        <span>Knowledge Guide</span>
+    </h1>
+    """, unsafe_allow_html=True)
+    st.caption("How-tos, models, and strategy guides")
+    
+    tab_howto, tab_models, tab_faq = st.tabs(["How-To Guides", "Models & Math", "FAQ"])
     
     # =========================================================================
-    # TAB 1: PLATFORM OVERVIEW
+    # TAB 1: HOW-TO GUIDES
     # =========================================================================
-    with tab_overview:
-        st.markdown("""
-        ### Welcome to Saddle AdPulse
+    with tab_howto:
         
-        This isn't just a reporting tool—it's an **Operating System** for Amazon & Noon PPC. It automates analysis, 
-        strategy, and execution to help you scale efficiently while cutting wasted spend.
+        with st.expander("**Getting Started**", expanded=True):
+            st.markdown("""
+            **Step 1: Upload Your Data**
+            - Go to **Data Hub** → Upload your Search Term Report
+            - Optional: Add Bulk File for campaign IDs, Advertised Products for SKU mapping
+            
+            **Step 2: Run the Optimizer**
+            - Click **Run Optimizer** → Review the recommendations
+            - Approve bids, harvests, and negatives
+            
+            **Step 3: Export & Apply**
+            - Download the bulk file → Upload to Amazon/Noon Ads Console
+            """)
         
-        ---
+        with st.expander("**Finding Wasted Spend (Bleeders)**"):
+            st.markdown("""
+            Bleeders are terms eating your budget without returns.
+            
+            **Where to Find:**
+            - **Optimizer → Negatives Tab** — Shows all zero-order terms
+            - **AI Strategist** — Ask "Where am I losing money?"
+            
+            **What to Do:**
+            1. Review the negative recommendations
+            2. Add them as Negative Exact in your campaigns
+            3. Re-run monthly to catch new bleeders
+            """)
         
-        #### 🔄 The Optimization Workflow
+        with st.expander("**Harvesting Winners**"):
+            st.markdown("""
+            Harvesting moves winning search terms to Exact Match campaigns for control.
+            
+            **Why Harvest?**
+            - Lock in high-performing terms
+            - Set specific bids instead of Auto/Broad defaults
+            - Improve tracking and attribution
+            
+            **Process:**
+            1. **Optimizer → Harvest Tab** — See qualified terms
+            2. Click **Open Campaign Creator**
+            3. Generate bulk file with new Exact campaigns
+            4. Upload to Ads Console
+            """)
         
-        1.  **📥 INGEST (Data Hub)**: Upload your raw reports (Search Terms, Bulk Files, Business Reports).
-        2.  **🧠 ANALYZE (AI Strategist & Impact)**: The system finds patterns, bleeders, and opportunities.
-        3.  **⚡ OPTIMIZE (Optimization Hub)**: Review and approve bid changes, negatives, and harvests.
-        4.  **🚀 EXECUTE (Launcher)**: Push changes to clean up campaigns or launch new growth attackers.
+        with st.expander("**Understanding Bid Recommendations**"):
+            st.markdown("""
+            The optimizer calculates bids based on performance vs your account baseline.
+            
+            **Bid Goes UP when:**
+            - Term ROAS > Account Median ROAS
+            - High conversion rate
+            - Strong sales velocity
+            
+            **Bid Goes DOWN when:**
+            - Term ROAS < Account Median ROAS  
+            - Low or no conversions
+            - Spending without returns
+            
+            **Tip:** Use the Simulation tab to preview impact before applying.
+            """)
         
-        ---
-        
-        #### 🎯 Core Concepts
-        
-        | Concept | Definition |
-        | :--- | :--- |
-        | **Bleeder** | A search term or campaign spending money without profitable returns (High Spend, Low ROAS). |
-        | **Harvesting** | Taking a winning search term from an Auto/Broad campaign and moving it to an **Exact Match** campaign to control the bid. |
-        | **Negation** | Blocking a search term that doesn't convert, so you stop paying for irrelevant clicks. |
-        | **Wasted Spend** | Money spent on clicks that generated ZERO sales. |
-        | **ASIN Shielding** | Identifying if an ASIN search is for **Your Product** (good) or a **Competitor** (potential waste). |
-        """)
-        
-        st.info("""
-        **💡 Pro Tip:** Start every session at the **Account Overview** to see your health, then go to the **Impact Analyzer** 
-        to see exactly where you can make money today.
-        """)
-
+        with st.expander("**Working with the AI Strategist**"):
+            st.markdown("""
+            The AI knows your data. Ask strategic questions, not just data lookups.
+            
+            **Access:** Click the 💬 **Chat Bubble** in the bottom-right corner, or use **"Ask Zenny"** in the sidebar.
+            
+            **Good Questions:**
+            - "Why is my ACOS increasing this month?"
+            - "What are my biggest opportunities right now?"
+            - "Which campaigns should I pause?"
+            - "Help me build a Q1 strategy"
+            
+            **It Already Knows:**
+            - Your bleeders and winners
+            - Campaign performance trends
+            - Optimization opportunities
+            - Historical patterns
+            """)
+    
     # =========================================================================
-    # TAB 2: MODULE GUIDES
+    # TAB 2: MODELS & MATH
     # =========================================================================
-    with tab_modules:
-        st.markdown("### 🧩 Module Deep Dives")
+    with tab_models:
         
-        with st.expander("📂 Data Hub", expanded=True):
+        with st.expander("**Bid Calculation Formula**", expanded=True):
             st.markdown("""
-            **The Central Nervous System.** All data starts here.
+            ```
+            New Bid = Current Bid × [1 + (ROAS Deviation × Alpha)]
+            ```
             
-            -   **Uploads**: Supports Search Term Reports, Advertised Product Reports, Bulk Files, and Business Reports.
-            -   **Status Indicators**: Shows you exactly what's loaded and what's missing.
-            -   **Automatic Mapping**: Links SKUs to Parents and Categories automatically if you provide the APR.
+            Where:
+            - **ROAS Deviation** = (Term ROAS ÷ Baseline ROAS) - 1
+            - **Alpha** = Moderation factor (default 0.15)
             
-            > **⚠️ Crucial:** Always upload the **Search Term Report** first. It's the foundation of 90% of the analysis.
+            **Example:**
+            - Current Bid: AED 1.00
+            - Term ROAS: 6.0x
+            - Baseline ROAS: 4.0x
+            - Deviation: (6.0 ÷ 4.0) - 1 = 0.5
+            - New Bid: 1.00 × [1 + (0.5 × 0.15)] = **AED 1.075**
             """)
-            
-        with st.expander("📊 Account Overview"):
+        
+        with st.expander("**Negative Detection Thresholds**"):
             st.markdown("""
-            **Your Cockpit.** A high-level view of account performance.
+            We use CVR-based dynamic thresholds, not static rules.
             
-            -   **Date Filtering**: Apply global filters to zoom in on specific periods (e.g., "Last Month").
-            -   **KPI Cards**: Spend, Sales, ACOS, ROAS, and Orders at a glance.
-            -   **Trend Analysis**: Sparklines providing visual context on performance direction.
+            ```
+            Expected Clicks = 1 ÷ Account CVR
+            Soft Threshold = max(Min Clicks, Expected Clicks)
+            Hard Stop = max(Min Spend, Expected Clicks × 2.5)
+            ```
+            
+            **Example:**
+            - Account CVR: 5%
+            - Expected Clicks: 1 ÷ 0.05 = 20 clicks
+            - Soft Threshold: 20 clicks with no orders → Review
+            - Hard Stop: 50 clicks with no orders → Negate
             """)
-            
-        with st.expander("📉 Impact Analyzer"):
+        
+        with st.expander("**Harvest Qualification Criteria**"):
             st.markdown("""
-            **The Money Maker.** This module quantifies the financial impact of optimization.
+            A term qualifies for harvesting when:
             
-            -   **Waterfall Chart**: Visualization of how Negatives (Savings) and Harvests (Growth) combine to improve your bottom line.
-            -   **Projected Savings**: Exact dollar amounts you will save by cutting wasted spend.
-            -   **Projected Growth**: Revenue potential from scaling winning keywords.
-            -   **Net Impact**: The total estimated improvement to your weekly/monthly profit.
+            1. **ROAS ≥ Baseline × Multiplier** (default 80%)
+            2. **Clicks ≥ Minimum** (default 3)
+            3. **Orders ≥ 1**
+            4. **Not already Exact Match**
+            
+            **Example:**
+            - Baseline ROAS: 4.0x
+            - Multiplier: 80%
+            - Threshold: 4.0 × 0.8 = **3.2x ROAS minimum**
             """)
-            
-        with st.expander("🧠 AI Strategist"):
+        
+        with st.expander("**Baseline ROAS Calculation (Winsorized)**"):
             st.markdown("""
-            **Your 24/7 PPC Consultant.** Chat with your data using advanced AI.
+            We use outlier-resistant statistics for the account baseline.
             
-            -   **Context-Aware**: It knows your data. You don't need to paste CSVs. It sees your bleeders, winners, and trends.
-            -   **Strategic Queries**: Ask "Why is ACOS going up?", "What are my top wasted terms?", or "Draft a strategy for Q4".
-            -   **Knowledge Graph**: It builds connections between search terms, campaigns, and products.
+            **Process:**
+            1. Filter terms with < AED 5 spend (noise removal)
+            2. Cap ROAS at 99th percentile (outlier control)
+            3. Take the **median** of remaining values
+            
+            **Why Median?**
+            - Not skewed by lucky low-spend terms
+            - More stable than mean
+            - Represents true account performance
             """)
-
-        with st.expander("⚡ Optimization Hub"):
+        
+        with st.expander("**Simulation Elasticity Model**"):
             st.markdown("""
-            **The Engine Room.** Where decisions turn into actions.
+            The simulator uses curved elasticity to forecast outcomes.
             
-            -   **🔍 Bids**: Algorithmically calculated bid adjustments to hit your Target ACOS.
-            -   **🚫 Negatives**:
-                -   **Strict**: 0 orders, High spend.
-                -   **Soft**: Low ROAS, High spend.
-                -   **Opportunity**: High clicks, 0 sales (Click bleeders).
-            -   **🌾 Harvests**: Winning terms found in discovery campaigns ready to be promoted to Exact Match.
+            | Factor | Relationship | Coefficient |
+            | :--- | :--- | :--- |
+            | CPC → Clicks | Diminishing | 0.85x |
+            | Bid → Impression Share | Variable | Based on competition |
+            | Harvest → Efficiency | Multiplicative | 1.3x boost |
+            
+            **Scenarios:**
+            - **Conservative**: Lower click growth, higher skepticism
+            - **Expected**: Historical averages
+            - **Aggressive**: Maximum harvest efficiency
             """)
-            
-        with st.expander("🛡️ Competitor Shield"):
-            st.markdown("""
-            **Defense Grid.** Manage Amazon Standard Identification Numbers (ASINs).
-            
-            -   **Identification**: Automatically detects ASINs in your search terms.
-            -   **Classification**: Tells you if an ASIN is **Yours** (keep) or a **Competitor** (attack or block).
-            -   **Rainforest API**: Fetches real-time product titles and images for context.
-            """)
-            
-        with st.expander("🧪 Simulator"):
-            st.markdown("""
-            **Crystal Ball.** Forecast the future before you act.
-            
-            -   **"What-If" Analysis**: See what happens to Spend and Sales if you increase bids by 10% vs 20%.
-            -   **Elasticity Modeling**: Uses historical data to predict how sensitive your clicks are to bid changes.
-            -   **Risk Assessment**: Helps you find the sweet spot between aggression and efficiency.
-            """)
-            
-        with st.expander("🚀 Campaign Launcher"):
-            st.markdown("""
-            **Growth Engine.** Create new structure instantly.
-            
-            -   **Cold Start**: Launch a full Best-Practice campaign structure (Auto, Broad, Exact, PT) for a new product in seconds.
-            -   **Harvesting**: Automatically create Single Keyword Campaigns (SKAGs) or segmented campaigns for your harvested winners.
-            """)
-
+    
     # =========================================================================
-    # TAB 3: SETUP & CONFIG
+    # TAB 3: FAQ
     # =========================================================================
-    with tab_setup:
-        st.markdown("### ⚙️ System Configuration")
+    with tab_faq:
         
-        st.markdown("""
-        #### 1. API Keys (Essential)
-        To unlock the full power of **Competitor Shield** and **AI Strategist**, you need API keys in your `.streamlit/secrets.toml` file.
+        with st.expander("**Why am I seeing no harvest candidates?**", expanded=True):
+            st.markdown("""
+            Possible reasons:
+            - Your data period is too short (need at least 7 days)
+            - ROAS thresholds are set too high
+            - Winning terms are already Exact Match
+            
+            **Fix:** Lower the ROAS multiplier in Optimizer settings, or upload more data.
+            """)
         
-        ```toml
-        # .streamlit/secrets.toml
+        with st.expander("**How often should I run the optimizer?**"):
+            st.markdown("""
+            - **Weekly**: For active accounts with >AED 1000/week spend
+            - **Bi-weekly**: For moderate spend accounts
+            - **Monthly**: For low-spend or stable accounts
+            
+            Running too frequently can cause bid instability.
+            """)
         
-        [openai]
-        api_key = "sk-..."  # For AI Strategist
+        with st.expander("**What's the difference between soft and hard negatives?**"):
+            st.markdown("""
+            - **Hard Negative**: Zero orders, high spend → Block immediately
+            - **Soft Negative**: Low ROAS, some orders → Review before blocking
+            
+            Soft negatives might have seasonal value or need more data.
+            """)
         
-        [rainforest]
-        api_key = "..."     # For Competitor Lookup
+        with st.expander("**Why do my bid changes seem small?**"):
+            st.markdown("""
+            The Alpha factor (0.15) intentionally limits bid swings.
+            
+            **Reason:** Large bid changes can:
+            - Destabilize Amazon's algorithm
+            - Cause sudden spend spikes
+            - Lose historical performance data
+            
+            Gradual changes compound over time for stable optimization.
+            """)
         
-        [general]
-        user_brands = ["MyBrand", "SubBrand"] # For identifying your own products
-        target_acos = 0.30  # Default Target ACOS (30%)
-        ```
+        with st.expander("**Can I use this for Noon AND Amazon?**"):
+            st.markdown("""
+            Yes! The system works with any platform that exports:
+            - Search Term Reports
+            - Bulk Files
+            - Performance data in standard formats
+            
+            Column names are automatically mapped.
+            """)
         
-        #### 2. Troubleshooting Common Issues
-        
-        | Issue | Solution |
-        | :--- | :--- |
-        | **"No Data Loaded"** | Go to Data Hub and ensure you've uploaded a **Search Term Report**. |
-        | **"Columns Missing"** | Ensure your CSV export is from the standard Amazon/Noon advertising console and headers haven't been renamed. |
-        | **"AI Not Responding"** | Check your OpenAI API key credits and validity in `secrets.toml`. |
-        | **"Graphs Empty"** | Check your date filters in Account Overview; you might be filtering for a date range with no data. |
-        """)
+        with st.expander("**What data do I need at minimum?**"):
+            st.markdown("""
+            **Required:**
+            - Search Term Report (last 14-30 days)
+            
+            **Recommended:**
+            - Bulk file (for campaign IDs)
+            - Advertised Product Report (for SKU mapping)
+            
+            **Optional:**
+            - Category mapping (for category-level views)
+            """)
