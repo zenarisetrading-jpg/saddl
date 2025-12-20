@@ -544,7 +544,7 @@ class DatabaseManager:
                 client_id,
                 metrics.get('health_score', 0),
                 metrics.get('roas_score', 0),
-                metrics.get('waste_score', 0),
+                metrics.get('efficiency_score', metrics.get('waste_score', 0)),  # Map efficiency_score to waste_score column
                 metrics.get('cvr_score', 0),
                 metrics.get('waste_ratio', 0),
                 metrics.get('wasted_spend', 0),
@@ -1447,6 +1447,82 @@ class DatabaseManager:
 
 # ==========================================
 # TEST MODE HELPER
+
+    # =========================================
+    # DATA MIGRATION UTILITIES
+    # =========================================
+    
+    def migrate_bid_action_types(self) -> Dict[str, Any]:
+        """
+        Migrate legacy BID_UPDATE action types to BID_CHANGE for consistency.
+        
+        Handles duplicates by:
+        1. Identifying BID_UPDATE records that would conflict with existing BID_CHANGE records
+        2. Deleting those BID_UPDATE duplicates (keeping the BID_CHANGE version)
+        3. Updating remaining BID_UPDATE records to BID_CHANGE
+        
+        Returns:
+            Dict with 'updated_count', 'deleted_count', 'total_bid_actions', and 'message'
+        """
+        with self._get_connection() as conn:
+            cursor = conn.cursor()
+            
+            # Count before migration
+            cursor.execute("SELECT COUNT(*) FROM actions_log WHERE action_type = 'BID_UPDATE'")
+            before_count = cursor.fetchone()[0]
+            
+            if before_count == 0:
+                return {
+                    'updated_count': 0,
+                    'deleted_count': 0,
+                    'total_bid_actions': 0, 
+                    'message': 'No BID_UPDATE records found - already migrated or no legacy data'
+                }
+            
+            # Step 1: Delete BID_UPDATE records that would conflict with existing BID_CHANGE records
+            cursor.execute("""
+                DELETE FROM actions_log
+                WHERE action_type = 'BID_UPDATE'
+                AND EXISTS (
+                    SELECT 1 FROM actions_log AS t2
+                    WHERE t2.action_type = 'BID_CHANGE'
+                    AND t2.client_id = actions_log.client_id
+                    AND t2.action_date = actions_log.action_date
+                    AND t2.target_text = actions_log.target_text
+                    AND t2.campaign_name = actions_log.campaign_name
+                )
+            """)
+            
+            deleted_count = cursor.rowcount
+            
+            # Step 2: Update remaining BID_UPDATE records to BID_CHANGE
+            cursor.execute("""
+                UPDATE actions_log 
+                SET action_type = 'BID_CHANGE' 
+                WHERE action_type = 'BID_UPDATE'
+            """)
+            
+            updated_count = cursor.rowcount
+            
+            # Count total bid change actions after migration
+            cursor.execute("SELECT COUNT(*) FROM actions_log WHERE action_type = 'BID_CHANGE'")
+            total_after = cursor.fetchone()[0]
+            
+            message_parts = []
+            if deleted_count > 0:
+                message_parts.append(f"Deleted {deleted_count} duplicate BID_UPDATE records")
+            if updated_count > 0:
+                message_parts.append(f"Updated {updated_count} BID_UPDATE→BID_CHANGE")
+            message_parts.append(f"Total BID_CHANGE actions: {total_after}")
+            
+            return {
+                'updated_count': updated_count,
+                'deleted_count': deleted_count,
+                'total_bid_actions': total_after,
+                'message': '✅ ' + '. '.join(message_parts)
+            }
+
+
 # =========================================
 
 def get_db_manager(test_mode: bool = False) -> DatabaseManager:

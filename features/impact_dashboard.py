@@ -13,8 +13,30 @@ import streamlit as st
 import pandas as pd
 import plotly.graph_objects as go
 import plotly.express as px
-from typing import Dict, Any, Optional
+from typing import Dict, Any, Optional, Tuple
 from datetime import datetime, timedelta
+from core.db_manager import get_db_manager
+
+@st.cache_data(ttl=300, show_spinner=False)
+def _fetch_impact_data(client_id: str, test_mode: bool, cache_version: str = "v1") -> Tuple[pd.DataFrame, Dict[str, Any]]:
+    """
+    Cached data fetcher for impact analysis.
+    Prevents re-querying the DB on every rerun or tab switch.
+    
+    Args:
+        client_id: Account ID
+        test_mode: Whether using test database
+        cache_version: Version string that changes when data is uploaded (invalidates cache)
+    """
+    try:
+        db = get_db_manager(test_mode)
+        impact_df = db.get_action_impact(client_id)
+        full_summary = db.get_impact_summary(client_id)
+        return impact_df, full_summary
+    except Exception as e:
+        # Return empty structures on failure to prevent UI crash
+        print(f"Cache miss error: {e}")
+        return pd.DataFrame(), {'total_actions': 0, 'net_sales_impact': 0, 'net_spend_change': 0}
 
 
 
@@ -94,10 +116,13 @@ def render_impact_dashboard():
         st.caption(f"📅 Data available: {len(available_dates)} weeks")
     
     # Get impact data using auto time-lag matching (no date params needed)
-    with st.spinner("Calculating impact using auto time-lag matching..."):
-        # We always fetch full data first, then filter in memory
-        full_summary = db_manager.get_impact_summary(selected_client)
-        impact_df = db_manager.get_action_impact(selected_client)
+    # Get impact data using auto time-lag matching (cached)
+    with st.spinner("Calculating impact..."):
+        # Use cached fetcher
+        test_mode = st.session_state.get('test_mode', False)
+        # Use data upload timestamp as cache version to invalidate on re-upload
+        cache_version = str(st.session_state.get('data_upload_timestamp', 'v1'))
+        impact_df, full_summary = _fetch_impact_data(selected_client, test_mode, cache_version)
     
     if full_summary['total_actions'] == 0:
         st.info("No actions with matching 'next week' performance data found. This means either:\n"
@@ -721,15 +746,18 @@ def get_recent_impact_summary() -> Optional[dict]:
         return None
         
     try:
-        # Get available dates (same as Impact tab)
-        available_dates = db_manager.get_available_dates(selected_client)
-        if not available_dates:
-            return None
-        
-        # Get full impact data (same as Impact tab line 100)
-        impact_df = db_manager.get_action_impact(selected_client)
+        # USE CACHED DATA FETCHER
+        test_mode = st.session_state.get('test_mode', False)
+        # Use data upload timestamp as cache version
+        cache_version = str(st.session_state.get('data_upload_timestamp', 'v1'))
+        impact_df, _ = _fetch_impact_data(selected_client, test_mode, cache_version)
         
         if impact_df.empty:
+            return None
+            
+        # Get available dates (fast, usually cached internally by DB manager if needed, but cheap query)
+        available_dates = db_manager.get_available_dates(selected_client)
+        if not available_dates:
             return None
         
         # Apply 30D filter (same as Impact tab lines 120-130)

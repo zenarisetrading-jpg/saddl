@@ -1459,6 +1459,8 @@ If Auto outperforms Manual: Discovery is working - harvest more aggressively
             st.rerun()
 
 
+
+
 def get_dynamic_key_insights() -> list:
     """
     Extract ranked signals from the assistant's knowledge graph.
@@ -1476,25 +1478,65 @@ def get_dynamic_key_insights() -> list:
     """
     import streamlit as st
     
-    # Default insights when no data
     default_insights = [
         {"type": "positive", "title": "Ready to analyze", "subtitle": "Upload data to start", "icon_type": "info", "strength": 0},
         {"type": "positive", "title": "Optimizer available", "subtitle": "Run to get recommendations", "icon_type": "info", "strength": 0},
         {"type": "watch", "title": "Impact tracking", "subtitle": "Configure and run", "icon_type": "note", "strength": 0}
     ]
     
+    # Manual cache - check if we already have insights computed
+    opt_res = st.session_state.get('optimizer_results') or st.session_state.get('latest_optimizer_run')
+    
+    # Create a cache key based on whether optimizer has data
+    cache_key = 'cached_key_insights'
+    has_opt_data = opt_res and 'df' in opt_res and not opt_res['df'].empty
+    
+    # Check cache - only use if optimizer state hasn't changed
+    if cache_key in st.session_state:
+        cached = st.session_state[cache_key]
+        cached_has_data = cached.get('has_data', False)
+        cached_insights = cached.get('insights', default_insights)
+        
+        # If states match, use cache
+        if cached_has_data == has_opt_data:
+            return cached_insights
+    
     try:
-        # Try to get the assistant's knowledge graph
-        assistant = AssistantModule()
-        df = assistant._construct_granular_dataset()
+        # First check if optimizer has been run (fastest path)
+        if has_opt_data:
+            # Optimizer has run - build insights from optimizer results
+            try:
+                assistant = AssistantModule()
+                df = opt_res['df']
+                
+                # Validate the dataframe is usable
+                if df is None or df.empty:
+                    # Dataframe became invalid - fall back to reconstructing
+                    df = assistant._construct_granular_dataset()
+                    if df.empty:
+                        # Still no data - try database fallback
+                        return _get_insights_from_database()
+                
+                knowledge = assistant._build_knowledge_graph(df)
+            except Exception as e:
+                # If optimizer data is corrupted, try to rebuild
+                assistant = AssistantModule()
+                df = assistant._construct_granular_dataset()
+                if df.empty:
+                    return _get_insights_from_database()
+                knowledge = assistant._build_knowledge_graph(df)
+        else:
+            # No optimizer results - try to build from raw data
+            assistant = AssistantModule()
+            df = assistant._construct_granular_dataset()
+            
+            if df.empty:
+                return _get_insights_from_database()
+            
+            knowledge = assistant._build_knowledge_graph(df)
         
-        if df.empty:
-            return default_insights
-        
-        knowledge = assistant._build_knowledge_graph(df)
-        
-        if "error" in knowledge:
-            return default_insights
+        if "error" in knowledge or not knowledge:
+            return _get_insights_from_database()
         
         signals = []
         
@@ -1634,9 +1676,12 @@ def get_dynamic_key_insights() -> list:
             else:
                 result.append(default_insights[len(result)])
         
+        # Cache the result
+        st.session_state[cache_key] = {'has_data': has_opt_data, 'insights': result[:3]}
         return result[:3]
         
     except Exception as e:
-        # Fail gracefully
+        # Fail gracefully - cache default insights too
+        st.session_state[cache_key] = {'has_data': has_opt_data if 'has_opt_data' in locals() else False, 'insights': default_insights}
         return default_insights
 

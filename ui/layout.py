@@ -237,7 +237,7 @@ def render_home():
                     health_data = db_manager.get_account_health(selected_client)
                     if health_data:
                         roas_score = health_data.get('roas_score', 0)
-                        efficiency_score = health_data.get('waste_score', 0)  # Actually efficiency_score in DB
+                        efficiency_score = health_data.get('waste_score', 0)  # DB column is waste_score
                         cvr_score = health_data.get('cvr_score', 0)
                 except:
                     pass
@@ -309,8 +309,10 @@ def render_home():
     theme_mode = st.session_state.get('theme_mode', 'dark')
     
     # Get dynamic insights from knowledge graph (same data as AI assistant)
+    # Show loading state to improve perceived performance
     from features.assistant import get_dynamic_key_insights
-    insights = get_dynamic_key_insights()
+    with st.spinner(""):  # Empty spinner to avoid text, just shows loading indicator
+        insights = get_dynamic_key_insights()
     
     # Icon definitions
     def get_insight_icon(icon_type):

@@ -173,6 +173,9 @@ class DataHub:
             st.session_state.last_stats_save['client_id'] = client_id
             st.session_state.last_stats_save['start_date'] = start_date
             
+            # Update global timestamp to invalidate impact cache
+            st.session_state['data_upload_timestamp'] = datetime.now().timestamp()
+            
             return True, f"Loaded & Saved {saved_count:,} rows to Account '{client_id}' ({len(col_map)} cols mapped)"
             
         except Exception as e:
