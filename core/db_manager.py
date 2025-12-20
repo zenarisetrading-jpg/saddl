@@ -14,6 +14,13 @@ import pandas as pd
 import uuid
 import os
 
+# Load environment variables from .env file
+try:
+    from dotenv import load_dotenv
+    load_dotenv()
+except ImportError:
+    pass  # dotenv not installed, rely on system env vars
+
 
 class DatabaseManager:
     """

@@ -165,6 +165,25 @@ class PostgresManager:
                         updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
                     )
                 """)
+                
+                # Account Health Metrics (for Home page cockpit)
+                cursor.execute("""
+                    CREATE TABLE IF NOT EXISTS account_health_metrics (
+                        client_id TEXT PRIMARY KEY,
+                        health_score DOUBLE PRECISION,
+                        roas_score DOUBLE PRECISION,
+                        waste_score DOUBLE PRECISION,
+                        cvr_score DOUBLE PRECISION,
+                        waste_ratio DOUBLE PRECISION,
+                        wasted_spend DOUBLE PRECISION,
+                        current_roas DOUBLE PRECISION,
+                        current_acos DOUBLE PRECISION,
+                        cvr DOUBLE PRECISION,
+                        total_spend DOUBLE PRECISION,
+                        total_sales DOUBLE PRECISION,
+                        updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+                    )
+                """)
 
     def save_weekly_stats(self, client_id: str, start_date: date, end_date: date, spend: float, sales: float, roas: Optional[float] = None) -> int:
         if roas is None:
@@ -612,3 +631,295 @@ class PostgresManager:
                     return result
                 return None
 
+    # ==========================================
+    # ACCOUNT HEALTH METHODS
+    # ==========================================
+    
+    def save_account_health(self, client_id: str, metrics: Dict[str, Any]) -> bool:
+        """Save or update account health metrics."""
+        try:
+            with self._get_connection() as conn:
+                with conn.cursor() as cursor:
+                    cursor.execute("""
+                        INSERT INTO account_health_metrics 
+                        (client_id, health_score, roas_score, waste_score, cvr_score,
+                         waste_ratio, wasted_spend, current_roas, current_acos, cvr,
+                         total_spend, total_sales, updated_at)
+                        VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, CURRENT_TIMESTAMP)
+                        ON CONFLICT (client_id) DO UPDATE SET
+                            health_score = EXCLUDED.health_score,
+                            roas_score = EXCLUDED.roas_score,
+                            waste_score = EXCLUDED.waste_score,
+                            cvr_score = EXCLUDED.cvr_score,
+                            waste_ratio = EXCLUDED.waste_ratio,
+                            wasted_spend = EXCLUDED.wasted_spend,
+                            current_roas = EXCLUDED.current_roas,
+                            current_acos = EXCLUDED.current_acos,
+                            cvr = EXCLUDED.cvr,
+                            total_spend = EXCLUDED.total_spend,
+                            total_sales = EXCLUDED.total_sales,
+                            updated_at = CURRENT_TIMESTAMP
+                    """, (
+                        client_id,
+                        metrics.get('health_score', 0),
+                        metrics.get('roas_score', 0),
+                        metrics.get('efficiency_score', metrics.get('waste_score', 0)),
+                        metrics.get('cvr_score', 0),
+                        metrics.get('waste_ratio', 0),
+                        metrics.get('wasted_spend', 0),
+                        metrics.get('current_roas', 0),
+                        metrics.get('current_acos', 0),
+                        metrics.get('cvr', 0),
+                        metrics.get('total_spend', 0),
+                        metrics.get('total_sales', 0)
+                    ))
+            return True
+        except Exception as e:
+            print(f"Failed to save account health: {e}")
+            return False
+    
+    def get_account_health(self, client_id: str) -> Optional[Dict[str, Any]]:
+        """Get account health metrics from database."""
+        with self._get_connection() as conn:
+            with conn.cursor() as cursor:
+                cursor.execute(
+                    "SELECT * FROM account_health_metrics WHERE client_id = %s",
+                    (client_id,)
+                )
+                row = cursor.fetchone()
+                return dict(row) if row else None
+
+    # ==========================================
+    # IMPACT DASHBOARD METHODS
+    # ==========================================
+    
+    def get_available_dates(self, client_id: str) -> List[str]:
+        """Get list of unique action dates for a client."""
+        with self._get_connection() as conn:
+            with conn.cursor() as cursor:
+                cursor.execute("""
+                    SELECT DISTINCT DATE(action_date) as action_date 
+                    FROM actions_log 
+                    WHERE client_id = %s 
+                    ORDER BY action_date DESC
+                """, (client_id,))
+                return [str(row['action_date']) for row in cursor.fetchall()]
+    
+    def get_action_impact(self, client_id: str) -> pd.DataFrame:
+        """
+        Get actions with before/after performance data for impact analysis.
+        Joins actions_log with target_stats to compare performance.
+        """
+        with self._get_connection() as conn:
+            query = """
+                WITH action_weeks AS (
+                    SELECT 
+                        a.action_date,
+                        a.action_type,
+                        a.target_text,
+                        a.campaign_name,
+                        a.ad_group_name,
+                        a.old_value,
+                        a.new_value,
+                        a.reason,
+                        DATE(a.action_date) as action_week
+                    FROM actions_log a
+                    WHERE a.client_id = %s
+                ),
+                before_stats AS (
+                    SELECT 
+                        t.target_text,
+                        t.campaign_name,
+                        t.start_date,
+                        t.spend as before_spend,
+                        t.sales as before_sales,
+                        t.orders as before_orders,
+                        t.clicks as before_clicks
+                    FROM target_stats t
+                    WHERE t.client_id = %s
+                ),
+                after_stats AS (
+                    SELECT 
+                        t.target_text,
+                        t.campaign_name,
+                        t.start_date,
+                        t.spend as after_spend,
+                        t.sales as after_sales,
+                        t.orders as after_orders,
+                        t.clicks as after_clicks
+                    FROM target_stats t
+                    WHERE t.client_id = %s
+                )
+                SELECT 
+                    aw.action_date,
+                    aw.action_type,
+                    aw.target_text,
+                    aw.campaign_name,
+                    aw.ad_group_name,
+                    aw.old_value,
+                    aw.new_value,
+                    aw.reason,
+                    COALESCE(bs.before_spend, 0) as before_spend,
+                    COALESCE(bs.before_sales, 0) as before_sales,
+                    COALESCE(afs.after_spend, 0) as after_spend,
+                    COALESCE(afs.after_sales, 0) as after_sales,
+                    COALESCE(afs.after_sales, 0) - COALESCE(bs.before_sales, 0) as delta_sales,
+                    COALESCE(afs.after_spend, 0) - COALESCE(bs.before_spend, 0) as delta_spend,
+                    COALESCE(afs.after_sales, 0) - COALESCE(afs.after_spend, 0) - 
+                        (COALESCE(bs.before_sales, 0) - COALESCE(bs.before_spend, 0)) as impact_score,
+                    CASE WHEN COALESCE(afs.after_sales, 0) > COALESCE(bs.before_sales, 0) 
+                         THEN true ELSE false END as is_winner
+                FROM action_weeks aw
+                LEFT JOIN before_stats bs ON 
+                    LOWER(aw.target_text) = LOWER(bs.target_text) AND
+                    LOWER(aw.campaign_name) = LOWER(bs.campaign_name) AND
+                    bs.start_date < aw.action_week
+                LEFT JOIN after_stats afs ON 
+                    LOWER(aw.target_text) = LOWER(afs.target_text) AND
+                    LOWER(aw.campaign_name) = LOWER(afs.campaign_name) AND
+                    afs.start_date >= aw.action_week
+                ORDER BY aw.action_date DESC
+            """
+            return pd.read_sql(query, conn, params=(client_id, client_id, client_id))
+    
+    def get_impact_summary(self, client_id: str) -> Dict[str, Any]:
+        """Get aggregated impact metrics for a client."""
+        impact_df = self.get_action_impact(client_id)
+        
+        if impact_df.empty:
+            return {
+                'total_actions': 0,
+                'net_sales_impact': 0,
+                'net_spend_change': 0,
+                'winners': 0,
+                'losers': 0,
+                'win_rate': 0,
+                'roi': 0,
+                'by_action_type': {}
+            }
+        
+        # Calculate summary
+        total_actions = len(impact_df)
+        net_sales = impact_df['delta_sales'].fillna(0).sum()
+        net_spend = impact_df['delta_spend'].fillna(0).sum()
+        winners = impact_df['is_winner'].fillna(False).sum()
+        losers = total_actions - winners
+        win_rate = (winners / total_actions * 100) if total_actions > 0 else 0
+        roi = net_sales / net_spend if net_spend != 0 else 0
+        
+        # By action type
+        by_action_type = {}
+        for action_type in impact_df['action_type'].unique():
+            type_data = impact_df[impact_df['action_type'] == action_type]
+            by_action_type[action_type] = {
+                'count': len(type_data),
+                'net_sales': type_data['delta_sales'].fillna(0).sum(),
+                'net_spend': type_data['delta_spend'].fillna(0).sum()
+            }
+        
+        return {
+            'total_actions': total_actions,
+            'net_sales_impact': net_sales,
+            'net_spend_change': net_spend,
+            'winners': int(winners),
+            'losers': int(losers),
+            'win_rate': win_rate,
+            'roi': roi,
+            'by_action_type': by_action_type
+        }
+
+    # ==========================================
+    # REFERENCE DATA STATUS
+    # ==========================================
+    
+    def get_reference_data_status(self) -> Dict[str, Any]:
+        """Check reference data freshness for sidebar badge."""
+        try:
+            with self._get_connection() as conn:
+                with conn.cursor() as cursor:
+                    cursor.execute("""
+                        SELECT 
+                            COUNT(*) as record_count,
+                            MAX(updated_at) as latest_update
+                        FROM target_stats
+                    """)
+                    row = cursor.fetchone()
+                    
+                    if not row or row['record_count'] == 0:
+                        return {'exists': False, 'is_stale': True, 'days_ago': None, 'record_count': 0}
+                    
+                    latest = row['latest_update']
+                    if latest:
+                        days_ago = (datetime.now() - latest).days
+                        is_stale = days_ago > 14
+                    else:
+                        days_ago = None
+                        is_stale = True
+                    
+                    return {
+                        'exists': True,
+                        'is_stale': is_stale,
+                        'days_ago': days_ago,
+                        'record_count': row['record_count']
+                    }
+        except:
+            return {'exists': False, 'is_stale': True, 'days_ago': None, 'record_count': 0}
+
+    # ==========================================
+    # ACCOUNT MANAGEMENT
+    # ==========================================
+    
+    def update_account(self, account_id: str, account_name: str, account_type: str = None, metadata: dict = None) -> bool:
+        """Update an existing account."""
+        import json
+        try:
+            with self._get_connection() as conn:
+                with conn.cursor() as cursor:
+                    if account_type and metadata:
+                        cursor.execute("""
+                            UPDATE accounts SET 
+                                account_name = %s, 
+                                account_type = %s, 
+                                metadata = %s,
+                                updated_at = CURRENT_TIMESTAMP
+                            WHERE account_id = %s
+                        """, (account_name, account_type, json.dumps(metadata), account_id))
+                    elif account_type:
+                        cursor.execute("""
+                            UPDATE accounts SET 
+                                account_name = %s, 
+                                account_type = %s,
+                                updated_at = CURRENT_TIMESTAMP
+                            WHERE account_id = %s
+                        """, (account_name, account_type, account_id))
+                    else:
+                        cursor.execute("""
+                            UPDATE accounts SET 
+                                account_name = %s,
+                                updated_at = CURRENT_TIMESTAMP
+                            WHERE account_id = %s
+                        """, (account_name, account_id))
+                    return cursor.rowcount > 0
+        except Exception as e:
+            print(f"Failed to update account: {e}")
+            return False
+    
+    def delete_account(self, account_id: str) -> bool:
+        """Delete an account and all its data."""
+        try:
+            with self._get_connection() as conn:
+                with conn.cursor() as cursor:
+                    # Delete related data first
+                    cursor.execute("DELETE FROM target_stats WHERE client_id = %s", (account_id,))
+                    cursor.execute("DELETE FROM weekly_stats WHERE client_id = %s", (account_id,))
+                    cursor.execute("DELETE FROM actions_log WHERE client_id = %s", (account_id,))
+                    cursor.execute("DELETE FROM category_mappings WHERE client_id = %s", (account_id,))
+                    cursor.execute("DELETE FROM advertised_product_cache WHERE client_id = %s", (account_id,))
+                    cursor.execute("DELETE FROM bulk_mappings WHERE client_id = %s", (account_id,))
+                    cursor.execute("DELETE FROM account_health_metrics WHERE client_id = %s", (account_id,))
+                    # Delete account
+                    cursor.execute("DELETE FROM accounts WHERE account_id = %s", (account_id,))
+                    return True
+        except Exception as e:
+            print(f"Failed to delete account: {e}")
+            return False

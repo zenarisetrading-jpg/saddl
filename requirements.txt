@@ -21,6 +21,7 @@ openpyxl>=3.1.0
 # firebase-admin>=6.2.0
 # Database Drivers
 psycopg2-binary>=2.9.0
+python-dotenv>=1.0.0
 plotly>=5.17.0
 
 # PDF Generation
