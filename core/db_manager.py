@@ -912,7 +912,7 @@ class DatabaseManager:
             conn.close()
 
     def save_bulk_mapping(self, df: pd.DataFrame, client_id: str):
-        """Save bulk ID mapping to database."""
+        """Save bulk ID mapping to database, including bid data."""
         if df is None or df.empty:
             return 0
             
@@ -936,10 +936,29 @@ class DatabaseManager:
             tgt_expr_col = next((c for c in df.columns if c.lower() in ['product targeting expression', 'targetingexpression']), None)
             mt_col = 'Match Type' if 'Match Type' in df.columns else None
             
+            # Locate bid columns
+            agb_col = next((c for c in df.columns if c.lower() in ['ad group default bid', 'adgroupdefaultbid']), None)
+            bid_col = 'Bid' if 'Bid' in df.columns else None
+            
             for _, row in df.iterrows():
                 # We need at least Campaign Name
                 if 'Campaign Name' not in row:
                     continue
+                
+                # Parse bid values
+                agb_val = None
+                if agb_col and pd.notna(row.get(agb_col)):
+                    try:
+                        agb_val = float(row[agb_col])
+                    except:
+                        pass
+                        
+                bid_val = None
+                if bid_col and pd.notna(row.get(bid_col)):
+                    try:
+                        bid_val = float(row[bid_col])
+                    except:
+                        pass
                     
                 data.append((
                     client_id,
@@ -952,20 +971,23 @@ class DatabaseManager:
                     str(row[tgt_expr_col]) if tgt_expr_col and pd.notna(row.get(tgt_expr_col)) else None,
                     str(row[tid_col]) if tid_col and pd.notna(row.get(tid_col)) else None,
                     str(row[sku_col]) if sku_col and pd.notna(row.get(sku_col)) else None,
-                    str(row[mt_col]) if mt_col and pd.notna(row.get(mt_col)) else None
+                    str(row[mt_col]) if mt_col and pd.notna(row.get(mt_col)) else None,
+                    agb_val,  # Ad Group Default Bid
+                    bid_val   # Keyword/Target Bid
                 ))
             
             cursor.executemany("""
                 INSERT OR REPLACE INTO bulk_mappings 
                 (client_id, campaign_name, campaign_id, ad_group_name, ad_group_id, 
-                 keyword_text, keyword_id, targeting_expression, targeting_id, sku, match_type, updated_at)
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP)
+                 keyword_text, keyword_id, targeting_expression, targeting_id, sku, match_type,
+                 ad_group_default_bid, keyword_bid, updated_at)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP)
             """, data)
             
             return len(data)
 
     def get_bulk_mapping(self, client_id: str) -> pd.DataFrame:
-        """Get bulk mapping from database."""
+        """Get bulk mapping from database, including bid data."""
         conn = sqlite3.connect(str(self.db_path))
         try:
             return pd.read_sql("""
@@ -979,7 +1001,9 @@ class DatabaseManager:
                     targeting_expression as 'Product Targeting Expression',
                     targeting_id as 'TargetingId',
                     sku as SKU,
-                    match_type as 'Match Type'
+                    match_type as 'Match Type',
+                    ad_group_default_bid as 'Ad Group Default Bid',
+                    keyword_bid as 'Bid'
                 FROM bulk_mappings 
                 WHERE client_id = ?
             """, conn, params=(client_id,))

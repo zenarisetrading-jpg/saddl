@@ -1035,6 +1035,11 @@ def _process_bucket(segment_df: pd.DataFrame, config: dict, min_clicks: int, buc
         agg_cols["Current Bid"] = "max"
     if "CPC" in segment_df.columns:
         agg_cols["CPC"] = "mean"
+    # NEW: Include bid columns from bulk file if available
+    if "Ad Group Default Bid" in segment_df.columns:
+        agg_cols["Ad Group Default Bid"] = "first"
+    if "Bid" in segment_df.columns:
+        agg_cols["Bid"] = "first"
         
     grouped = segment_df.groupby(["Campaign Name", "Ad Group Name", "_group_key"], as_index=False).agg({**agg_cols, **meta_cols})
     grouped = grouped.drop(columns=["_group_key"], errors="ignore")
@@ -1095,7 +1100,12 @@ def _process_bucket(segment_df: pd.DataFrame, config: dict, min_clicks: int, buc
     def apply_optimization(r):
         clicks = r["Clicks"]
         roas = r["ROAS"]
-        base_bid = float(r.get("Current Bid", 0) or r.get("CPC", 0) or 0)
+        # Priority: Bid (from bulk) → Ad Group Default Bid (from bulk) → CPC (from STR)
+        base_bid = float(
+            r.get("Bid") if pd.notna(r.get("Bid")) and r.get("Bid") > 0 else
+            r.get("Ad Group Default Bid") if pd.notna(r.get("Ad Group Default Bid")) and r.get("Ad Group Default Bid") > 0 else
+            r.get("Current Bid", 0) or r.get("CPC", 0) or 0
+        )
         
         if base_bid <= 0:
             return 0.0, "Hold: No Bid/CPC Data", "Hold (No Data)"

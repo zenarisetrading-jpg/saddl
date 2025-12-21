@@ -276,6 +276,50 @@ class MappingEngine:
             # Cleanup
             enriched.drop(columns=['_camp_norm', '_ag_norm', '_target_norm'], inplace=True, errors='ignore')
         
+        # ========== PHASE 3: Bid Columns ===========
+        # Map Ad Group Default Bid and Keyword Bid from bulk file
+        if 'Ad Group Default Bid' in bulk.columns or 'Bid' in bulk.columns:
+            # Normalize keys for matching
+            enriched['_camp_norm'] = MappingEngine.normalize(enriched['Campaign Name'])
+            enriched['_ag_norm'] = MappingEngine.normalize(enriched['Ad Group Name'])
+            
+            bulk_norm = bulk.copy()
+            bulk_norm['_camp_norm'] = MappingEngine.normalize(bulk_norm['Campaign Name'])
+            bulk_norm['_ag_norm'] = MappingEngine.normalize(bulk_norm['Ad Group Name'])
+            
+            # Build bid lookup: Campaign + Ad Group -> Bid values
+            bid_cols = ['_camp_norm', '_ag_norm']
+            if 'Ad Group Default Bid' in bulk.columns:
+                bid_cols.append('Ad Group Default Bid')
+            if 'Bid' in bulk.columns:
+                bid_cols.append('Bid')
+            
+            # Aggregate: take mean of available bids per Campaign + Ad Group
+            agg_dict = {col: 'mean' for col in bid_cols if col not in ['_camp_norm', '_ag_norm']}
+            bid_lookup = bulk_norm[bid_cols].groupby(['_camp_norm', '_ag_norm']).agg(agg_dict).reset_index()
+            
+            # Merge bid data
+            enriched = enriched.merge(bid_lookup, on=['_camp_norm', '_ag_norm'], how='left', suffixes=('', '_bulk'))
+            
+            # Handle suffix conflicts
+            for col in ['Ad Group Default Bid', 'Bid']:
+                bulk_col = f'{col}_bulk'
+                if bulk_col in enriched.columns:
+                    if col not in enriched.columns:
+                        enriched[col] = enriched[bulk_col]
+                    else:
+                        enriched[col] = enriched[col].fillna(enriched[bulk_col])
+                    enriched.drop(columns=[bulk_col], inplace=True, errors='ignore')
+            
+            # Stats
+            if 'Ad Group Default Bid' in enriched.columns:
+                stats['default_bid_matched'] = enriched['Ad Group Default Bid'].notna().sum()
+            if 'Bid' in enriched.columns:
+                stats['bid_matched'] = enriched['Bid'].notna().sum()
+            
+            # Cleanup
+            enriched.drop(columns=['_camp_norm', '_ag_norm'], inplace=True, errors='ignore')
+        
         return enriched, stats
     
     # =========================================================================
