@@ -541,35 +541,42 @@ def _render_waterfall_chart(summary: Dict[str, Any]):
 
 
 def _render_winners_losers_chart(impact_df: pd.DataFrame):
-    """Render top positive impact and baseline bar chart."""
+    """Render top winners and losers based on raw performance."""
     
-    # Trending up icon 
+    # Chart icon 
     icon_color = "#8F8CA3"
-    trending_icon = f'<svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="{icon_color}" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="vertical-align: middle; margin-right: 8px;"><polyline points="23 6 13.5 15.5 8.5 10.5 1 18"></polyline><polyline points="17 6 23 6 23 12"></polyline></svg>'
-    st.markdown(f"### {trending_icon}Positive Impact & Baseline", unsafe_allow_html=True)
+    chart_icon = f'<svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="{icon_color}" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="vertical-align: middle; margin-right: 8px;"><line x1="18" y1="20" x2="18" y2="10"></line><line x1="12" y1="20" x2="12" y2="4"></line><line x1="6" y1="20" x2="6" y2="14"></line></svg>'
+    st.markdown(f"### {chart_icon}Biggest Winners & Losers", unsafe_allow_html=True)
     
-    if impact_df.empty or 'impact_score' not in impact_df.columns:
+    if impact_df.empty:
         st.info("No impact data available")
         return
     
-    # Filter to rows with impact data
-    has_data = impact_df['impact_score'].notna()
-    df = impact_df[has_data].copy()
+    # Calculate RAW individual performance for the chart (not prorated)
+    # This allows actual losers to show as negative even in a growing account
+    df = impact_df.copy()
+    df['raw_perf'] = df['delta_sales'].fillna(0) - df['delta_spend'].fillna(0)
+    
+    # Filter to targets that actually had activity
+    df = df[(df['before_spend'] > 0) | (df['after_spend'] > 0)]
     
     if df.empty:
-        st.info("No matched actions found")
+        st.info("No matched actions with performance data found")
         return
     
-    # Get top 5 winners and losers
-    df_sorted = df.sort_values('impact_score', ascending=False)
-    winners = df_sorted.head(5)
-    losers = df_sorted.tail(5).sort_values('impact_score', ascending=True)
+    # Get top 5 winners and bottom 5 losers
+    winners = df.sort_values('raw_perf', ascending=False).head(5)
+    losers = df.sort_values('raw_perf', ascending=True).head(5)
+    
+    # Filter out winners that aren't actually positive or losers that aren't actually negative if desired
+    # But usually, showing the extremities is better
     
     # Combine for chart
-    chart_df = pd.concat([winners, losers])
+    chart_df = pd.concat([winners, losers]).drop_duplicates().sort_values('raw_perf', ascending=False)
     chart_df['target_short'] = chart_df['target_text'].str[:25] + '...'
+    
     # Brand-aligned palette: Muted violet for positive, muted wine for negative
-    chart_df['color'] = chart_df['impact_score'].apply(
+    chart_df['color'] = chart_df['raw_perf'].apply(
         lambda x: "rgba(91, 85, 111, 0.6)" if x > 0 else "rgba(136, 19, 55, 0.5)"
     )
     
@@ -577,10 +584,10 @@ def _render_winners_losers_chart(impact_df: pd.DataFrame):
     
     fig.add_trace(go.Bar(
         y=chart_df['target_short'],
-        x=chart_df['impact_score'],
+        x=chart_df['raw_perf'],
         orientation='h',
         marker_color=chart_df['color'],
-        text=[f"${v:+,.0f}" for v in chart_df['impact_score']],
+        text=[f"${v:+,.0f}" for v in chart_df['raw_perf']],
         textposition='outside'
     ))
     
