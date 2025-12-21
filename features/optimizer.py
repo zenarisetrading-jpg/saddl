@@ -2407,8 +2407,8 @@ class OptimizerModule(BaseFeature):
         </div>
         """, unsafe_allow_html=True)
         
-        # Define preferred column order
-        preferred_cols = ["Targeting", "Campaign Name", "Match Type", "Clicks", "Orders", "Sales", "ROAS", "Current Bid", "CPC", "New Bid", "Reason", "Decision_Basis", "Bucket"]
+        # Define preferred column order (includes bid columns from bulk file)
+        preferred_cols = ["Targeting", "Campaign Name", "Match Type", "Clicks", "Orders", "Sales", "ROAS", "Ad Group Default Bid", "Bid", "CPC", "New Bid", "Reason", "Decision_Basis", "Bucket"]
         
         # sub-navigation for bids
         bid_tabs = [
