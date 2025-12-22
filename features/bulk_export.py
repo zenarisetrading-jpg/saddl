@@ -402,6 +402,17 @@ def generate_bids_bulk(bids_df: pd.DataFrame) -> Tuple[pd.DataFrame, int]:
         if has_kwid and has_ptid:
             issues.append({"row": row_num, "code": "BID005", "msg": "Row has both Keyword Id and PT Id", "severity": "error"})
     
+    # --- FINAL SORT: Complete rows first, problematic rows at bottom ---
+    # For bids: need Campaign Id + (Keyword Id OR PT Id)
+    has_campaign = df["Campaign Id"].notna() & (df["Campaign Id"].astype(str).str.strip() != "")
+    has_kwid_col = df["Keyword Id"].notna() & (df["Keyword Id"].astype(str).str.strip() != "")
+    has_ptid_col = df["Product Targeting Id"].notna() & (df["Product Targeting Id"].astype(str).str.strip() != "")
+    has_entity_id = has_kwid_col | has_ptid_col
+    
+    df["_is_complete"] = has_campaign & has_entity_id
+    df = df.sort_values("_is_complete", ascending=False).reset_index(drop=True)
+    df.drop(columns=["_is_complete"], inplace=True)
+    
     return df, issues
 
 
