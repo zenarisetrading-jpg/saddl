@@ -563,6 +563,127 @@ def identify_harvest_candidates(
 # NEGATIVE DETECTION
 # ==========================================
 
+def enrich_with_ids(df: pd.DataFrame, bulk: pd.DataFrame) -> pd.DataFrame:
+    """
+    Unified high-precision ID mapping helper.
+    Matches by Campaign, Ad Group, and Targeting Text (Keyword/PT).
+    Synchronizes OptimizationRecommendation objects.
+    """
+    if df.empty or bulk is None or bulk.empty:
+        return df
+        
+    def normalize_for_mapping(series):
+        """
+        Normalize and strip prefixes for robust matching.
+        e.g., 'asin="B0123"' -> 'b0123', 'category="123"' -> '123'
+        """
+        s = series.astype(str).str.strip().str.lower()
+        # Remove common prefixes and quotes
+        s = s.str.replace(r'^(asin|category|asin-expanded|keyword-group)=', '', regex=True)
+        s = s.str.replace(r'^"', '', regex=True).str.replace(r'"$', '', regex=True)
+        # Final alphanumeric cleanup
+        return s.str.replace(r'[^a-z0-9]', '', regex=True)
+    
+    df = df.copy()
+    bulk = bulk.copy()
+    
+    # Normalize for mapping
+    df['_camp_norm'] = normalize_for_mapping(df['Campaign Name'])
+    df['_ag_norm'] = normalize_for_mapping(df.get('Ad Group Name', pd.Series([''] * len(df))))
+    
+    # Initialize ID columns if missing to avoid KeyError during resolution
+    for col in ['KeywordId', 'TargetingId']:
+        if col not in df.columns:
+            df[col] = np.nan
+    
+    # For general targeting (Search Term or Targeting column)
+    target_col = 'Term' if 'Term' in df.columns else 'Targeting'
+    df['_target_norm'] = normalize_for_mapping(df[target_col])
+    
+    bulk['_camp_norm'] = normalize_for_mapping(bulk['Campaign Name'])
+    bulk['_ag_norm'] = normalize_for_mapping(bulk.get('Ad Group Name', pd.Series([''] * len(bulk))))
+    
+    # Precise Match 1: Keywords
+    kw_col = next((c for c in ['Customer Search Term', 'Keyword Text', 'keyword_text'] if c in bulk.columns), None)
+    if kw_col:
+        bulk['_kw_norm'] = normalize_for_mapping(bulk[kw_col])
+        kw_lookup = bulk[bulk['KeywordId'].notna() & (bulk['KeywordId'] != "") & (bulk['KeywordId'] != "nan")][['_camp_norm', '_ag_norm', '_kw_norm', 'KeywordId', 'CampaignId', 'AdGroupId']].drop_duplicates()
+        
+        df = df.merge(
+            kw_lookup.rename(columns={'_kw_norm': '_target_norm'}),
+            on=['_camp_norm', '_ag_norm', '_target_norm'],
+            how='left',
+            suffixes=('', '_bulk_kw')
+        )
+        
+    # Precise Match 2: Product Targeting
+    pt_col = next((c for c in ['TargetingExpression', 'Product Targeting Expression', 'targeting_expression'] if c in bulk.columns), None)
+    if pt_col:
+        bulk['_pt_norm'] = normalize_for_mapping(bulk[pt_col])
+        pt_lookup = bulk[bulk['TargetingId'].notna() & (bulk['TargetingId'] != "") & (bulk['TargetingId'] != "nan")][['_camp_norm', '_ag_norm', '_pt_norm', 'TargetingId', 'CampaignId', 'AdGroupId']].drop_duplicates()
+        
+        df = df.merge(
+            pt_lookup.rename(columns={'_pt_norm': '_target_norm'}),
+            on=['_camp_norm', '_ag_norm', '_target_norm'],
+            how='left',
+            suffixes=('', '_bulk_pt')
+        )
+
+    # Resolve IDs
+    id_cols = ['CampaignId', 'AdGroupId', 'KeywordId', 'TargetingId']
+    for col in id_cols:
+        if col in df.columns:
+            df[col] = df[col].replace('', np.nan).replace('nan', np.nan)
+            
+        col_kw = f'{col}_bulk_kw'
+        col_pt = f'{col}_bulk_pt'
+        
+        # Priority: Exact Keyword Match > Exact PT Match > Existing
+        if col_kw in df.columns:
+            df[col] = df[col].fillna(df[col_kw])
+        if col_pt in df.columns:
+            df[col] = df[col].fillna(df[col_pt])
+            
+    # Fallback: Campaign/Ad Group IDs if still missing
+    missing_basics = df.get('CampaignId', pd.Series([np.nan]*len(df))).isna() | df.get('AdGroupId', pd.Series([np.nan]*len(df))).isna()
+    if missing_basics.any():
+        fallback_lookup = bulk.groupby(['_camp_norm', '_ag_norm'])[['CampaignId', 'AdGroupId']].first().reset_index()
+        df = df.merge(fallback_lookup, on=['_camp_norm', '_ag_norm'], how='left', suffixes=('', '_fallback'))
+        
+        df['CampaignId'] = df.get('CampaignId', pd.Series([np.nan]*len(df))).fillna(df.get('CampaignId_fallback', pd.Series([np.nan]*len(df))))
+        df['AdGroupId'] = df.get('AdGroupId', pd.Series([np.nan]*len(df))).fillna(df.get('AdGroupId_fallback', pd.Series([np.nan]*len(df))))
+
+    # Sync Recommendation Objects
+    if 'recommendation' in df.columns:
+        def sync_rec(row):
+            rec = row['recommendation']
+            if not isinstance(rec, OptimizationRecommendation):
+                return rec
+            
+            # Use mapped IDs - handle empty strings as None
+            def get_id(val):
+                if pd.isna(val) or str(val).strip() == "":
+                    return None
+                return str(val)
+
+            rec.campaign_id = get_id(row.get('CampaignId')) or rec.campaign_id
+            rec.ad_group_id = get_id(row.get('AdGroupId')) or rec.ad_group_id
+            rec.keyword_id = get_id(row.get('KeywordId')) or rec.keyword_id
+            rec.product_targeting_id = get_id(row.get('TargetingId')) or rec.product_targeting_id
+            
+            # Re-validate
+            rec.validation_result = validate_recommendation(rec)
+            return rec
+            
+        df['recommendation'] = df.apply(sync_rec, axis=1)
+
+    # Cleanup internal columns
+    drop_cols = [c for c in df.columns if c.startswith('_') or c.endswith('_bulk_kw') or c.endswith('_bulk_pt') or c.endswith('_fallback')]
+    df.drop(columns=drop_cols, inplace=True, errors='ignore')
+    
+    return df
+
+
 def identify_negative_candidates(
     df: pd.DataFrame, 
     config: dict, 
@@ -607,12 +728,16 @@ def identify_negative_candidates(
         
         # Aggregate logic for Isolation Negatives (Fix for "metrics broken down by date")
         if not isolation_df.empty:
+            # Group by lowercased term to avoid case-based duplicates
+            isolation_df['_term_norm_group'] = isolation_df['Customer Search Term'].astype(str).str.strip().str.lower()
+            
             agg_cols = {"Clicks": "sum", "Spend": "sum"}
-            meta_cols = {c: "first" for c in ["CampaignId", "AdGroupId", "Campaign Targeting Type"] if c in isolation_df.columns}
+            meta_cols = {c: "first" for c in ["CampaignId", "AdGroupId", "KeywordId", "TargetingId", "Campaign Targeting Type"] if c in isolation_df.columns}
             
             isolation_agg = isolation_df.groupby(
-                ["Campaign Name", "Ad Group Name", "Customer Search Term"], as_index=False
+                ["Campaign Name", "Ad Group Name", "_term_norm_group"], as_index=False
             ).agg({**agg_cols, **meta_cols})
+            isolation_agg = isolation_agg.rename(columns={"_term_norm_group": "Customer Search Term"})
             
             # Get winner campaign for each term (to exclude from negation)
             winner_camps = dict(zip(
@@ -660,6 +785,8 @@ def identify_negative_candidates(
                     "Spend": row["Spend"],
                     "CampaignId": row.get("CampaignId", ""),
                     "AdGroupId": row.get("AdGroupId", ""),
+                    "KeywordId": row.get("KeywordId", ""),
+                    "TargetingId": row.get("TargetingId", ""),
                     "recommendation": rec # Store for UI and Export
                 })
     
@@ -669,13 +796,17 @@ def identify_negative_candidates(
     bleeders = df[non_exact_mask].copy()
     
     if not bleeders.empty:
+        # Group by lowercased term to avoid case-based duplicates
+        bleeders['_term_norm_group'] = bleeders['Customer Search Term'].astype(str).str.strip().str.lower()
+        
         # Aggregate by campaign + ad group + term
         agg_cols = {"Clicks": "sum", "Spend": "sum", "Impressions": "sum", "Sales": "sum"}
-        meta_cols = {c: "first" for c in ["CampaignId", "AdGroupId", "Campaign Targeting Type"] if c in bleeders.columns}
+        meta_cols = {c: "first" for c in ["CampaignId", "AdGroupId", "KeywordId", "TargetingId", "Campaign Targeting Type"] if c in bleeders.columns}
         
         bleeder_agg = bleeders.groupby(
-            ["Campaign Name", "Ad Group Name", "Customer Search Term"], as_index=False
+            ["Campaign Name", "Ad Group Name", "_term_norm_group"], as_index=False
         ).agg({**agg_cols, **meta_cols})
+        bleeder_agg = bleeder_agg.rename(columns={"_term_norm_group": "Customer Search Term"})
         
         # Apply CVR-based thresholds (Sales == 0 AND Clicks/Spend > threshold)
         bleeder_mask = (
@@ -724,6 +855,8 @@ def identify_negative_candidates(
                 "Spend": row["Spend"],
                 "CampaignId": row.get("CampaignId", ""),
                 "AdGroupId": row.get("AdGroupId", ""),
+                "KeywordId": row.get("KeywordId", ""),
+                "TargetingId": row.get("TargetingId", ""),
                 "recommendation": rec # Store for UI and Export
             })
     
@@ -776,103 +909,8 @@ def identify_negative_candidates(
     
     # CRITICAL: Map KeywordId and TargetingId for negatives
     # Negatives are at campaign+adgroup+term level, so we need to look up IDs
-    from core.data_hub import DataHub
-    hub = DataHub()
-    bulk = hub.get_data('bulk_id_mapping')
-    
-    if bulk is not None and not bulk.empty:
-        # Helper function to normalize strings for matching
-        def normalize_for_matching(series):
-            """Normalize text series for fuzzy matching (lowercase, alphanumeric only)."""
-            return series.astype(str).str.strip().str.lower().str.replace(r'[^a-z0-9]', '', regex=True)
-        
-        # Normalize for matching
-        neg_df['_camp_norm'] = normalize_for_matching(neg_df['Campaign Name'])
-        neg_df['_ag_norm'] = normalize_for_matching(neg_df['Ad Group Name'])
-        neg_df['_term_norm'] = normalize_for_matching(neg_df['Term'])
-        
-        bulk = bulk.copy()
-        bulk['_camp_norm'] = normalize_for_matching(bulk['Campaign Name'])
-        bulk['_ag_norm'] = normalize_for_matching(bulk['Ad Group Name'])
-        
-        # For keywords: try to match on campaign + ad group + keyword text
-        if 'Customer Search Term' in bulk.columns:
-            bulk['_kw_norm'] = normalize_for_matching(bulk['Customer Search Term'])
-            kw_lookup = bulk[bulk['KeywordId'].notna()][['_camp_norm', '_ag_norm', '_kw_norm', 'KeywordId']].drop_duplicates()
-            
-            # Try exact match on term first
-            neg_df = neg_df.merge(
-                kw_lookup.rename(columns={'_kw_norm': '_term_norm'}),
-                on=['_camp_norm', '_ag_norm', '_term_norm'],
-                how='left',
-                suffixes=('', '_exact')
-            )
-        
-        # For PT: match on campaign + ad group + PT expression
-        if 'Product Targeting Expression' in bulk.columns:
-            bulk['_pt_norm'] = normalize_for_matching(bulk['Product Targeting Expression'])
-            pt_lookup = bulk[bulk['TargetingId'].notna()][['_camp_norm', '_ag_norm', '_pt_norm', 'TargetingId']].drop_duplicates()
-            
-            neg_df = neg_df.merge(
-                pt_lookup.rename(columns={'_pt_norm': '_term_norm'}),
-                on=['_camp_norm', '_ag_norm', '_term_norm'],
-                how='left',
-                suffixes=('', '_exact')
-            )
-        
-        # Fallback: If no exact match or missing IDs, get any ID from same campaign+adgroup
-        if any(col not in neg_df.columns or (neg_df[col].isna() | (neg_df[col].astype(str) == "")).any() for col in ['KeywordId', 'TargetingId', 'CampaignId', 'AdGroupId']):
-            fallback_agg = {}
-            for col in ['KeywordId', 'TargetingId', 'CampaignId', 'AdGroupId']:
-                if col in bulk.columns:
-                    fallback_agg[col] = 'first'
-            
-            if fallback_agg:
-                id_fallback = bulk.groupby(['_camp_norm', '_ag_norm']).agg(fallback_agg).reset_index()
-                
-                neg_df = neg_df.merge(
-                    id_fallback,
-                    on=['_camp_norm', '_ag_norm'],
-                    how='left',
-                    suffixes=('', '_fallback')
-                )
-                
-                # Coalesce: use exact match if available, otherwise fallback
-                for col in fallback_agg.keys():
-                    fallback_col = f'{col}_fallback'
-                    if fallback_col in neg_df.columns:
-                        if col not in neg_df.columns:
-                            neg_df[col] = neg_df[fallback_col]
-                        else:
-                            # Use np.where to handle both NaN and empty strings
-                            neg_df[col] = np.where(
-                                (neg_df[col].isna()) | (neg_df[col].astype(str) == ""),
-                                neg_df[fallback_col],
-                                neg_df[col]
-                            )
-        
-        # Cleanup
-        neg_df.drop(columns=['_camp_norm', '_ag_norm', '_term_norm', 'KeywordId_fallback', 'TargetingId_fallback', 
-                             'KeywordId_exact', 'TargetingId_exact'], inplace=True, errors='ignore')
-        
-        # SYNC: Update Recommendation objects with the found IDs and re-validate
-        if 'recommendation' in neg_df.columns:
-            def update_and_revalidate(row):
-                rec = row['recommendation']
-                if not isinstance(rec, OptimizationRecommendation):
-                    return rec
-                
-                # Update IDs from mapped columns
-                rec.campaign_id = row.get('CampaignId', rec.campaign_id)
-                rec.ad_group_id = row.get('AdGroupId', rec.ad_group_id)
-                rec.keyword_id = row.get('KeywordId', None)
-                rec.targeting_id = row.get('TargetingId', None)
-                
-                # Re-validate now that we have more ID info
-                rec.validation_result = validate_recommendation(rec)
-                return rec
-                
-            neg_df['recommendation'] = neg_df.apply(update_and_revalidate, axis=1)
+    # FINAL ENRICHMENT: Map IDs from Bulk for export
+    neg_df = enrich_with_ids(neg_df, DataHub().get_data('bulk_id_mapping'))
     
     # Split into keywords vs product targets
     neg_kw = neg_df[~neg_df["Is_ASIN"]].copy()
@@ -1064,48 +1102,12 @@ def calculate_bid_optimizations(
     bids_auto_combined = pd.concat([bids_auto, bids_category], ignore_index=True) if not bids_category.empty else bids_auto
     
     # FINAL ENRICHMENT: Ensure IDs are present for Bulk Export
-    from core.data_hub import DataHub
     bulk = DataHub().get_data('bulk_id_mapping')
     
-    if bulk is not None and not bulk.empty:
-        def normalize_for_matching(series):
-            return series.astype(str).str.strip().str.lower().str.replace(r'[^a-z0-9]', '', regex=True)
-            
-        bulk_norm = bulk.copy()
-        bulk_norm['_camp_norm'] = normalize_for_matching(bulk_norm['Campaign Name'])
-        bulk_norm['_ag_norm'] = normalize_for_matching(bulk_norm['Ad Group Name'])
-        
-        # Build fallback ID lookup
-        fallback_cols = [c for c in ['CampaignId', 'AdGroupId', 'KeywordId', 'TargetingId'] if c in bulk_norm.columns]
-        if fallback_cols:
-            id_lookup = bulk_norm.groupby(['_camp_norm', '_ag_norm'])[fallback_cols].first().reset_index()
-            
-            # Enrich each bucket
-            enriched_buckets = []
-            for b_df in [bids_exact, bids_pt, bids_agg, bids_auto_combined]:
-                if b_df.empty:
-                    enriched_buckets.append(b_df)
-                    continue
-                    
-                b_df = b_df.copy()
-                b_df['_camp_norm'] = normalize_for_matching(b_df['Campaign Name'])
-                b_df['_ag_norm'] = normalize_for_matching(b_df['Ad Group Name'])
-                
-                b_df = b_df.merge(id_lookup, on=['_camp_norm', '_ag_norm'], how='left', suffixes=('', '_bulk'))
-                
-                # Coalesce
-                for col in fallback_cols:
-                    bulk_col = f'{col}_bulk'
-                    if bulk_col in b_df.columns:
-                        if col not in b_df.columns:
-                            b_df[col] = b_df[bulk_col]
-                        else:
-                            b_df[col] = b_df[col].fillna(b_df[bulk_col])
-                
-                b_df.drop(columns=['_camp_norm', '_ag_norm'] + [f'{c}_bulk' for c in fallback_cols if f'{c}_bulk' in b_df.columns], inplace=True, errors='ignore')
-                enriched_buckets.append(b_df)
-            
-            return tuple(enriched_buckets)
+    bids_exact = enrich_with_ids(bids_exact, bulk)
+    bids_pt = enrich_with_ids(bids_pt, bulk)
+    bids_agg = enrich_with_ids(bids_agg, bulk)
+    bids_auto_combined = enrich_with_ids(bids_auto_combined, bulk)
 
     return bids_exact, bids_pt, bids_agg, bids_auto_combined
 
@@ -1160,10 +1162,9 @@ def _process_bucket(segment_df: pd.DataFrame, config: dict, min_clicks: int, buc
     
     # Post-aggregation cleanup for auto campaigns
     if is_auto_bucket:
-        # Clear TargetingId to prevent individual ASIN IDs from appearing in bulk file
-        # The Targeting column already has the correct targeting type (close-match, loose-match, etc.)
-        if "TargetingId" in grouped.columns:
-            grouped["TargetingId"] = ""
+        # Keep TargetingId if it was successfully mapped earlier
+        # (Previously we cleared this which caused bulk export failures)
+        pass 
     
     # Calculate bucket ROAS using spend-weighted average (Total Sales / Total Spend)
     # This matches actual bucket performance, not skewed by many 0-sale rows
@@ -1236,6 +1237,7 @@ def _process_bucket(segment_df: pd.DataFrame, config: dict, min_clicks: int, buc
     opt_results = grouped.apply(apply_optimization, axis=1)
     grouped["New Bid"] = opt_results.apply(lambda x: x[0])
     grouped["Reason"] = opt_results.apply(lambda x: x[1])
+    grouped["Decision_Basis"] = opt_results.apply(lambda x: x[2])
     grouped["Bucket"] = bucket_name
     
     # SYNC: Create recommendation objects for validation

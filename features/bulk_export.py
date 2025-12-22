@@ -138,12 +138,18 @@ def validate_negatives_bulk(df: pd.DataFrame, currency: str = "USD") -> Tuple[pd
             else:
                 df.at[idx, "Keyword Id"] = ""
     
-    # --- GEN003: Missing Entity-Specific IDs ---
+    # --- GEN003: Missing Entity-Specific IDs (Only for Updates) ---
     missing_kwid_count = 0
     missing_ptid_count = 0
     for idx, row in df.iterrows():
         entity = str(row.get("Entity", "")).lower()
+        operation = str(row.get("Operation", "")).lower()
         
+        # We only care about missing IDs if we are UPDATING an existing entity
+        # If we are CREATING a new negative, it won't have an ID yet
+        if operation == "create":
+            continue
+            
         if "keyword" in entity:
             if is_blank(row.get("Keyword Id")):
                 missing_kwid_count += 1
@@ -301,16 +307,21 @@ def generate_negatives_bulk(neg_kw: pd.DataFrame, neg_pt: pd.DataFrame) -> pd.Da
         df["Product"] = "Sponsored Products"
         df["Entity"] = "Negative Keyword"
         df["Operation"] = "Create"
-        df["Campaign Id"] = neg_kw.get("CampaignId", "").apply(clean_id)
-        df["Ad Group Id"] = neg_kw.get("AdGroupId", "").apply(clean_id)
+        df["Campaign Id"] = (neg_kw["CampaignId"] if "CampaignId" in neg_kw.columns else pd.Series([""] * len(neg_kw))).apply(clean_id)
+        df["Ad Group Id"] = (neg_kw["AdGroupId"] if "AdGroupId" in neg_kw.columns else pd.Series([""] * len(neg_kw))).apply(clean_id)
         df["Campaign Name"] = neg_kw["Campaign Name"]
         df["Ad Group Name"] = neg_kw["Ad Group Name"]
         # Strip any targeting prefixes from the term
         df["Keyword Text"] = neg_kw["Term"].apply(strip_targeting_prefix)
         df["Match Type"] = "negativeExact"
-        df["Keyword Id"] = neg_kw.get("KeywordId", "").apply(clean_id)
+        df["Keyword Id"] = (neg_kw["KeywordId"] if "KeywordId" in neg_kw.columns else pd.Series([""] * len(neg_kw))).apply(clean_id)
         df["Product Targeting Id"] = "" # STRICT EXCLUSIVITY
         df["State"] = "enabled"
+        
+        # FINAL CAST: Ensure all ID columns are strings
+        for col in ["Campaign Id", "Ad Group Id", "Keyword Id"]:
+            df[col] = df[col].astype(str).replace("nan", "").replace("None", "").str.strip()
+            
         frames.append(df)
         
     if neg_pt is not None and not neg_pt.empty:
@@ -325,8 +336,8 @@ def generate_negatives_bulk(neg_kw: pd.DataFrame, neg_pt: pd.DataFrame) -> pd.Da
         df["Product"] = "Sponsored Products"
         df["Entity"] = "Negative Product Targeting"
         df["Operation"] = "Create"
-        df["Campaign Id"] = neg_pt.get("CampaignId", "").apply(clean_id)
-        df["Ad Group Id"] = neg_pt.get("AdGroupId", "").apply(clean_id)
+        df["Campaign Id"] = (neg_pt["CampaignId"] if "CampaignId" in neg_pt.columns else pd.Series([""] * len(neg_pt))).apply(clean_id)
+        df["Ad Group Id"] = (neg_pt["AdGroupId"] if "AdGroupId" in neg_pt.columns else pd.Series([""] * len(neg_pt))).apply(clean_id)
         df["Campaign Name"] = neg_pt["Campaign Name"]
         df["Ad Group Name"] = neg_pt["Ad Group Name"]
         # For PT, format as asin="ASIN" expression
@@ -335,8 +346,13 @@ def generate_negatives_bulk(neg_kw: pd.DataFrame, neg_pt: pd.DataFrame) -> pd.Da
         )
         df["Match Type"] = ""  # PT should have blank match type per R2
         df["Keyword Id"] = "" # STRICT EXCLUSIVITY
-        df["Product Targeting Id"] = neg_pt.get("TargetingId", "").apply(clean_id)
+        df["Product Targeting Id"] = (neg_pt["TargetingId"] if "TargetingId" in neg_pt.columns else pd.Series([""] * len(neg_pt))).apply(clean_id)
         df["State"] = "enabled"
+        
+        # FINAL CAST: Ensure all ID columns are strings
+        for col in ["Campaign Id", "Ad Group Id", "Product Targeting Id"]:
+            df[col] = df[col].astype(str).replace("nan", "").replace("None", "").str.strip()
+            
         frames.append(df)
         
     raw_df = pd.concat(frames) if frames else pd.DataFrame(columns=EXPORT_COLUMNS)
@@ -378,8 +394,8 @@ def generate_bids_bulk(bids_df: pd.DataFrame) -> Tuple[pd.DataFrame, int]:
     
     df["Product"] = "Sponsored Products"
     df["Operation"] = "Update"
-    df["Campaign Id"] = changes.get("CampaignId", "").apply(clean_id)
-    df["Ad Group Id"] = changes.get("AdGroupId", "").apply(clean_id)
+    df["Campaign Id"] = (changes["CampaignId"] if "CampaignId" in changes.columns else pd.Series([""] * len(df))).apply(clean_id)
+    df["Ad Group Id"] = (changes["AdGroupId"] if "AdGroupId" in changes.columns else pd.Series([""] * len(df))).apply(clean_id)
     df["Campaign Name"] = changes["Campaign Name"]
     df["Ad Group Name"] = changes["Ad Group Name"]
     df["Bid"] = changes["New Bid"]
@@ -421,9 +437,8 @@ def generate_bids_bulk(bids_df: pd.DataFrame) -> Tuple[pd.DataFrame, int]:
     # CRITICAL: If Match Type is provided (Keyword), Product Targeting Expression MUST be blank
     df["Product Targeting Expression"] = np.where(df["Match Type"] != "", "", df["Product Targeting Expression"])
     
-    # ID Mapping with Clean Format & Strict Exclusivity
-    df["Keyword Id"] = changes.get("KeywordId", "").apply(clean_id)
-    df["Product Targeting Id"] = changes.get("TargetingId", "").apply(clean_id)
+    df["Keyword Id"] = (changes["KeywordId"] if "KeywordId" in changes.columns else pd.Series([""] * len(df))).apply(clean_id)
+    df["Product Targeting Id"] = (changes["TargetingId"] if "TargetingId" in changes.columns else pd.Series([""] * len(df))).apply(clean_id)
     
     # Enforce Mutual Exclusivity based on entity
     df["Keyword Id"] = np.where(df["Entity"] == "Keyword", df["Keyword Id"], "")

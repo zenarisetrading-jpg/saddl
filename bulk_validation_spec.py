@@ -1654,6 +1654,8 @@ class OptimizationRecommendation:
     campaign_targeting_type: str = "Manual"  # "Auto" or "Manual"
     ad_group_name: Optional[str] = None
     ad_group_id: Optional[str] = None
+    keyword_id: Optional[str] = None
+    product_targeting_id: Optional[str] = None
     
     # Keyword/target details
     keyword_text: Optional[str] = None
