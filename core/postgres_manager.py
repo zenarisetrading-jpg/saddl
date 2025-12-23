@@ -8,6 +8,7 @@ Handles 'ON CONFLICT' for upserts instead of 'INSERT OR REPLACE'.
 import os
 import psycopg2
 from psycopg2.extras import RealDictCursor, execute_values
+from psycopg2.pool import ThreadedConnectionPool
 from typing import Optional, List, Dict, Any, Union
 from datetime import date, datetime, timedelta
 from contextlib import contextmanager
@@ -17,16 +18,28 @@ import uuid
 class PostgresManager:
     """
     PostgreSQL persistence for Supabase / Cloud Postgres.
+    Uses connection pooling for improved performance.
     """
+    
+    _pool = None  # Class-level connection pool
     
     def __init__(self, db_url: str):
         """
-        Initialize Postgres manager.
+        Initialize Postgres manager with connection pooling.
         
         Args:
             db_url: Postgres connection string (postgres://user:pass@host:port/db)
         """
         self.db_url = db_url
+        
+        # Initialize connection pool (reuse across instances)
+        if PostgresManager._pool is None:
+            PostgresManager._pool = ThreadedConnectionPool(
+                minconn=1,
+                maxconn=10,
+                dsn=db_url
+            )
+        
         self._init_schema()
     
     @property
@@ -36,8 +49,9 @@ class PostgresManager:
     
     @contextmanager
     def _get_connection(self):
-        """Context manager for safe database connections."""
-        conn = psycopg2.connect(self.db_url, cursor_factory=RealDictCursor)
+        """Context manager for safe database connections using pool."""
+        conn = PostgresManager._pool.getconn()
+        # Set cursor factory for this connection
         try:
             yield conn
             conn.commit()
@@ -45,12 +59,12 @@ class PostgresManager:
             conn.rollback()
             raise e
         finally:
-            conn.close()
+            PostgresManager._pool.putconn(conn)
     
     def _init_schema(self):
         """Create tables if they don't exist."""
         with self._get_connection() as conn:
-            with conn.cursor() as cursor:
+            with conn.cursor(cursor_factory=RealDictCursor) as cursor:
                 # Weekly Stats Table
                 cursor.execute("""
                     CREATE TABLE IF NOT EXISTS weekly_stats (
@@ -195,7 +209,7 @@ class PostgresManager:
             roas = sales / spend if spend > 0 else 0.0
         
         with self._get_connection() as conn:
-            with conn.cursor() as cursor:
+            with conn.cursor(cursor_factory=RealDictCursor) as cursor:
                 cursor.execute("""
                     INSERT INTO weekly_stats (client_id, start_date, end_date, spend, sales, roas, updated_at)
                     VALUES (%s, %s, %s, %s, %s, %s, CURRENT_TIMESTAMP)
@@ -211,39 +225,81 @@ class PostgresManager:
                 return result['id'] if result else 0
 
     def save_target_stats_batch(self, df: pd.DataFrame, client_id: str, start_date: Union[date, str] = None) -> int:
+        """
+        Save granular target-level performance stats from Search Term Report.
+        
+        SYNCED WITH SQLite VERSION - includes auto campaign handling.
+        """
         if df is None or df.empty:
             return 0
         
-        # NOTE: Reusing the same logic from DB Manager for dataframe processing
-        # Identifying columns
+        # ==========================================
+        # CRITICAL: Auto campaign detection
+        # ==========================================
+        # For auto campaigns, use "Targeting" column (close-match, loose-match, etc.)
+        # NOT "Customer Search Term" (which has ASINs/search queries)
         target_col = None
-        for col in ['Customer Search Term', 'Targeting', 'Keyword Text']:
-            if col in df.columns:
-                target_col = col
-                break
+        
+        # Check if we have auto campaigns
+        has_auto = False
+        if 'Match Type' in df.columns:
+            has_auto = df['Match Type'].astype(str).str.lower().isin(['auto', '-']).any()
+        
+        if has_auto and 'Targeting' in df.columns:
+            # For auto campaigns, prioritize Targeting column
+            target_col = 'Targeting'
+        else:
+            # For other campaigns, look for these columns in order
+            for col in ['Customer Search Term', 'Targeting', 'Keyword Text']:
+                if col in df.columns:
+                    target_col = col
+                    break
         
         if target_col is None:
             return 0
-            
+        
+        # Required columns check
         required = ['Campaign Name', 'Ad Group Name']
         if not all(col in df.columns for col in required):
             return 0
-            
-        # Standard aggregation maps
+        
+        # Aggregation columns
         agg_cols = {}
-        if 'Spend' in df.columns: agg_cols['Spend'] = 'sum'
-        if 'Sales' in df.columns: agg_cols['Sales'] = 'sum'
-        if 'Clicks' in df.columns: agg_cols['Clicks'] = 'sum'
-        if 'Impressions' in df.columns: agg_cols['Impressions'] = 'sum'
-        if 'Orders' in df.columns: agg_cols['Orders'] = 'sum'
-        if 'Match Type' in df.columns: agg_cols['Match Type'] = 'first'
+        if 'Spend' in df.columns:
+            agg_cols['Spend'] = 'sum'
+        if 'Sales' in df.columns:
+            agg_cols['Sales'] = 'sum'
+        if 'Clicks' in df.columns:
+            agg_cols['Clicks'] = 'sum'
+        if 'Impressions' in df.columns:
+            agg_cols['Impressions'] = 'sum'
+        if 'Orders' in df.columns:
+            agg_cols['Orders'] = 'sum'
+        if 'Match Type' in df.columns:
+            agg_cols['Match Type'] = 'first'
         
         if not agg_cols:
             return 0
         
+        # Create working copy
         df_copy = df.copy()
         
-        # Date Logic
+        # ==========================================
+        # DUAL COLUMN HANDLING: Targeting + CST
+        # ==========================================
+        # Re-determine target_col with full logic
+        if 'Targeting' in df_copy.columns:
+            target_col = 'Targeting'
+        elif 'Customer Search Term' in df_copy.columns:
+            target_col = 'Customer Search Term'
+        elif 'Keyword Text' in df_copy.columns:
+            target_col = 'Keyword Text'
+        else:
+            return 0
+        
+        # ==========================================
+        # WEEKLY SPLITTING LOGIC
+        # ==========================================
         date_col = None
         for col in ['Date', 'Start Date', 'Report Date', 'date', 'start_date']:
             if col in df_copy.columns:
@@ -251,8 +307,9 @@ class PostgresManager:
                 break
         
         if date_col:
+            # Handle Date Range strings
             if df_copy[date_col].dtype == object and df_copy[date_col].astype(str).str.contains(' - ').any():
-                 df_copy[date_col] = df_copy[date_col].astype(str).str.split(' - ').str[0]
+                df_copy[date_col] = df_copy[date_col].astype(str).str.split(' - ').str[0]
             
             df_copy['_date'] = pd.to_datetime(df_copy[date_col], errors='coerce')
             df_copy['_week_start'] = df_copy['_date'].dt.to_period('W-MON').dt.start_time.dt.date
@@ -271,6 +328,7 @@ class PostgresManager:
             df_copy['_week_start'] = week_start_monday
             weeks = [week_start_monday]
         
+        # Create normalized grouping keys
         df_copy['_camp_norm'] = df_copy['Campaign Name'].astype(str).str.lower().str.strip()
         df_copy['_ag_norm'] = df_copy['Ad Group Name'].astype(str).str.lower().str.strip()
         df_copy['_target_norm'] = df_copy[target_col].astype(str).str.lower().str.strip()
@@ -278,16 +336,18 @@ class PostgresManager:
         total_saved = 0
         
         for week_start in weeks:
-            if pd.isna(week_start): continue
+            if pd.isna(week_start):
+                continue
             
             week_data = df_copy[df_copy['_week_start'] == week_start]
-            if week_data.empty: continue
+            if week_data.empty:
+                continue
             
             grouped = week_data.groupby(['_camp_norm', '_ag_norm', '_target_norm']).agg(agg_cols).reset_index()
             
             week_start_str = week_start.isoformat() if isinstance(week_start, date) else str(week_start)[:10]
             
-            # Prepare data for bulk insert
+            # Prepare records for bulk insert
             records = []
             for _, row in grouped.iterrows():
                 match_type_norm = str(row.get('Match Type', '')).lower().strip()
@@ -307,33 +367,36 @@ class PostgresManager:
             
             if records:
                 with self._get_connection() as conn:
-                    with conn.cursor() as cursor:
+                    with conn.cursor(cursor_factory=RealDictCursor) as cursor:
                         execute_values(cursor, """
                             INSERT INTO target_stats 
-                            (client_id, start_date, campaign_name, ad_group_name, target_text, match_type, spend, sales, orders, clicks, impressions, updated_at)
+                            (client_id, start_date, campaign_name, ad_group_name, target_text, 
+                             match_type, spend, sales, orders, clicks, impressions)
                             VALUES %s
-                            ON CONFLICT (client_id, start_date, campaign_name, ad_group_name, target_text) DO UPDATE SET
+                            ON CONFLICT (client_id, start_date, campaign_name, ad_group_name, target_text) 
+                            DO UPDATE SET
                                 spend = EXCLUDED.spend,
                                 sales = EXCLUDED.sales,
                                 orders = EXCLUDED.orders,
                                 clicks = EXCLUDED.clicks,
                                 impressions = EXCLUDED.impressions,
+                                match_type = EXCLUDED.match_type,
                                 updated_at = CURRENT_TIMESTAMP
                         """, records)
-                        
-                total_saved += len(records)
                 
+                total_saved += len(records)
+        
         return total_saved
 
     def get_all_weekly_stats(self) -> List[Dict[str, Any]]:
         with self._get_connection() as conn:
-            with conn.cursor() as cursor:
+            with conn.cursor(cursor_factory=RealDictCursor) as cursor:
                 cursor.execute("SELECT * FROM weekly_stats ORDER BY start_date DESC")
                 return cursor.fetchall()
     
     def get_stats_by_client(self, client_id: str) -> List[Dict[str, Any]]:
         with self._get_connection() as conn:
-            with conn.cursor() as cursor:
+            with conn.cursor(cursor_factory=RealDictCursor) as cursor:
                 cursor.execute("SELECT * FROM weekly_stats WHERE client_id = %s ORDER BY start_date DESC", (client_id,))
                 return cursor.fetchall()
 
@@ -367,7 +430,7 @@ class PostgresManager:
             
     def get_stats_by_date_range(self, start_date: date, end_date: date, client_id: Optional[str] = None) -> List[Dict[str, Any]]:
         with self._get_connection() as conn:
-            with conn.cursor() as cursor:
+            with conn.cursor(cursor_factory=RealDictCursor) as cursor:
                 if client_id:
                     cursor.execute("""
                         SELECT * FROM weekly_stats 
@@ -385,13 +448,13 @@ class PostgresManager:
     
     def get_unique_clients(self) -> List[str]:
         with self._get_connection() as conn:
-            with conn.cursor() as cursor:
+            with conn.cursor(cursor_factory=RealDictCursor) as cursor:
                 cursor.execute("SELECT DISTINCT client_id FROM weekly_stats ORDER BY client_id")
                 return [row['client_id'] for row in cursor.fetchall()]
 
     def delete_stats_by_client(self, client_id: str) -> int:
         with self._get_connection() as conn:
-            with conn.cursor() as cursor:
+            with conn.cursor(cursor_factory=RealDictCursor) as cursor:
                 cursor.execute("DELETE FROM weekly_stats WHERE client_id = %s", (client_id,))
                 rows = cursor.rowcount
                 cursor.execute("DELETE FROM target_stats WHERE client_id = %s", (client_id,))
@@ -402,14 +465,14 @@ class PostgresManager:
 
     def clear_all_stats(self) -> int:
         with self._get_connection() as conn:
-            with conn.cursor() as cursor:
+            with conn.cursor(cursor_factory=RealDictCursor) as cursor:
                 cursor.execute("DELETE FROM weekly_stats")
                 return cursor.rowcount
 
     def get_connection_status(self) -> tuple[str, str]:
         try:
             with self._get_connection() as conn:
-                with conn.cursor() as cursor:
+                with conn.cursor(cursor_factory=RealDictCursor) as cursor:
                     cursor.execute("SELECT 1")
             return "Connected (Postgres)", "green"
         except Exception as e:
@@ -417,7 +480,7 @@ class PostgresManager:
 
     def get_stats_summary(self) -> Dict[str, Any]:
         with self._get_connection() as conn:
-            with conn.cursor() as cursor:
+            with conn.cursor(cursor_factory=RealDictCursor) as cursor:
                 cursor.execute("""
                     SELECT 
                         COUNT(*) as total_records,
@@ -447,7 +510,7 @@ class PostgresManager:
             ))
             
         with self._get_connection() as conn:
-            with conn.cursor() as cursor:
+            with conn.cursor(cursor_factory=RealDictCursor) as cursor:
                 execute_values(cursor, """
                     INSERT INTO category_mappings (client_id, sku, category, sub_category, updated_at)
                     VALUES %s
@@ -460,7 +523,7 @@ class PostgresManager:
 
     def get_category_mappings(self, client_id: str) -> pd.DataFrame:
         with self._get_connection() as conn:
-            return pd.read_sql("SELECT sku as SKU, category as Category, sub_category as 'Sub-Category' FROM category_mappings WHERE client_id = %s", conn, params=(client_id,))
+            return pd.read_sql("SELECT sku as SKU, category as Category, sub_category as \"Sub-Category\" FROM category_mappings WHERE client_id = %s", conn, params=(client_id,))
 
     def save_advertised_product_map(self, df: pd.DataFrame, client_id: str):
         if df is None or df.empty: return 0
@@ -482,10 +545,10 @@ class PostgresManager:
             ))
             
         with self._get_connection() as conn:
-            with conn.cursor() as cursor:
+            with conn.cursor(cursor_factory=RealDictCursor) as cursor:
                 execute_values(cursor, """
                     INSERT INTO advertised_product_cache 
-                    (client_id, campaign_name, ad_group_name, sku, asin, updated_at)
+                    (client_id, campaign_name, ad_group_name, sku, asin)
                     VALUES %s
                     ON CONFLICT (client_id, campaign_name, ad_group_name, sku) DO UPDATE SET
                         asin = EXCLUDED.asin,
@@ -495,7 +558,7 @@ class PostgresManager:
 
     def get_advertised_product_map(self, client_id: str) -> pd.DataFrame:
         with self._get_connection() as conn:
-            return pd.read_sql("SELECT campaign_name as 'Campaign Name', ad_group_name as 'Ad Group Name', sku as SKU, asin as ASIN FROM advertised_product_cache WHERE client_id = %s", conn, params=(client_id,))
+            return pd.read_sql("SELECT campaign_name as \"Campaign Name\", ad_group_name as \"Ad Group Name\", sku as SKU, asin as ASIN FROM advertised_product_cache WHERE client_id = %s", conn, params=(client_id,))
 
     def save_bulk_mapping(self, df: pd.DataFrame, client_id: str):
         if df is None or df.empty: return 0
@@ -529,11 +592,11 @@ class PostgresManager:
             ))
             
         with self._get_connection() as conn:
-            with conn.cursor() as cursor:
+            with conn.cursor(cursor_factory=RealDictCursor) as cursor:
                 execute_values(cursor, """
                     INSERT INTO bulk_mappings 
                     (client_id, campaign_name, campaign_id, ad_group_name, ad_group_id, 
-                        keyword_text, keyword_id, targeting_expression, targeting_id, sku, match_type, updated_at)
+                        keyword_text, keyword_id, targeting_expression, targeting_id, sku, match_type)
                     VALUES %s
                     ON CONFLICT (client_id, campaign_name, ad_group_name, keyword_text, targeting_expression) DO UPDATE SET
                         campaign_id = EXCLUDED.campaign_id,
@@ -586,15 +649,20 @@ class PostgresManager:
                 action.get('campaign_name', ''),
                 action.get('ad_group_name', ''),
                 action.get('target_text', ''),
-                action.get('match_type', '')
+                action.get('match_type', ''),
+                action.get('winner_source_campaign'),  # NEW FIELD
+                action.get('new_campaign_name'),  # NEW FIELD
+                action.get('before_match_type'),  # NEW FIELD
+                action.get('after_match_type')  # NEW FIELD
             ))
             
         with self._get_connection() as conn:
-            with conn.cursor() as cursor:
+            with conn.cursor(cursor_factory=RealDictCursor) as cursor:
                 execute_values(cursor, """
                     INSERT INTO actions_log 
                     (action_date, client_id, batch_id, entity_name, action_type, old_value, new_value, 
-                        reason, campaign_name, ad_group_name, target_text, match_type)
+                     reason, campaign_name, ad_group_name, target_text, match_type,
+                     winner_source_campaign, new_campaign_name, before_match_type, after_match_type)
                     VALUES %s
                     ON CONFLICT (client_id, action_date, target_text, action_type, campaign_name) DO NOTHING
                 """, data)
@@ -604,7 +672,7 @@ class PostgresManager:
         import json
         try:
             with self._get_connection() as conn:
-                with conn.cursor() as cursor:
+                with conn.cursor(cursor_factory=RealDictCursor) as cursor:
                     metadata_json = json.dumps(metadata) if metadata else '{}'
                     cursor.execute("""
                         INSERT INTO accounts (account_id, account_name, account_type, metadata)
@@ -616,14 +684,14 @@ class PostgresManager:
 
     def get_all_accounts(self) -> List[tuple]:
         with self._get_connection() as conn:
-            with conn.cursor() as cursor:
+            with conn.cursor(cursor_factory=RealDictCursor) as cursor:
                 cursor.execute("SELECT account_id, account_name, account_type FROM accounts ORDER BY account_name")
                 return [(row['account_id'], row['account_name'], row['account_type']) for row in cursor.fetchall()]
 
     def get_account(self, account_id: str) -> Optional[Dict[str, Any]]:
         import json
         with self._get_connection() as conn:
-            with conn.cursor() as cursor:
+            with conn.cursor(cursor_factory=RealDictCursor) as cursor:
                 cursor.execute("SELECT * FROM accounts WHERE account_id = %s", (account_id,))
                 row = cursor.fetchone()
                 if row:
@@ -644,7 +712,7 @@ class PostgresManager:
         """Save or update account health metrics."""
         try:
             with self._get_connection() as conn:
-                with conn.cursor() as cursor:
+                with conn.cursor(cursor_factory=RealDictCursor) as cursor:
                     cursor.execute("""
                         INSERT INTO account_health_metrics 
                         (client_id, health_score, roas_score, waste_score, cvr_score,
@@ -666,17 +734,17 @@ class PostgresManager:
                             updated_at = CURRENT_TIMESTAMP
                     """, (
                         client_id,
-                        metrics.get('health_score', 0),
-                        metrics.get('roas_score', 0),
-                        metrics.get('efficiency_score', metrics.get('waste_score', 0)),
-                        metrics.get('cvr_score', 0),
-                        metrics.get('waste_ratio', 0),
-                        metrics.get('wasted_spend', 0),
-                        metrics.get('current_roas', 0),
-                        metrics.get('current_acos', 0),
-                        metrics.get('cvr', 0),
-                        metrics.get('total_spend', 0),
-                        metrics.get('total_sales', 0)
+                        float(metrics.get('health_score', 0)),
+                        float(metrics.get('roas_score', 0)),
+                        float(metrics.get('efficiency_score', metrics.get('waste_score', 0))),
+                        float(metrics.get('cvr_score', 0)),
+                        float(metrics.get('waste_ratio', 0)),
+                        float(metrics.get('wasted_spend', 0)),
+                        float(metrics.get('current_roas', 0)),
+                        float(metrics.get('current_acos', 0)),
+                        float(metrics.get('cvr', 0)),
+                        float(metrics.get('total_spend', 0)),
+                        float(metrics.get('total_sales', 0))
                     ))
             return True
         except Exception as e:
@@ -686,7 +754,7 @@ class PostgresManager:
     def get_account_health(self, client_id: str) -> Optional[Dict[str, Any]]:
         """Get account health metrics from database."""
         with self._get_connection() as conn:
-            with conn.cursor() as cursor:
+            with conn.cursor(cursor_factory=RealDictCursor) as cursor:
                 cursor.execute(
                     "SELECT * FROM account_health_metrics WHERE client_id = %s",
                     (client_id,)
@@ -701,7 +769,7 @@ class PostgresManager:
     def get_available_dates(self, client_id: str) -> List[str]:
         """Get list of unique action dates for a client."""
         with self._get_connection() as conn:
-            with conn.cursor() as cursor:
+            with conn.cursor(cursor_factory=RealDictCursor) as cursor:
                 cursor.execute("""
                     SELECT DISTINCT DATE(action_date) as action_date 
                     FROM actions_log 
@@ -710,82 +778,187 @@ class PostgresManager:
                 """, (client_id,))
                 return [str(row['action_date']) for row in cursor.fetchall()]
     
-    def get_action_impact(self, client_id: str) -> pd.DataFrame:
+    def get_action_impact(self, client_id: str, window_days: int = 7) -> pd.DataFrame:
         """
-        Get actions with before/after performance data for impact analysis.
-        Joins actions_log with target_stats to compare performance.
+        Calculate impact using rule-based expected outcomes.
+        
+        OPTIMIZED: Uses batch SQL for data retrieval, then applies rules in Python.
+        
+        Rules:
+        - NEGATIVE → After = $0 (blocked)
+        - HARVEST → Source After = $0, 10% lift
+        - BID_CHANGE → Use observed (can't predict)
+        - PAUSE → After = $0
         """
-        with self._get_connection() as conn:
-            query = """
-                WITH action_weeks AS (
-                    SELECT 
-                        a.action_date,
-                        a.action_type,
-                        a.target_text,
-                        a.campaign_name,
-                        a.ad_group_name,
-                        a.old_value,
-                        a.new_value,
-                        a.reason,
-                        DATE(a.action_date) as action_week
-                    FROM actions_log a
-                    WHERE a.client_id = %s
-                ),
-                before_stats AS (
-                    SELECT 
-                        t.target_text,
-                        t.campaign_name,
-                        t.start_date,
-                        t.spend as before_spend,
-                        t.sales as before_sales,
-                        t.orders as before_orders,
-                        t.clicks as before_clicks
-                    FROM target_stats t
-                    WHERE t.client_id = %s
-                ),
-                after_stats AS (
-                    SELECT 
-                        t.target_text,
-                        t.campaign_name,
-                        t.start_date,
-                        t.spend as after_spend,
-                        t.sales as after_sales,
-                        t.orders as after_orders,
-                        t.clicks as after_clicks
-                    FROM target_stats t
-                    WHERE t.client_id = %s
-                )
+        # Single batch query to get all data at once
+        query = """
+            WITH upload_dates AS (
+                SELECT start_date, ROW_NUMBER() OVER (ORDER BY start_date DESC) as rn
+                FROM (SELECT DISTINCT start_date FROM target_stats WHERE client_id = %(client_id)s) d
+            ),
+            latest AS (
                 SELECT 
-                    aw.action_date,
-                    aw.action_type,
-                    aw.target_text,
-                    aw.campaign_name,
-                    aw.ad_group_name,
-                    aw.old_value,
-                    aw.new_value,
-                    aw.reason,
-                    COALESCE(bs.before_spend, 0) as before_spend,
-                    COALESCE(bs.before_sales, 0) as before_sales,
-                    COALESCE(afs.after_spend, 0) as after_spend,
-                    COALESCE(afs.after_sales, 0) as after_sales,
-                    COALESCE(afs.after_sales, 0) - COALESCE(bs.before_sales, 0) as delta_sales,
-                    COALESCE(afs.after_spend, 0) - COALESCE(bs.before_spend, 0) as delta_spend,
-                    COALESCE(afs.after_sales, 0) - COALESCE(afs.after_spend, 0) - 
-                        (COALESCE(bs.before_sales, 0) - COALESCE(bs.before_spend, 0)) as impact_score,
-                    CASE WHEN COALESCE(afs.after_sales, 0) > COALESCE(bs.before_sales, 0) 
-                         THEN true ELSE false END as is_winner
-                FROM action_weeks aw
-                LEFT JOIN before_stats bs ON 
-                    LOWER(aw.target_text) = LOWER(bs.target_text) AND
-                    LOWER(aw.campaign_name) = LOWER(bs.campaign_name) AND
-                    bs.start_date < aw.action_week
-                LEFT JOIN after_stats afs ON 
-                    LOWER(aw.target_text) = LOWER(afs.target_text) AND
-                    LOWER(aw.campaign_name) = LOWER(afs.campaign_name) AND
-                    afs.start_date >= aw.action_week
-                ORDER BY aw.action_date DESC
-            """
-            return pd.read_sql(query, conn, params=(client_id, client_id, client_id))
+                    MAX(CASE WHEN rn = 1 THEN start_date END) as after_date,
+                    MAX(CASE WHEN rn = 2 THEN start_date END) as before_date
+                FROM upload_dates WHERE rn <= 2
+            ),
+            before_stats AS (
+                SELECT LOWER(target_text) as target_lower, LOWER(campaign_name) as campaign_lower,
+                       SUM(spend) as spend, SUM(sales) as sales
+                FROM target_stats t, latest l
+                WHERE t.client_id = %(client_id)s AND t.start_date = l.before_date
+                GROUP BY LOWER(target_text), LOWER(campaign_name)
+            ),
+            after_stats AS (
+                SELECT LOWER(target_text) as target_lower, LOWER(campaign_name) as campaign_lower,
+                       SUM(spend) as spend, SUM(sales) as sales
+                FROM target_stats t, latest l
+                WHERE t.client_id = %(client_id)s AND t.start_date = l.after_date
+                GROUP BY LOWER(target_text), LOWER(campaign_name)
+            ),
+            before_campaign AS (
+                SELECT LOWER(campaign_name) as campaign_lower, SUM(spend) as spend, SUM(sales) as sales
+                FROM target_stats t, latest l
+                WHERE t.client_id = %(client_id)s AND t.start_date = l.before_date
+                GROUP BY LOWER(campaign_name)
+            ),
+            after_campaign AS (
+                SELECT LOWER(campaign_name) as campaign_lower, SUM(spend) as spend, SUM(sales) as sales
+                FROM target_stats t, latest l
+                WHERE t.client_id = %(client_id)s AND t.start_date = l.after_date
+                GROUP BY LOWER(campaign_name)
+            )
+            SELECT 
+                a.action_date, a.action_type, a.target_text, a.campaign_name,
+                a.ad_group_name, a.old_value, a.new_value, a.reason,
+                l.before_date, l.after_date,
+                COALESCE(bs.spend, bc.spend, 0) as before_spend,
+                COALESCE(bs.sales, bc.sales, 0) as before_sales,
+                COALESCE(afs.spend, ac.spend, 0) as observed_after_spend,
+                COALESCE(afs.sales, ac.sales, 0) as observed_after_sales,
+                CASE WHEN bs.spend IS NOT NULL THEN 'target' ELSE 'campaign' END as match_level
+            FROM actions_log a
+            CROSS JOIN latest l
+            LEFT JOIN before_stats bs ON LOWER(a.target_text) = bs.target_lower AND LOWER(a.campaign_name) = bs.campaign_lower
+            LEFT JOIN after_stats afs ON LOWER(a.target_text) = afs.target_lower AND LOWER(a.campaign_name) = afs.campaign_lower
+            LEFT JOIN before_campaign bc ON LOWER(a.campaign_name) = bc.campaign_lower
+            LEFT JOIN after_campaign ac ON LOWER(a.campaign_name) = ac.campaign_lower
+            WHERE a.client_id = %(client_id)s 
+              AND LOWER(a.action_type) NOT IN ('hold', 'monitor', 'flagged')
+              AND l.before_date IS NOT NULL AND l.after_date IS NOT NULL
+            ORDER BY a.action_date DESC
+        """
+        
+        with self._get_connection() as conn:
+            df = pd.read_sql(query, conn, params={'client_id': client_id})
+        
+        if df.empty:
+            return df
+        
+        # Normalize action types
+        df['action_type'] = df['action_type'].str.upper()
+        
+        # Initialize columns
+        df['after_spend'] = 0.0
+        df['after_sales'] = 0.0
+        df['delta_spend'] = 0.0
+        df['delta_sales'] = 0.0
+        df['impact_score'] = 0.0
+        df['attribution'] = 'direct_causation'
+        df['validation_status'] = ''
+        
+        # RULE 1: NEGATIVE → After = $0, impact = cost saved
+        neg_mask = df['action_type'].isin(['NEGATIVE', 'NEGATIVE_ADD'])
+        df.loc[neg_mask, 'after_spend'] = 0.0
+        df.loc[neg_mask, 'after_sales'] = 0.0
+        df.loc[neg_mask, 'delta_spend'] = -df.loc[neg_mask, 'before_spend']
+        df.loc[neg_mask, 'delta_sales'] = -df.loc[neg_mask, 'before_sales']
+        df.loc[neg_mask, 'impact_score'] = df.loc[neg_mask, 'before_spend']  # Positive = cost saved
+        df.loc[neg_mask, 'attribution'] = 'cost_avoidance'
+        
+        # Check if negative was actually implemented
+        neg_not_impl = neg_mask & (df['observed_after_spend'] > 0)
+        df.loc[neg_not_impl, 'validation_status'] = '⚠️ NOT IMPLEMENTED'
+        neg_impl = neg_mask & (df['observed_after_spend'] == 0)
+        df.loc[neg_impl, 'validation_status'] = '✓ Confirmed blocked'
+        
+        # Special: Preventative negatives
+        prev_mask = neg_mask & (df['before_spend'] == 0)
+        df.loc[prev_mask, 'attribution'] = 'preventative'
+        df.loc[prev_mask, 'impact_score'] = 0
+        df.loc[prev_mask, 'validation_status'] = 'Preventative - no spend to save'
+        
+        # Special: Isolation negatives
+        reason_lower = df['reason'].fillna('').str.lower()
+        iso_mask = neg_mask & (reason_lower.str.contains('isolation|harvest'))
+        df.loc[iso_mask, 'attribution'] = 'isolation_negative'
+        df.loc[iso_mask, 'impact_score'] = 0
+        df.loc[iso_mask, 'validation_status'] = 'Part of harvest consolidation'
+        
+        # RULE 2: HARVEST → Source After = $0, 10% lift assumption
+        harv_mask = df['action_type'] == 'HARVEST'
+        df.loc[harv_mask, 'after_spend'] = 0.0
+        df.loc[harv_mask, 'after_sales'] = 0.0
+        df.loc[harv_mask, 'delta_spend'] = 0.0
+        df.loc[harv_mask, 'delta_sales'] = df.loc[harv_mask, 'before_sales'] * 0.10
+        df.loc[harv_mask, 'impact_score'] = df.loc[harv_mask, 'delta_sales']
+        df.loc[harv_mask, 'attribution'] = 'harvest'
+        
+        harv_not_impl = harv_mask & (df['observed_after_spend'] > 0)
+        df.loc[harv_not_impl, 'validation_status'] = '⚠️ Source still active'
+        harv_impl = harv_mask & (df['observed_after_spend'] == 0)
+        df.loc[harv_impl, 'validation_status'] = '✓ Harvested to exact'
+        
+        # RULE 3: BID_CHANGE → Use observed data (unpredictable)
+        bid_mask = df['action_type'].str.contains('BID', na=False)
+        df.loc[bid_mask, 'after_spend'] = df.loc[bid_mask, 'observed_after_spend']
+        df.loc[bid_mask, 'after_sales'] = df.loc[bid_mask, 'observed_after_sales']
+        df.loc[bid_mask, 'delta_spend'] = df.loc[bid_mask, 'observed_after_spend'] - df.loc[bid_mask, 'before_spend']
+        df.loc[bid_mask, 'delta_sales'] = df.loc[bid_mask, 'observed_after_sales'] - df.loc[bid_mask, 'before_sales']
+        df.loc[bid_mask, 'impact_score'] = df.loc[bid_mask, 'delta_sales'] - df.loc[bid_mask, 'delta_spend']
+        df.loc[bid_mask, 'validation_status'] = 'Observed data'
+        
+        # RULE 4: PAUSE → After = $0
+        pause_mask = df['action_type'].str.contains('PAUSE', na=False)
+        df.loc[pause_mask, 'after_spend'] = 0.0
+        df.loc[pause_mask, 'after_sales'] = 0.0
+        df.loc[pause_mask, 'delta_spend'] = -df.loc[pause_mask, 'before_spend']
+        df.loc[pause_mask, 'delta_sales'] = -df.loc[pause_mask, 'before_sales']
+        df.loc[pause_mask, 'impact_score'] = df.loc[pause_mask, 'delta_sales'] - df.loc[pause_mask, 'delta_spend']
+        df.loc[pause_mask, 'attribution'] = 'structural_change'
+        
+        pause_not_impl = pause_mask & (df['observed_after_spend'] > 0)
+        df.loc[pause_not_impl, 'validation_status'] = '⚠️ Still has spend'
+        pause_impl = pause_mask & (df['observed_after_spend'] == 0)
+        df.loc[pause_impl, 'validation_status'] = '✓ Confirmed paused'
+        
+        # Determine winners
+        df['is_winner'] = df['impact_score'] > 0
+        
+        # ==========================================
+        # DEDUPLICATION: Prevent counting same impact multiple times
+        # Multiple search terms can map to same ASIN/product in same campaign.
+        # Group by (campaign, action_type, before_spend, before_sales) and keep first.
+        # ==========================================
+        before_count = len(df)
+        
+        # Create dedup key from campaign + action_type + stats (rounded to avoid float issues)
+        df['_dedup_key'] = (
+            df['campaign_name'].fillna('').str.lower() + '|' +
+            df['action_type'].fillna('') + '|' +
+            df['before_spend'].round(2).astype(str) + '|' +
+            df['before_sales'].round(2).astype(str)
+        )
+        
+        # Keep first occurrence of each dedup key (preserves one representative action)
+        df = df.drop_duplicates(subset='_dedup_key', keep='first')
+        df = df.drop(columns=['_dedup_key'])
+        
+        after_count = len(df)
+        if before_count > after_count:
+            print(f"Deduplicated: {before_count} → {after_count} actions (removed {before_count - after_count} duplicates)")
+        
+        return df
     
     def get_impact_summary(self, client_id: str) -> Dict[str, Any]:
         """Get aggregated impact metrics for a client."""
@@ -841,7 +1014,7 @@ class PostgresManager:
         """Check reference data freshness for sidebar badge."""
         try:
             with self._get_connection() as conn:
-                with conn.cursor() as cursor:
+                with conn.cursor(cursor_factory=RealDictCursor) as cursor:
                     cursor.execute("""
                         SELECT 
                             COUNT(*) as record_count,
@@ -879,7 +1052,7 @@ class PostgresManager:
         import json
         try:
             with self._get_connection() as conn:
-                with conn.cursor() as cursor:
+                with conn.cursor(cursor_factory=RealDictCursor) as cursor:
                     if account_type and metadata:
                         cursor.execute("""
                             UPDATE accounts SET 
@@ -909,11 +1082,40 @@ class PostgresManager:
             print(f"Failed to update account: {e}")
             return False
     
+    def reassign_data(self, from_account: str, to_account: str, start_date: str, end_date: str) -> int:
+        """Move data between accounts for a date range."""
+        with self._get_connection() as conn:
+            with conn.cursor(cursor_factory=RealDictCursor) as cursor:
+                total_updated = 0
+                
+                # Update target_stats
+                cursor.execute("""
+                    UPDATE target_stats SET client_id = %s
+                    WHERE client_id = %s AND start_date BETWEEN %s AND %s
+                """, (to_account, from_account, start_date, end_date))
+                total_updated += cursor.rowcount
+                
+                # Update weekly_stats
+                cursor.execute("""
+                    UPDATE weekly_stats SET client_id = %s
+                    WHERE client_id = %s AND start_date BETWEEN %s AND %s
+                """, (to_account, from_account, start_date, end_date))
+                total_updated += cursor.rowcount
+                
+                # Update actions_log
+                cursor.execute("""
+                    UPDATE actions_log SET client_id = %s
+                    WHERE client_id = %s AND DATE(action_date) BETWEEN %s AND %s
+                """, (to_account, from_account, start_date, end_date))
+                total_updated += cursor.rowcount
+                
+                return total_updated
+    
     def delete_account(self, account_id: str) -> bool:
         """Delete an account and all its data."""
         try:
             with self._get_connection() as conn:
-                with conn.cursor() as cursor:
+                with conn.cursor(cursor_factory=RealDictCursor) as cursor:
                     # Delete related data first
                     cursor.execute("DELETE FROM target_stats WHERE client_id = %s", (account_id,))
                     cursor.execute("DELETE FROM weekly_stats WHERE client_id = %s", (account_id,))

@@ -125,14 +125,18 @@ To prevent `StreamlitAPIException` and ensure mathematical integrity:
 
 ## 7. Impact Analysis Logic (`features/impact_dashboard.py`)
 
-The Impact Dashboard uses a **Prorated Historical Model** to avoid the common "Inflation Trap" of multi-attribution.
+The Impact Dashboard uses a **Rule-Based Additive Model** to provide a verifiable and non-inflationary measure of optimizer performance.
 
-### The Problem: Multi-Attribution Inflation
-If a target is paused, an optimizer might claim 100% of its historical sales as a "Saving". If 10 targets are paused in the same ad group, the optimizer might claim 10x the actual ad group spend.
+### 1. The Revenue Story (Waterfall Flow)
+The dashboard narrates impact as a sequence of discrete financial events:
+- **Cost Saved**: Direct `before_spend` from negated bleeders (cost avoidance).
+- **Harvest Gains**: Assumed `10% efficiency lift` from transitioning winners to Exact Match.
+- **Bid/Pause Shifts**: Observed `(Sales Delta) - (Spend Delta)` from performance changes.
+- **Net Result**: The final sum of all unique, deduplicated impacts.
 
-### The Solution: Account-Level Proration
-1. **Ground Truth**: Calculate the absolute AED change at the Account level (Total Sales After - Total Sales Before).
-2. **Weighted Attribution**: Distribute this AED delta to individual actions based on their **Spend Weight** during the "Before" period.
-3. **Hybrid Verification**:
-   - **Financials**: Use prorated `AED` values for all totals and waterfall charts.
-   - **Winner/Loser Status**: Evaluate based on **Individual Target Performance**. If a specific target's sales dropped more than the account average, it is marked as a "Loser" regardless of overall account growth.
+### 2. Verification & Deduplication
+To ensure "Ground Truth" accuracy:
+- **Unique Action ID**: Every action is identified by a campaign/target/stats hash.
+- **Deduplication Engine**: Prevents double-counting the same search term across multiple campaigns.
+- **Window Alignment**: "Before" vs "After" periods are dynamically aligned based on the **Actual Data Upload Frequency**, ensuring no time-bias.
+- **Storyteller Engine**: A dynamic logic block at the bottom of the dashboard that interprets the waterfall result and identifies the #1 driver for the user.

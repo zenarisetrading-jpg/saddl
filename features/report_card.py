@@ -1294,32 +1294,32 @@ def get_account_health_score() -> Optional[float]:
         
         spend_quality = (converting_spend / total_spend) * 100
         
-        # 1. ROAS Score (Uses dynamic Target ROAS)
-        target_roas = st.session_state.get('opt_target_roas', 3.0)
+        # 1. ROAS Score (Baseline: 4x ROAS)
+        target_roas = 4.0  # Updated from 3.0
         actual_roas = total_sales / total_spend
         roas_score = min(100, (actual_roas / target_roas) * 100)
         
-        # 2. Efficiency Score at TARGETING level - % of spend that converts
-        targeting_col = next((c for c in df.columns if c.lower() in ['targeting', 'target_text']), None)
-        if targeting_col and conv_col:
-            targeting_agg = df.groupby(targeting_col).agg({spend_col: 'sum', conv_col: 'sum'}).reset_index()
-            converting_spend = targeting_agg[targeting_agg[conv_col] > 0][spend_col].sum()
+        # 2. Efficiency Score - % of spend that converts (ROW-LEVEL, not aggregated)
+        # Each row is Campaign->AdGroup->Target->Week, so we check conversion at that granularity
+        if conv_col:
+            # Use row-level: if this specific target-week had orders, count its spend
+            converting_spend = df[safe_numeric(df[conv_col]) > 0][spend_col].sum()
         else:
-            # Fallback to row level
-            converting_spend = df.loc[safe_numeric(df[conv_col]) > 0, spend_col].sum() if conv_col else df.loc[df[sales_col] > 0, spend_col].sum()
+            # Fallback to sales if no orders column
+            converting_spend = df[df[sales_col] > 0][spend_col].sum()
         
         efficiency_rate = (converting_spend / total_spend) * 100
-        efficiency_score = efficiency_rate  # Direct mapping: 46% converting = score of 46
+        efficiency_score = efficiency_rate  # Direct mapping: 77% converting = score of 77
         wasted_spend = total_spend - converting_spend
         waste_ratio = 100 - efficiency_rate
         
-        # 3. CVR Score (Target 5% -> 100%)
+        # 3. CVR Score (Baseline: 10% CVR → 100 score)
         clicks_col = next((c for c in df.columns if c.lower() == 'clicks'), None)
         total_clicks = df[clicks_col].sum() if clicks_col else 0
         total_orders = df[conv_col].sum() if conv_col else 0
         
         cvr = (total_orders / total_clicks * 100) if total_clicks > 0 else 0
-        cvr_score = min(100, (cvr / 5.0) * 100)
+        cvr_score = min(100, (cvr / 10.0) * 100)  # Updated from 5.0 to 10.0
         
         # Aggregate Health Score
         health_score = (roas_score * 0.4) + (efficiency_score * 0.4) + (cvr_score * 0.2)

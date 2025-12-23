@@ -17,7 +17,9 @@ import os
 # Load environment variables from .env file
 try:
     from dotenv import load_dotenv
-    load_dotenv()
+    # Use explicit path relative to this file's location
+    env_path = Path(__file__).parent.parent / '.env'
+    load_dotenv(env_path)
 except ImportError:
     pass  # dotenv not installed, rely on system env vars
 
@@ -1064,8 +1066,9 @@ class DatabaseManager:
                 cursor.execute("""
                     INSERT OR REPLACE INTO actions_log 
                     (action_date, client_id, batch_id, entity_name, action_type, old_value, new_value, 
-                     reason, campaign_name, ad_group_name, target_text, match_type)
-                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                     reason, campaign_name, ad_group_name, target_text, match_type,
+                     winner_source_campaign, new_campaign_name, before_match_type, after_match_type)
+                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                 """, (
                     date_str,
                     client_id,
@@ -1078,7 +1081,11 @@ class DatabaseManager:
                     action.get('campaign_name', ''),
                     action.get('ad_group_name', ''),
                     action.get('target_text', ''),
-                    action.get('match_type', '')
+                    action.get('match_type', ''),
+                    action.get('winner_source_campaign'),  # New field
+                    action.get('new_campaign_name'),  # New field
+                    action.get('before_match_type'),  # New field
+                    action.get('after_match_type')  # New field
                 ))
             
             return len(actions)
@@ -1130,248 +1137,212 @@ class DatabaseManager:
         self, 
         client_id: str, 
         before_date: Union[date, str] = None, 
-        after_date: Union[date, str] = None
+        after_date: Union[date, str] = None,
+        window_days: int = 7
     ) -> pd.DataFrame:
         """
-        Compare actions with before/after performance using ACCOUNT-LEVEL PRORATION.
+        Calculate impact using rule-based expected outcomes.
         
-        NEW APPROACH (fixes double-counting):
-        1. Calculate ACCOUNT-LEVEL delta for before vs after periods
-        2. Prorate the account delta to individual actions by spend weight
-        3. Sum of individual attributed deltas = account delta (no double-counting)
+        OPTIMIZED: Uses batch SQL for data retrieval, then applies rules in Python.
         
-        Args:
-            client_id: Client identifier
-            before_date: Optional - if provided, filters actions on or before this date
-            after_date: Optional - if provided, filters actions on or after this date
-            
-        Returns:
-            DataFrame with impact metrics per action (prorated from account-level)
+        Rules:
+        - NEGATIVE → After = $0 (blocked), impact = cost saved
+        - HARVEST → Source After = $0, 10% lift assumption
+        - BID_CHANGE → Use observed data (unpredictable)
+        - PAUSE → After = $0
         """
         with self._get_connection() as conn:
-            # Build date filter clause
-            date_filter = ""
-            params = [client_id]
-            if after_date:
-                date_filter += " AND DATE(a.action_date) >= ?"
-                params.append(str(after_date))
-            if before_date:
-                date_filter += " AND DATE(a.action_date) <= ?"
-                params.append(str(before_date))
-            
-            # Get all UNIQUE actions with their dates
-            actions_query = f"""
-                SELECT 
-                    MIN(a.id) as id, a.batch_id, a.action_type, a.entity_name,
-                    a.old_value, a.new_value, a.reason,
-                    a.campaign_name, a.ad_group_name, a.target_text, a.match_type,
-                    MIN(a.action_date) as action_date,
-                    DATE(a.action_date) as action_day
-                FROM actions_log a
-                WHERE a.client_id = ?{date_filter}
-                GROUP BY a.target_text, a.action_type, DATE(a.action_date), a.campaign_name
-                ORDER BY action_date DESC
+            # Get the 2 most recent upload dates
+            dates_query = """
+                SELECT DISTINCT start_date 
+                FROM target_stats 
+                WHERE client_id = ?
+                ORDER BY start_date DESC
+                LIMIT 2
             """
-            actions_df = pd.read_sql_query(actions_query, conn, params=tuple(params))
+            dates_df = pd.read_sql_query(dates_query, conn, params=(client_id,))
+            
+            if len(dates_df) < 2:
+                return pd.DataFrame()
+            
+            after_upload_date = dates_df.iloc[0]['start_date']
+            before_upload_date = dates_df.iloc[1]['start_date']
+            
+            # Get all creditable actions
+            actions_query = """
+                SELECT 
+                    a.id, a.action_date, a.action_type, a.target_text, a.campaign_name,
+                    a.ad_group_name, a.old_value, a.new_value, a.reason,
+                    a.winner_source_campaign, a.new_campaign_name
+                FROM actions_log a
+                WHERE a.client_id = ?
+                AND LOWER(a.action_type) NOT IN ('hold', 'monitor', 'flagged')
+                ORDER BY a.action_date DESC
+            """
+            actions_df = pd.read_sql_query(actions_query, conn, params=(client_id,))
             
             if actions_df.empty:
                 return pd.DataFrame()
             
-            # Get all target_stats for this client with weekly dates
-            stats_query = """
-                SELECT 
-                    target_text, campaign_name, ad_group_name, start_date,
-                    spend, sales, clicks, impressions
-                FROM target_stats
-                WHERE client_id = ?
-            """
-            stats_df = pd.read_sql_query(stats_query, conn, params=(client_id,))
-        
-        if stats_df.empty:
-            # No stats - return actions with empty impact
-            for col in ['before_spend', 'after_spend', 'before_sales', 'after_sales',
-                       'delta_spend', 'delta_sales', 'attributed_delta_sales', 
-                       'attributed_delta_spend', 'impact_score', 'is_winner']:
-                actions_df[col] = None
-            return actions_df
-        
-        # Parse dates
-        actions_df['action_date_parsed'] = pd.to_datetime(actions_df['action_date'], errors='coerce')
-        stats_df['start_date_parsed'] = pd.to_datetime(stats_df['start_date'], errors='coerce')
-        
-        # ==========================================
-        # STEP 1: Identify BEFORE and AFTER periods
-        # ==========================================
-        # Get distinct weeks where actions occurred
-        action_weeks = actions_df['action_date_parsed'].dt.to_period('W-MON').unique()
-        action_weeks = sorted([w for w in action_weeks if pd.notna(w)])
-        
-        if not action_weeks:
-            for col in ['before_spend', 'after_spend', 'before_sales', 'after_sales',
-                       'delta_spend', 'delta_sales', 'attributed_delta_sales', 
-                       'attributed_delta_spend', 'impact_score', 'is_winner']:
-                actions_df[col] = None
-            return actions_df
-        
-        # Determine the target "After" window (weeks following actions)
-        num_action_weeks = len(action_weeks)
-        
-        # Split date is the day AFTER the last action week ends
-        # Using .ceil('D') or .date() to ensure we start at 00:00:00
-        after_start_date = (action_weeks[-1].end_time + pd.Timedelta(seconds=1)).date()
-        after_start = pd.Timestamp(after_start_date)
-        
-        # Identify max available data date
-        max_stats_date = pd.Timestamp(stats_df['start_date_parsed'].max())
-        
-        # Normal end would be +X weeks
-        raw_after_end = after_start + pd.Timedelta(weeks=num_action_weeks) - pd.Timedelta(days=1)
-        
-        # Clip AFTER period to available data
-        after_end = min(raw_after_end, max_stats_date)
-        
-        # Calculate actual duration of the "After" window
-        num_days = (after_end - after_start).days + 1
-        
-        if num_days <= 0:
-            # No data in "After" period yet - return actions with None impact
-            for col in ['before_spend', 'after_spend', 'before_sales', 'after_sales',
-                       'delta_spend', 'delta_sales', 'attributed_delta_sales', 
-                       'attributed_delta_spend', 'impact_score', 'is_winner']:
-                actions_df[col] = None
-            return actions_df
+            # Get target-level stats for BEFORE period
+            before_target_df = pd.read_sql_query("""
+                SELECT LOWER(target_text) as target_lower, LOWER(campaign_name) as campaign_lower,
+                       SUM(spend) as spend, SUM(sales) as sales
+                FROM target_stats WHERE client_id = ? AND start_date = ?
+                GROUP BY LOWER(target_text), LOWER(campaign_name)
+            """, conn, params=(client_id, before_upload_date))
             
-        # Re-align BEFORE period to match the length of AFTER period exactly
-        before_end = after_start - pd.Timedelta(days=1)
-        before_start = before_end - pd.Timedelta(days=num_days - 1)
+            # Get target-level stats for AFTER period
+            after_target_df = pd.read_sql_query("""
+                SELECT LOWER(target_text) as target_lower, LOWER(campaign_name) as campaign_lower,
+                       SUM(spend) as spend, SUM(sales) as sales
+                FROM target_stats WHERE client_id = ? AND start_date = ?
+                GROUP BY LOWER(target_text), LOWER(campaign_name)
+            """, conn, params=(client_id, after_upload_date))
+            
+            # Get campaign-level stats (fallback)
+            before_campaign_df = pd.read_sql_query("""
+                SELECT LOWER(campaign_name) as campaign_lower, SUM(spend) as spend, SUM(sales) as sales
+                FROM target_stats WHERE client_id = ? AND start_date = ?
+                GROUP BY LOWER(campaign_name)
+            """, conn, params=(client_id, before_upload_date))
+            
+            after_campaign_df = pd.read_sql_query("""
+                SELECT LOWER(campaign_name) as campaign_lower, SUM(spend) as spend, SUM(sales) as sales
+                FROM target_stats WHERE client_id = ? AND start_date = ?
+                GROUP BY LOWER(campaign_name)
+            """, conn, params=(client_id, after_upload_date))
         
-        # ==========================================
-        # STEP 2: Calculate ACCOUNT-LEVEL totals
-        # ==========================================
-        before_mask = (stats_df['start_date_parsed'] >= before_start) & (stats_df['start_date_parsed'] <= before_end)
-        after_mask = (stats_df['start_date_parsed'] >= after_start) & (stats_df['start_date_parsed'] <= after_end)
-        
-        before_stats = stats_df[before_mask]
-        after_stats = stats_df[after_mask]
-        
-        account_before_spend = before_stats['spend'].sum()
-        account_before_sales = before_stats['sales'].sum()
-        account_after_spend = after_stats['spend'].sum()
-        account_after_sales = after_stats['sales'].sum()
-        
-        # TRUE account-level deltas
-        account_delta_spend = account_after_spend - account_before_spend
-        account_delta_sales = account_after_sales - account_before_sales
-        
-        # ==========================================
-        # STEP 3: Calculate per-action BEFORE spend (for weighting)
-        # ==========================================
-        # Normalize keys for joining
-        actions_df['_target_key'] = actions_df['target_text'].astype(str).str.lower().str.strip()
-        stats_df['_target_key'] = stats_df['target_text'].astype(str).str.lower().str.strip()
-        
-        # CRITICAL: Count how many actions exist per unique target
-        # This is needed to avoid double-counting when same target has multiple actions
-        target_action_counts = actions_df.groupby('_target_key').size().to_dict()
-        
-        # Pre-calculate unique target spend for weight calculation
-        unique_targets = actions_df['_target_key'].unique()
-        target_before_spend_cache = {}
-        for target_key in unique_targets:
-            target_before_filtered = before_stats[before_stats['target_text'].astype(str).str.lower().str.strip() == target_key]
-            target_before_spend_cache[target_key] = float(target_before_filtered['spend'].sum()) if not target_before_filtered.empty else 0.0
-        
-        # Calculate total spend from UNIQUE targets only (not duplicate actions)
-        unique_target_total_spend = sum(target_before_spend_cache.values())
+        # Create lookup dicts
+        before_target_lookup = {(row['target_lower'], row['campaign_lower']): row for _, row in before_target_df.iterrows()}
+        after_target_lookup = {(row['target_lower'], row['campaign_lower']): row for _, row in after_target_df.iterrows()}
+        before_campaign_lookup = {row['campaign_lower']: row for _, row in before_campaign_df.iterrows()}
+        after_campaign_lookup = {row['campaign_lower']: row for _, row in after_campaign_df.iterrows()}
         
         results = []
         
         for _, action in actions_df.iterrows():
-            target_key = action['_target_key']
+            target_lower = str(action['target_text']).lower() if action['target_text'] else ''
+            campaign_lower = str(action['campaign_name']).lower() if action['campaign_name'] else ''
+            action_type = str(action['action_type']).upper()
+            reason = str(action['reason']).lower() if action['reason'] else ''
             
-            # For weighting calculation, use target_text match
-            target_before_filtered = before_stats[before_stats['target_text'].astype(str).str.lower().str.strip() == target_key]
-            target_after_filtered = after_stats[after_stats['target_text'].astype(str).str.lower().str.strip() == target_key]
-            
-            before_spend = float(target_before_filtered['spend'].sum()) if not target_before_filtered.empty else 0.0
-            before_sales = float(target_before_filtered['sales'].sum()) if not target_before_filtered.empty else 0.0
-            after_spend = float(target_after_filtered['spend'].sum()) if not target_after_filtered.empty else 0.0
-            after_sales = float(target_after_filtered['sales'].sum()) if not target_after_filtered.empty else 0.0
-            
-            # Raw deltas (for reference, not used in totals)
-            delta_spend = after_spend - before_spend
-            delta_sales = after_sales - before_sales
-            
-            # ==========================================
-            # STEP 4: Prorate ACCOUNT delta by spend weight
-            # ==========================================
-            # Use UNIQUE target spend for weight (not double-counting)
-            if unique_target_total_spend > 0:
-                # Weight based on this target's share of total spend
-                spend_weight = before_spend / unique_target_total_spend
+            # Get before data
+            before_key = (target_lower, campaign_lower)
+            if before_key in before_target_lookup:
+                before_data = before_target_lookup[before_key]
+                match_level = 'target'
             else:
-                spend_weight = 0
+                before_data = before_campaign_lookup.get(campaign_lower, {'spend': 0, 'sales': 0})
+                match_level = 'campaign'
             
-            # Divide by number of actions for this target to avoid double-counting
-            num_actions_for_target = target_action_counts.get(target_key, 1)
-            attributed_delta_sales = (account_delta_sales * spend_weight) / num_actions_for_target
-            attributed_delta_spend = (account_delta_spend * spend_weight) / num_actions_for_target
+            before_spend = float(before_data.get('spend', 0) or 0)
+            before_sales = float(before_data.get('sales', 0) or 0)
             
-            # STEP 5: Winner/Loser Evaluation (Hybrid Logic)
-            # ==========================================
-            # USE INDIVIDUAL (RAW) performance for the Winner/Loser status
-            # This ensures individual keyword failure is correctly identified
-            raw_impact = delta_sales - delta_spend
-            is_winner = raw_impact > 0 if (before_spend > 0 or after_spend > 0) else None
+            # Get observed after data (for validation)
+            after_key = (target_lower, campaign_lower)
+            if after_key in after_target_lookup:
+                after_data = after_target_lookup[after_key]
+            else:
+                after_data = after_campaign_lookup.get(campaign_lower, {'spend': 0, 'sales': 0})
             
-            # Use ATTRIBUTED (prorated) values for global sums and scoring
-            impact_score = attributed_delta_sales - attributed_delta_spend
+            observed_after_spend = float(after_data.get('spend', 0) or 0)
+            observed_after_sales = float(after_data.get('sales', 0) or 0)
             
-            # Calculate ROAS
-            before_roas = before_sales / before_spend if before_spend > 0 else 0
-            after_roas = after_sales / after_spend if after_spend > 0 else 0
-            delta_roas = after_roas - before_roas
+            # APPLY RULES BASED ON ACTION TYPE
+            if action_type in ['NEGATIVE', 'NEGATIVE_ADD']:
+                # RULE: Blocked keyword → After = $0, impact = cost saved
+                after_spend = 0.0
+                after_sales = 0.0
+                delta_spend = -before_spend
+                delta_sales = -before_sales
+                impact_score = before_spend  # Positive = cost saved
+                
+                if 'isolation' in reason or 'harvest' in reason:
+                    attribution = 'isolation_negative'
+                    validation = 'Part of harvest consolidation'
+                    impact_score = 0
+                elif before_spend == 0:
+                    attribution = 'preventative'
+                    validation = 'Preventative - no spend to save'
+                    impact_score = 0
+                else:
+                    attribution = 'cost_avoidance'
+                    validation = '⚠️ NOT IMPLEMENTED' if observed_after_spend > 0 else '✓ Confirmed blocked'
             
-            result = action.to_dict()
-            result.update({
-                'before_spend': before_spend, 
+            elif action_type == 'HARVEST':
+                # RULE: Source → $0, 10% lift assumption
+                after_spend = 0.0
+                after_sales = 0.0
+                delta_spend = 0.0
+                delta_sales = before_sales * 0.10
+                impact_score = delta_sales
+                attribution = 'harvest'
+                validation = '⚠️ Source still active' if observed_after_spend > 0 else '✓ Harvested to exact'
+            
+            elif 'BID' in action_type:
+                # BID_CHANGE: Use observed data (can't predict)
+                after_spend = observed_after_spend
+                after_sales = observed_after_sales
+                delta_spend = observed_after_spend - before_spend
+                delta_sales = observed_after_sales - before_sales
+                impact_score = delta_sales - delta_spend
+                attribution = 'direct_causation'
+                validation = 'Observed data'
+            
+            elif 'PAUSE' in action_type:
+                # RULE: Paused → After = $0
+                after_spend = 0.0
+                after_sales = 0.0
+                delta_spend = -before_spend
+                delta_sales = -before_sales
+                impact_score = delta_sales - delta_spend
+                attribution = 'structural_change'
+                validation = '⚠️ Still has spend' if observed_after_spend > 0 else '✓ Confirmed paused'
+            
+            else:
+                # Unknown - use observed
+                after_spend = observed_after_spend
+                after_sales = observed_after_sales
+                delta_spend = observed_after_spend - before_spend
+                delta_sales = observed_after_sales - before_sales
+                impact_score = delta_sales - delta_spend
+                attribution = 'unknown'
+                validation = f'Unknown: {action_type}'
+            
+            is_winner = impact_score > 0
+            
+            results.append({
+                'action_date': action['action_date'],
+                'action_type': action_type,
+                'target_text': action['target_text'],
+                'campaign_name': action['campaign_name'],
+                'ad_group_name': action['ad_group_name'],
+                'old_value': action['old_value'],
+                'new_value': action['new_value'],
+                'reason': action['reason'],
+                'before_spend': before_spend,
+                'before_sales': before_sales,
                 'after_spend': after_spend,
-                'before_sales': before_sales, 
                 'after_sales': after_sales,
-                'delta_spend': delta_spend, 
+                'observed_after_spend': observed_after_spend,
+                'observed_after_sales': observed_after_sales,
+                'before_date': str(before_upload_date),
+                'after_date': str(after_upload_date),
                 'delta_sales': delta_sales,
-                'attributed_delta_sales': attributed_delta_sales,
-                'attributed_delta_spend': attributed_delta_spend,
-                'spend_weight': spend_weight,
-                'before_roas': before_roas, 
-                'after_roas': after_roas,
-                'delta_roas': delta_roas,
-                'impact_score': impact_score, 
+                'delta_spend': delta_spend,
+                'impact_score': impact_score,
                 'is_winner': is_winner,
-                # Metadata for debugging
-                'before_period': f"{before_start.strftime('%Y-%m-%d')} to {before_end.strftime('%Y-%m-%d')}",
-                'after_period': f"{after_start.strftime('%Y-%m-%d')} to {after_end.strftime('%Y-%m-%d')}"
+                'attribution': attribution,
+                'validation_status': validation,
+                'match_level': match_level,
+                'winner_source_campaign': action['winner_source_campaign'],
+                'new_campaign_name': action['new_campaign_name'],
+                'attributed_delta_sales': delta_sales if attribution == 'direct_causation' else 0,
+                'attributed_delta_spend': delta_spend if attribution == 'direct_causation' else 0
             })
-            results.append(result)
         
-        result_df = pd.DataFrame(results)
-        
-        # Store account-level totals as attributes for summary
-        result_df.attrs['account_before_spend'] = account_before_spend
-        result_df.attrs['account_after_spend'] = account_after_spend
-        result_df.attrs['account_before_sales'] = account_before_sales
-        result_df.attrs['account_after_sales'] = account_after_sales
-        result_df.attrs['account_delta_spend'] = account_delta_spend
-        result_df.attrs['account_delta_sales'] = account_delta_sales
-        result_df.attrs['before_period'] = f"{before_start.strftime('%Y-%m-%d')} to {before_end.strftime('%Y-%m-%d')}"
-        result_df.attrs['after_period'] = f"{after_start.strftime('%Y-%m-%d')} to {after_end.strftime('%Y-%m-%d')}"
-        
-        # Cleanup temp columns
-        for col in ['_target_key', 'action_date_parsed', 'action_day']:
-            if col in result_df.columns:
-                result_df = result_df.drop(columns=[col], errors='ignore')
-        
-        return result_df
+        return pd.DataFrame(results)
     
     def get_impact_summary(self, client_id: str, before_date: Union[date, str] = None, after_date: Union[date, str] = None) -> Dict[str, Any]:
         """

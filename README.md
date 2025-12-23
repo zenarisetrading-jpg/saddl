@@ -4,13 +4,11 @@ A high-performance Amazon PPC optimization engine designed for stability, scale,
 
 ## 🚀 Key Features (V4)
 
-- **Impact Dashboard (Verified Calculations)**: A high-fidelity analyzer that uses **Account-Level Proration** to attribute AED 16K+ in verified profit impact without double-counting.
-- **Report Card (Action Transparency)**: A executive-ready summary of every action taken, with split denominators showing the true depth of optimization (Evaluated Bids vs. Analyzed Terms).
+- **Impact Dashboard (Storytelling Flow)**: A redesigned waterfall visualizer that narrates the impact from `Actions -> Cost Saved -> Harvest Gains -> Bid Changes -> Net Result`. Includes a dynamic "Storyteller" callout that identifies the primary driver of the period.
+- **Rule-Based Impact Attribution**: More conservative and precise calculation logic that rewards spend savings (negatives) and sales lift (harvests) appropriately, with **Verified Deduplication** to prevent overcounting.
 - **Unified Decision Hub**: A consolidated dashboard merging Bid Optimization, Harvest Detection, and Negative Identification with **Session Persistence** (settings stay locked across tabs).
-- **Robust Benchmarking**: Outlier-resistant median ROAS using **Winsorization** and spend-based significance filters (Spend ≥ AED 5).
-    - **ASIN Intent Mapper**: Identify competitor ASINs and redirect wasted spend.
-    - **AI Keyword Clusters**: Leverages LLMs to group search terms by strategic intent.
-    - **Simulation Engine**: Forecast the impact of changes before you apply them.
+- **Premium Design System**: Complete SVG icon architecture and glassmorphism UI overhaul for a modern, professional aesthetic.
+- **Simulation Engine**: Forecast the impact of changes before you apply them.
 - **Precision Auditing**: A visual heatmap tracking every action taken per campaign/ad-group.
 
 ---

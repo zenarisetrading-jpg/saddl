@@ -622,13 +622,14 @@ def run_consolidated_optimizer():
         'default_client'
     )
     
-    # 2. Determine report date (defaults to max date in data if missing)
-    action_log_date = date_info.get('start_date')
+    # 2. Determine report date (use END date of data range, not start)
+    # This ensures actions are logged at the most recent data point, not the oldest
+    action_log_date = date_info.get('end_date') or date_info.get('start_date')
     if action_log_date and isinstance(action_log_date, datetime):
         action_log_date = action_log_date.strftime('%Y-%m-%d')
     elif not action_log_date:
-        # Fallback to current date or last stats save
-        action_log_date = st.session_state.get('last_stats_save', {}).get('start_date') or datetime.now().strftime('%Y-%m-%d')
+        # Fallback to current date
+        action_log_date = datetime.now().strftime('%Y-%m-%d')
     
     # Toast removed per user request
     logged_count = _log_optimization_events(r, active_client, action_log_date)
@@ -1011,10 +1012,9 @@ def main():
         
         st.divider()
         st.markdown("##### ANALYZE")
-        nav_button_chiclet("Impact & Results", impact_icon, "impact")
         nav_button_chiclet("Actions Review", check_icon, "optimizer")
-
         nav_button_chiclet("What If (Forecast)", sim_icon, "simulator")
+        nav_button_chiclet("Impact & Results", impact_icon, "impact")
         nav_button_chiclet("Launch", rocket_icon, "creator")
 
         st.divider()
@@ -1042,7 +1042,12 @@ def main():
         if st.session_state['test_mode']:
             st.caption("Using: `ppc_test.db`")
         else:
-            st.caption("Using: `ppc_live.db`")
+            # Show actual database type
+            db = st.session_state.get('db_manager')
+            if db and type(db).__name__ == 'PostgresManager':
+                st.caption("Using: `Supabase (Postgres)`")
+            else:
+                st.caption("Using: `ppc_live.db`")
             
     # Routing
     current = st.session_state.get('current_module', 'home')

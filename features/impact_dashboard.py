@@ -18,7 +18,7 @@ from datetime import datetime, timedelta
 from core.db_manager import get_db_manager
 
 @st.cache_data(ttl=300, show_spinner=False)
-def _fetch_impact_data(client_id: str, test_mode: bool, cache_version: str = "v1") -> Tuple[pd.DataFrame, Dict[str, Any]]:
+def _fetch_impact_data(client_id: str, test_mode: bool, window_days: int = 7, cache_version: str = "v1") -> Tuple[pd.DataFrame, Dict[str, Any]]:
     """
     Cached data fetcher for impact analysis.
     Prevents re-querying the DB on every rerun or tab switch.
@@ -26,11 +26,12 @@ def _fetch_impact_data(client_id: str, test_mode: bool, cache_version: str = "v1
     Args:
         client_id: Account ID
         test_mode: Whether using test database
+        window_days: Number of days for before/after comparison window
         cache_version: Version string that changes when data is uploaded (invalidates cache)
     """
     try:
         db = get_db_manager(test_mode)
-        impact_df = db.get_action_impact(client_id)
+        impact_df = db.get_action_impact(client_id, window_days=window_days)
         full_summary = db.get_impact_summary(client_id)
         return impact_df, full_summary
     except Exception as e:
@@ -122,7 +123,10 @@ def render_impact_dashboard():
         test_mode = st.session_state.get('test_mode', False)
         # Use data upload timestamp as cache version to invalidate on re-upload
         cache_version = str(st.session_state.get('data_upload_timestamp', 'v1'))
-        impact_df, full_summary = _fetch_impact_data(selected_client, test_mode, cache_version)
+        # Parse time frame to days for the before/after comparison window
+        time_frame_days = {"7D": 7, "14D": 14, "30D": 30, "60D": 60, "90D": 90}
+        window_days = time_frame_days.get(time_frame, 7)
+        impact_df, full_summary = _fetch_impact_data(selected_client, test_mode, window_days, cache_version)
     
     if full_summary['total_actions'] == 0:
         st.info("No actions with matching 'next week' performance data found. This means either:\n"
@@ -130,8 +134,9 @@ def render_impact_dashboard():
                 "- Upload next week's Search Term Report and run the optimizer to see impact.")
         return
         
-    # APPLY FILTER: TIME FRAME BASED (7D, 14D, 30D, 60D, 90D)
-    # Parse time frame to days
+    
+    # Time frame (7D, 14D, 30D) now controls the before/after comparison window in the SQL query
+    # No need to filter actions here - all actions with measurable impact are returned
     time_frame_days = {
         "7D": 7,
         "14D": 14,
@@ -140,19 +145,36 @@ def render_impact_dashboard():
         "90D": 90
     }
     days = time_frame_days.get(time_frame, 30)
-    filter_label = f"Last {days} Days"
+    filter_label = f"{days}-Day Window"
     
+    # Get latest available date for reference (matches Home page logic)
+    available_dates = db_manager.get_available_dates(selected_client)
+    ref_date = pd.to_datetime(available_dates[0]) if available_dates else pd.Timestamp.now()
+    
+    # Filter actions to selected time period
     if not impact_df.empty and 'action_date' in impact_df.columns:
-        # Convert to datetime for filtering
+        cutoff_date = ref_date - pd.Timedelta(days=days)
         impact_df['action_date_dt'] = pd.to_datetime(impact_df['action_date'], errors='coerce')
-        
-        # Calculate cutoff date relative to the horizon of performance data, not just actions
-        # This makes 14D vs 30D more meaningful by filtering based on the 'current' data window
-        latest_data_date = pd.to_datetime(available_dates[0]) if available_dates else impact_df['action_date_dt'].max()
-        cutoff_date = latest_data_date - timedelta(days=days)
-        
-        # Filter to only actions within the time frame
         impact_df = impact_df[impact_df['action_date_dt'] >= cutoff_date].copy()
+        
+        # Apply 'active' filter (only show actions with spend data) to match Home Page
+        active_mask = (impact_df['before_spend'].fillna(0) + impact_df['after_spend'].fillna(0)) > 0
+        impact_df = impact_df[active_mask].copy()
+        
+        # Recalculate summary for filtered actions
+        if not impact_df.empty:
+            # Use impact_score for main metric (rule-based)
+            impact_col = 'impact_score' if 'impact_score' in impact_df.columns else 'delta_sales'
+            full_summary = {
+                'total_actions': len(impact_df),
+                'net_sales_impact': impact_df[impact_col].sum(),  # This is now impact_score
+                'net_spend_change': impact_df['delta_spend'].sum() if 'delta_spend' in impact_df.columns else 0,
+                'winners': (impact_df['is_winner'] == True).sum() if 'is_winner' in impact_df.columns else 0,
+                'losers': (impact_df['is_winner'] == False).sum() if 'is_winner' in impact_df.columns else 0,
+                'win_rate': ((impact_df['is_winner'] == True).sum() / len(impact_df) * 100) if len(impact_df) > 0 and 'is_winner' in impact_df.columns else 0
+            }
+        else:
+            full_summary = {'total_actions': 0, 'net_sales_impact': 0, 'net_spend_change': 0, 'winners': 0, 'losers': 0, 'win_rate': 0}
     
     # ==========================================
     # DATE RANGE CALLOUT
@@ -214,12 +236,12 @@ def render_impact_dashboard():
     
     # Calculate active-only summary metrics
     if not active_df.empty:
-        # Use attributed deltas to fix double-counting inflation
-        # These columns were added in db_manager.get_action_impact
-        sales_col = 'attributed_delta_sales' if 'attributed_delta_sales' in active_df.columns else 'delta_sales'
-        spend_col = 'attributed_delta_spend' if 'attributed_delta_spend' in active_df.columns else 'delta_spend'
+        # Use impact_score for the main metric (rule-based expected outcome)
+        # impact_score = cost saved (for NEGATIVE) + lift (for HARVEST) + delta (for BID_CHANGE)
+        impact_col = 'impact_score' if 'impact_score' in active_df.columns else 'delta_sales'
+        spend_col = 'delta_spend' if 'delta_spend' in active_df.columns else 'delta_spend'
         
-        delta_sales = active_df[sales_col].fillna(0)
+        impact_scores = active_df[impact_col].fillna(0)
         delta_spend = active_df[spend_col].fillna(0)
         is_winner = active_df['is_winner'].fillna(False)
         
@@ -228,18 +250,18 @@ def render_impact_dashboard():
         for action_type in active_df['action_type'].unique():
             action_data = active_df[active_df['action_type'] == action_type]
             by_action_type[action_type] = {
-                'net_sales': action_data[sales_col].fillna(0).sum(),
+                'net_sales': action_data[impact_col].fillna(0).sum(),  # Use impact_score
                 'net_spend': action_data[spend_col].fillna(0).sum()
             }
         
         active_summary = {
             'total_actions': active_count,
-            'net_sales_impact': delta_sales.sum(),
+            'net_sales_impact': impact_scores.sum(),  # Use impact_score for main metric
             'net_spend_change': delta_spend.sum(),
             'winners': is_winner.sum(),
             'losers': (~is_winner).sum() if 'is_winner' in active_df.columns else 0,
             'win_rate': (is_winner.sum() / active_count * 100) if active_count > 0 else 0,
-            'roi': delta_sales.sum() / delta_spend.sum() if delta_spend.sum() != 0 else 0,
+            'roi': impact_scores.sum() / abs(delta_spend.sum()) if delta_spend.sum() != 0 else 0,
             'by_action_type': by_action_type
         }
     else:
@@ -402,88 +424,133 @@ def _render_hero_tiles(summary: Dict[str, Any], active_count: int = 0, dormant_c
     </style>
     """, unsafe_allow_html=True)
     
-    col1, col2, col3, col4 = st.columns(4)
+    # ==========================================
+    # WATERFALL STORY: Actions → Components → Result
+    # ==========================================
     
-    # Net Sales Impact
-    net_sales = summary['net_sales_impact']
-    sales_class = 'positive' if net_sales > 0 else 'negative' if net_sales < 0 else 'neutral'
-    sales_prefix = '+' if net_sales > 0 else ''
+    # Extract component impacts from by_action_type
+    by_type = summary.get('by_action_type', {})
+    
+    # Get impacts by action category
+    cost_saved = sum(v['net_sales'] for k, v in by_type.items() if 'NEGATIVE' in k.upper())
+    harvest_gains = sum(v['net_sales'] for k, v in by_type.items() if 'HARVEST' in k.upper())
+    bid_changes = sum(v['net_sales'] for k, v in by_type.items() if 'BID' in k.upper())
+    net_result = summary['net_sales_impact']
+    total_actions = summary['total_actions']
+    win_rate = summary['win_rate']
+    
+    # Identify biggest contributor
+    components = [
+        ('Cost Saved (Negatives)', cost_saved),
+        ('Harvest Efficiency', harvest_gains),
+        ('Bid Adjustments', bid_changes)
+    ]
+    sorted_components = sorted(components, key=lambda x: abs(x[1]), reverse=True)
+    biggest_name, biggest_value = sorted_components[0]
+    
+    # Story callout
+    if net_result >= 0:
+        story_icon = "✅"
+        story_color = positive_text
+        story_text = f"Net positive! {biggest_name} contributed ${biggest_value:+,.0f}"
+    else:
+        # Find the biggest negative contributor
+        negative_components = [(n, v) for n, v in components if v < 0]
+        if negative_components:
+            drag_name, drag_value = min(negative_components, key=lambda x: x[1])
+            story_icon = "⚠️"
+            story_color = negative_text
+            story_text = f"{drag_name} dragged down results by ${abs(drag_value):,.0f}"
+        else:
+            story_icon = "📊"
+            story_color = neutral_text
+            story_text = "Impact below expectations"
+    
+    # Row 1: 5 tiles showing the waterfall
+    col1, col2, col3, col4, col5 = st.columns(5)
+    
+    small_tile_style = "padding: 16px; border-radius: 10px; text-align: center;"
+    label_style = "font-size: 0.7rem; color: #8F8CA3; text-transform: uppercase; letter-spacing: 0.5px; margin-bottom: 6px; display: flex; align-items: center; justify-content: center; gap: 6px;"
+    value_style = "font-size: 1.4rem; font-weight: 700;"
+    
+    # SVG Icons (consistent with brand)
+    icon_color = "#8F8CA3"
+    bar_chart_icon = f'<svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="{icon_color}" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="18" y1="20" x2="18" y2="10"></line><line x1="12" y1="20" x2="12" y2="4"></line><line x1="6" y1="20" x2="6" y2="14"></line></svg>'
+    shield_icon = f'<svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="#22c55e" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"></path></svg>'
+    leaf_icon = f'<svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="#3b82f6" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M11 20A7 7 0 0 1 9.8 6.1C15.5 5 17 4.48 19 2c1 2 2 4.18 2 8 0 5.5-4.78 10-10 10Z"></path><path d="M2 21c0-3 1.85-5.36 5.08-6C9.5 14.52 12 13 13 12"></path></svg>'
+    trending_icon = f'<svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="{icon_color}" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="23 6 13.5 15.5 8.5 10.5 1 18"></polyline><polyline points="17 6 23 6 23 12"></polyline></svg>'
+    dollar_icon = f'<svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="{icon_color}" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="12" y1="1" x2="12" y2="23"></line><path d="M17 5H9.5a3.5 3.5 0 0 0 0 7h5a3.5 3.5 0 0 1 0 7H6"></path></svg>'
+    target_icon = f'<svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="{icon_color}" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"></circle><circle cx="12" cy="12" r="6"></circle><circle cx="12" cy="12" r="2"></circle></svg>'
+    activity_icon = f'<svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="{icon_color}" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="22 12 18 12 15 21 9 3 6 12 2 12"></polyline></svg>'
+    check_icon = f'<svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#22c55e" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><polyline points="20 6 9 17 4 12"></polyline></svg>'
+    alert_icon = f'<svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#f59e0b" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M10.29 3.86L1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z"></path><line x1="12" y1="9" x2="12" y2="13"></line><line x1="12" y1="17" x2="12.01" y2="17"></line></svg>'
     
     with col1:
-        sales_border = f"border-left: 4px solid {positive_accent if net_sales > 0 else negative_accent if net_sales < 0 else neutral_accent};"
-        sales_bg = f"background: linear-gradient(135deg, {positive_glow if net_sales > 0 else negative_glow if net_sales < 0 else 'rgba(255,255,255,0.05)'} 0%, rgba(255,255,255,0.03) 100%);"
-        sales_color = positive_text if net_sales > 0 else negative_text if net_sales < 0 else neutral_text
-        
         st.markdown(f"""
-        <div class="hero-tile" style="{sales_border} {sales_bg}">
-            <div class="hero-label" title="Difference in total sales between the active period and the baseline period across all optimized targets.">{sales_icon}Net Sales Impact</div>
-            <div class="hero-value" style="color: {sales_color};">{sales_prefix}${net_sales:,.0f}</div>
+        <div style="{small_tile_style} background: rgba(143, 140, 163, 0.08); border: 1px solid rgba(143, 140, 163, 0.15);">
+            <div style="{label_style}">{bar_chart_icon} Actions</div>
+            <div style="{value_style} color: {neutral_text};">{total_actions:,}</div>
         </div>
         """, unsafe_allow_html=True)
-    
-    # Spend Shift
-    net_spend = summary['net_spend_change']
-    spend_prefix = '+' if net_spend > 0 else ''
     
     with col2:
-        spend_border = f"border-left: 4px solid {neutral_accent};"
-        spend_bg = f"background: linear-gradient(135deg, rgba(255,255,255,0.05) 0%, rgba(255,255,255,0.03) 100%);"
-        
+        color = positive_text if cost_saved > 0 else negative_text if cost_saved < 0 else neutral_text
+        prefix = '+' if cost_saved > 0 else ''
         st.markdown(f"""
-        <div class="hero-tile" style="{spend_border} {spend_bg}">
-            <div class="hero-label" title="Difference in total ad spend. Indicates shift in investment across optimized targets.">{spend_icon}Spend Shift</div>
-            <div class="hero-value" style="color: {neutral_text};">{spend_prefix}${net_spend:,.0f}</div>
+        <div style="{small_tile_style} background: rgba(34, 197, 94, 0.08); border: 1px solid rgba(34, 197, 94, 0.2);">
+            <div style="{label_style}">{shield_icon} Cost Saved</div>
+            <div style="{value_style} color: {color};">{prefix}${cost_saved:,.0f}</div>
         </div>
         """, unsafe_allow_html=True)
-    
-    # Win Rate
-    win_rate = summary['win_rate']
-    win_class = 'positive' if win_rate >= 60 else 'negative' if win_rate < 40 else 'neutral'
     
     with col3:
-        win_border = f"border-left: 4px solid {positive_accent if win_rate >= 60 else negative_accent if win_rate < 40 else neutral_accent};"
-        win_bg = f"background: linear-gradient(135deg, {positive_glow if win_rate >= 60 else negative_glow if win_rate < 40 else 'rgba(255,255,255,0.05)'} 0%, rgba(255,255,255,0.03) 100%);"
-        win_color = positive_text if win_rate >= 60 else negative_text if win_rate < 40 else neutral_text
-        
+        color = positive_text if harvest_gains > 0 else negative_text if harvest_gains < 0 else neutral_text
+        prefix = '+' if harvest_gains > 0 else ''
         st.markdown(f"""
-        <div class="hero-tile" style="{win_border} {win_bg}">
-            <div class="hero-label" title="Percentage of actions that resulted in a positive performance delta.">{target_icon}Win Rate</div>
-            <div class="hero-value" style="color: {win_color};">{win_rate:.0f}%</div>
+        <div style="{small_tile_style} background: rgba(59, 130, 246, 0.08); border: 1px solid rgba(59, 130, 246, 0.2);">
+            <div style="{label_style}">{leaf_icon} Harvest Gains</div>
+            <div style="{value_style} color: {color};">{prefix}${harvest_gains:,.0f}</div>
         </div>
         """, unsafe_allow_html=True)
-    
-    # Profit Impact (Replaces ambiguous ROI)
-    profit_impact = net_sales - net_spend
-    profit_class = 'positive' if profit_impact > 0 else 'negative' if profit_impact < 0 else 'neutral'
-    profit_prefix = '+' if profit_impact > 0 else ''
     
     with col4:
-        profit_border = f"border-left: 4px solid {positive_accent if profit_impact > 0 else negative_accent if profit_impact < 0 else neutral_accent};"
-        profit_bg = f"background: linear-gradient(135deg, {positive_glow if profit_impact > 0 else negative_glow if profit_impact < 0 else 'rgba(255,255,255,0.05)'} 0%, rgba(255,255,255,0.03) 100%);"
-        profit_color = positive_text if profit_impact > 0 else negative_text if profit_impact < 0 else neutral_text
-        
+        color = positive_text if bid_changes > 0 else negative_text if bid_changes < 0 else neutral_text
+        prefix = '+' if bid_changes > 0 else ''
+        bg_color = "rgba(34, 197, 94, 0.08)" if bid_changes > 0 else "rgba(239, 68, 68, 0.08)" if bid_changes < 0 else "rgba(143, 140, 163, 0.08)"
+        border_color = "rgba(34, 197, 94, 0.2)" if bid_changes > 0 else "rgba(239, 68, 68, 0.2)" if bid_changes < 0 else "rgba(143, 140, 163, 0.15)"
         st.markdown(f"""
-        <div class="hero-tile" style="{profit_border} {profit_bg}">
-            <div class="hero-label" title="(Net Sales Change) - (Spend Change). The actual net impact on your wallet.">{profit_icon}Profit Impact</div>
-            <div class="hero-value" style="color: {profit_color};">{profit_prefix}${profit_impact:,.0f}</div>
+        <div style="{small_tile_style} background: {bg_color}; border: 1px solid {border_color};">
+            <div style="{label_style}">{trending_icon} Bid Changes</div>
+            <div style="{value_style} color: {color};">{prefix}${bid_changes:,.0f}</div>
         </div>
         """, unsafe_allow_html=True)
     
-    # Brand icon color
-    icon_color = "#8F8CA3"
+    with col5:
+        color = positive_text if net_result > 0 else negative_text if net_result < 0 else neutral_text
+        prefix = '+' if net_result > 0 else ''
+        bg_color = positive_glow if net_result > 0 else negative_glow if net_result < 0 else "rgba(143, 140, 163, 0.08)"
+        border_color = positive_accent if net_result > 0 else negative_accent if net_result < 0 else neutral_accent
+        st.markdown(f"""
+        <div style="{small_tile_style} background: linear-gradient(135deg, {bg_color} 0%, rgba(255,255,255,0.03) 100%); border-left: 4px solid {border_color};">
+            <div style="{label_style}">{dollar_icon} Net Result</div>
+            <div style="{value_style} color: {color};">{prefix}${net_result:,.0f}</div>
+        </div>
+        """, unsafe_allow_html=True)
     
-    up_icon = f'<svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="{icon_color}" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" style="vertical-align: middle; margin-right: 4px;"><polyline points="18 15 12 9 6 15"></polyline></svg>'
-    minus_icon = f'<svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="{icon_color}" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" style="vertical-align: middle; margin-right: 4px;"><line x1="5" y1="12" x2="19" y2="12"></line></svg>'
-    chart_icon = f'<svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="{icon_color}" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" style="vertical-align: middle; margin-right: 4px;"><line x1="18" y1="20" x2="18" y2="10"></line><line x1="12" y1="20" x2="12" y2="4"></line><line x1="6" y1="20" x2="6" y2="14"></line></svg>'
-    hourglass_icon = f'<svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="{icon_color}" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" style="vertical-align: middle; margin-right: 4px;"><path d="M6 2v6h.01M6 22v-6h.01M13.83 2H10.17A3.001 3.001 0 0 0 10 8h4a3.001 3.001 0 0 0-.17-6zM13.83 22H10.17a3.001 3.001 0 0 1-.17-6h4c.073.988-.06 1.996-.17 3z"></path></svg>'
+    # Story callout row with SVG icons
+    story_svg = check_icon if net_result >= 0 else alert_icon
     
-    # Summary stats below tiles - now shows measured/pending split
     st.markdown(f"""
-    <div style="text-align: center; margin-top: 16px; opacity: 0.7;">
-        <span style="margin: 0 16px;">{up_icon}{summary['winners']} Positive Impact</span>
-        <span style="margin: 0 16px;">{minus_icon}{summary['losers']} No Measurable Impact</span>
-        <span style="margin: 0 16px;">{chart_icon}{active_count} Measured Impact</span>
-        <span style="margin: 0 16px;">{hourglass_icon}{dormant_count} Pending Impact</span>
+    <div style="background: rgba(143, 140, 163, 0.05); border: 1px solid rgba(143, 140, 163, 0.1); border-radius: 8px; 
+                padding: 12px 20px; margin-top: 16px; display: flex; align-items: center; justify-content: space-between;">
+        <div style="display: flex; align-items: center; gap: 10px;">
+            {story_svg}
+            <span style="color: {story_color}; font-weight: 600;">{story_text}</span>
+        </div>
+        <div style="display: flex; gap: 24px; color: #8F8CA3; font-size: 0.85rem;">
+            <span style="display: flex; align-items: center; gap: 4px;">{target_icon} Win Rate: <strong style="color: {positive_text if win_rate >= 60 else negative_text if win_rate < 40 else neutral_text};">{win_rate:.0f}%</strong></span>
+            <span style="display: flex; align-items: center; gap: 4px;">{activity_icon} Measured: <strong>{active_count}</strong> | Pending: <strong>{dormant_count}</strong></span>
+        </div>
     </div>
     """, unsafe_allow_html=True)
 
@@ -628,12 +695,12 @@ def _render_drill_down_table(impact_df: pd.DataFrame, show_migration_badge: bool
         else:
             display_df['action_display'] = display_df['action_type']
         
-        # Select columns for display
+        # Select columns for display (include validation_status for rule-based impact)
         display_cols = [
             'action_display', 'target_text', 'reason',
             'before_spend', 'after_spend', 'delta_spend',
             'before_sales', 'after_sales', 'delta_sales',
-            'impact_score', 'is_winner'
+            'impact_score', 'validation_status', 'is_winner'
         ]
         
         available_cols = [c for c in display_cols if c in display_df.columns]
@@ -677,7 +744,6 @@ def _render_drill_down_table(impact_df: pd.DataFrame, show_migration_badge: bool
             # Drop temporary columns
             display_df = display_df.drop(columns=['_delta_sales_raw', '_delta_spend_raw'])
         
-        # Rename columns for display
         display_df = display_df.rename(columns={
             'action_display': 'Action',
             'target_text': 'Target',
@@ -689,6 +755,7 @@ def _render_drill_down_table(impact_df: pd.DataFrame, show_migration_badge: bool
             'after_sales': 'After Sales',
             'delta_sales': 'Δ Sales',
             'impact_score': 'Impact',
+            'validation_status': 'Status',
             'is_winner': 'Result'
         })
         
@@ -790,8 +857,8 @@ def get_recent_impact_summary() -> Optional[dict]:
         # USE CACHED DATA FETCHER
         test_mode = st.session_state.get('test_mode', False)
         # Use data upload timestamp as cache version
-        cache_version = str(st.session_state.get('data_upload_timestamp', 'v1'))
-        impact_df, _ = _fetch_impact_data(selected_client, test_mode, cache_version)
+        cv = str(st.session_state.get('data_upload_timestamp', 'v1'))
+        impact_df, _ = _fetch_impact_data(selected_client, test_mode, window_days=7, cache_version=cv)
         
         if impact_df.empty:
             return None
@@ -817,11 +884,11 @@ def get_recent_impact_summary() -> Optional[dict]:
         if active_df.empty:
             return None
         
-        # Calculate exactly like Impact tab using attributed columns to fix inflation
-        sales_col = 'attributed_delta_sales' if 'attributed_delta_sales' in active_df.columns else 'delta_sales'
-        spend_col = 'attributed_delta_spend' if 'attributed_delta_spend' in active_df.columns else 'delta_spend'
+        # Calculate exactly like Impact tab using impact_score (rule-based)
+        impact_col = 'impact_score' if 'impact_score' in active_df.columns else 'delta_sales'
+        spend_col = 'delta_spend' if 'delta_spend' in active_df.columns else 'delta_spend'
         
-        delta_sales = active_df[sales_col].fillna(0)
+        impact_scores = active_df[impact_col].fillna(0)
         delta_spend = active_df[spend_col].fillna(0)
         is_winner = active_df['is_winner'].fillna(False)
         active_count = len(active_df)
@@ -829,13 +896,13 @@ def get_recent_impact_summary() -> Optional[dict]:
         # Find top action type by net impact
         top_action_type = None
         if 'action_type' in active_df.columns:
-            by_type = active_df.groupby('action_type')[sales_col].sum()
+            by_type = active_df.groupby('action_type')[impact_col].sum()
             if not by_type.empty:
                 top_action_type = by_type.idxmax()
         
         return {
-            'sales': delta_sales.sum(),
-            'roi': delta_sales.sum() / delta_spend.sum() if delta_spend.sum() != 0 else 0,
+            'sales': impact_scores.sum(),  # Use impact_score, not delta_sales
+            'roi': impact_scores.sum() / abs(delta_spend.sum()) if delta_spend.sum() != 0 else 0,
             'win_rate': (is_winner.sum() / active_count * 100) if active_count > 0 else 0,
             'top_action_type': top_action_type
         }

@@ -111,6 +111,19 @@ def render_readme():
     # =========================================================================
     with tab_models:
         
+        with st.expander("**Understanding the Impact Dashboard**"):
+            st.markdown("""
+            The **Impact Analyzer** narrates the story of your optimization in a sequential waterfall flow:
+            
+            1. **Actions** — Total unique optimizations taken.
+            2. **Cost Saved** — Waste removed from bleeding search terms.
+            3. **Harvest Gains** — Efficiency lift from moving terms to Exact.
+            4. **Bid Changes** — Net profit shift from bid adjustments.
+            5. **Net Result** — The final "Account Delta" after all improvements.
+            
+            **Verification**: Look for the **Story Callout** at the bottom. It automatically identifies the biggest driver (positive or negative) to explain "why" the numbers moved.
+            """)
+
         with st.expander("**Bid Calculation Formula**", expanded=True):
             st.markdown("""
             ```
@@ -129,21 +142,15 @@ def render_readme():
             - New Bid: 1.00 × [1 + (0.5 × 0.15)] = **AED 1.075**
             """)
         
-        with st.expander("**Negative Detection Thresholds**"):
+        with st.expander("**Rule-Based Impact Math**"):
             st.markdown("""
-            We use CVR-based dynamic thresholds, not static rules.
+            We use a conservative, verifiable method to calculate impact:
             
-            ```
-            Expected Clicks = 1 ÷ Account CVR
-            Soft Threshold = max(Min Clicks, Expected Clicks)
-            Hard Stop = max(Min Spend, Expected Clicks × 2.5)
-            ```
+            - **Negatives**: `+Before Spend` (Absolute savings).
+            - **Harvests**: `+10% Sales Lift` (Baseline efficiency boost).
+            - **Bids/Pauses**: `(Sales Shift) - (Spend Shift)` (Performance Delta).
             
-            **Example:**
-            - Account CVR: 5%
-            - Expected Clicks: 1 ÷ 0.05 = 20 clicks
-            - Soft Threshold: 20 clicks with no orders → Review
-            - Hard Stop: 50 clicks with no orders → Negate
+            **Deduplication**: We only count impact once per campaign to ensure the "Net Result" tile is 100% accurate and never double-counted.
             """)
         
         with st.expander("**Harvest Qualification Criteria**"):

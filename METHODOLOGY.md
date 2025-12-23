@@ -81,22 +81,31 @@ Our simulator uses a **Curved Elasticity Model** to project the outcome of recom
 
 ---
 
-## 6. Verified Impact Methodology (Account Proration)
+## 6. Verified Impact Methodology (Rule-Based)
 
-To prevent the "Inflation of Success" common in many ad optimizers, we use a **Prorated Attribution Model** for all historical impact calculations.
+To prevent the "Inflation of Success" common in many ad optimizers, we use a conservative **Rule-Based Impact Logic** that attributes value only to specific, verifiable outcomes of an action.
 
-### 1. Ground Truth (Account Delta)
-We first establish the absolute performance change of the entire account during the comparison window:
-$$\Delta Sales_{Account} = \sum Sales_{After} - \sum Sales_{Before}$$
+### 1. The Attribution Rules
+Impact is not based on total account fluctuations, but on the specific delta created by each action type:
 
-### 2. Weighted Proration
-The total account delta is then distributed to individual optimized targets based on their **Spend Weight** during the "Before" period:
-$$Attributed\Delta_{Target} = \Delta Sales_{Account} \times \left( \frac{Spend_{Target, Before}}{Spend_{Account, Before}} \right)$$
+| Action Type | Impact Calculation (Rule) | Rationale |
+| :--- | :--- | :--- |
+| **Negatives** | `+Before Spend` | Total cost avoidance of previously wasteful spend. |
+| **Harvests** | `+10% Net Sales Lift` | Assumes a conservative 10% efficiency gain from exact match isolation. |
+| **Bid Changes** | `(Sales Delta) - (Spend Delta)` | Net profit change from the observed shift in performance. |
+| **Pauses** | `(Sales Delta) - (Spend Delta)` | Total dollar impact of removing the entity from the mix. |
 
-*Reasoning*: This ensures that the sum of all individual "Impact" AED values in the dashboard perfectly matches the true account-level growth, preventing double-counting of overlapping search term sales.
+### 2. Verified Deduplication
+To prevent overcounting (e.g., when a search term is negated in one campaign but exists in another), we apply a high-fidelity **Deduplication Engine**:
+- **Key Matching**: We group actions by `campaign_name` + `action_type` + `before_spend` + `before_sales`.
+- **Logic**: If the same impact value is spotted across multiple records for the same campaign, we count it only once.
+- **Outcome**: The `Net Result` hero tile is an **additive sum** of these unique, verified impacts.
 
-### 3. Hybrid Evaluation (The "Honesty" Check)
-While financial impact is prorated, the **Status (Winner/Loser)** is evaluated at the granular target level:
-- **Winner**: If `Target_ROAS_After > Target_ROAS_Before` (or Sales improvement).
-- **Loser**: If performance dropped, regardless of whether the account as a whole grew.
-- This ensures users can still identify specific keywords that are failing, even if the overall account is trending up.
+### 3. Comparison Windows
+Impact is calculated by comparing a **"Before" period** (the data upload immediately preceding the action) to an **"After" period** (the most recent data upload). This ensures that we are always comparing like-for-like performance windows based on your actual data availability.
+
+### 4. Direct Validation
+We don't just "guess" impact. We confirm it:
+- **Confirmed Blocked**: For negatives, we verify that subsequent spend is actually $0.00.
+- **Source Isolated**: For harvests, we confirm the source campaign stopped bidding on the term.
+- **Observed Data**: For bids, we use actual spend/sales shifts from the Ads Console.

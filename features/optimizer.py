@@ -1813,19 +1813,32 @@ def _log_optimization_events(results: dict, client_id: str, report_date: str):
                 'match_type': row.get('Match Type', '')
             })
 
-    # 4. Process Harvests
+    # 4. Process Harvests - WITH WINNER SOURCE TRACKING
     for _, row in results.get('harvest', pd.DataFrame()).iterrows():
+        # Determine winner source campaign and new campaign name
+        winner_campaign = row.get('Campaign Name', '')
+        search_term = row.get('Customer Search Term', '')
+        
+        # Generate new campaign name (you can customize this logic)
+        new_campaign = f"Harvest_Exact_{winner_campaign}" if winner_campaign else "Harvest_Exact_Campaign"
+        
         actions_to_log.append({
             'entity_name': 'Keyword',
             'action_type': 'HARVEST',
             'old_value': 'DISCOVERY',
             'new_value': 'PROMOTED',
             'reason': f"Conv: {row.get('Orders', 0)} orders",
-            'campaign_name': row.get('Campaign Name', ''),
+            'campaign_name': winner_campaign,  # Source campaign
             'ad_group_name': row.get('Ad Group Name', ''),
-            'target_text': row.get('Customer Search Term', ''),
-            'match_type': 'EXACT'
+            'target_text': search_term,
+            'match_type': 'EXACT',
+            # NEW FIELDS FOR IMPACT ANALYSIS:
+            'winner_source_campaign': winner_campaign,  # Which campaign won
+            'new_campaign_name': new_campaign,  # Where it's being moved
+            'before_match_type': row.get('Match Type', 'broad'),  # Original match type
+            'after_match_type': 'exact'  # Harvested to exact
         })
+
 
     if actions_to_log:
         try:
@@ -2283,46 +2296,79 @@ class OptimizerModule(BaseFeature):
 
 
     def _calculate_account_health(self, df: pd.DataFrame, r: dict) -> dict:
-        """Calculate account health diagnostics for dashboard display (Last 30 Days)."""
-        # Filter to last 30 days for consistency with Recent Impact and Key Insights
+        """Calculate account health diagnostics for dashboard display (Last 30 Days from DB)."""
         from datetime import timedelta
+        from core.db_manager import get_db_manager
         
-        df_filtered = df.copy()
+        # Get data from database for accurate last 30 days (not just uploaded CSV)
+        try:
+            db = get_db_manager(st.session_state.get('test_mode', False))
+            client_id = st.session_state.get('active_account_id')
+            
+            if not db or not client_id:
+                # Fallback to uploaded data if DB not available
+                df_filtered = df.copy()
+            else:
+                # Pull from database to get full historical context
+                df_db = db.get_target_stats_by_account(client_id, limit=50000)
+                
+                if df_db is None or df_db.empty:
+                    # No DB data, use uploaded CSV
+                    df_filtered = df.copy()
+                else:
+                    # Use database data for last 30 days
+                    df_db['start_date'] = pd.to_datetime(df_db['start_date'], errors='coerce')
+                    valid_dates = df_db['start_date'].dropna()
+                    
+                    if not valid_dates.empty:
+                        max_date = valid_dates.max()
+                        cutoff_date = max_date - timedelta(days=30)
+                        df_filtered = df_db[df_db['start_date'] >= cutoff_date].copy()
+                        
+                        # Map DB columns to expected optimizer columns
+                        df_filtered = df_filtered.rename(columns={
+                            'spend': 'Spend',
+                            'sales': 'Sales',
+                            'orders': 'Orders',
+                            'clicks': 'Clicks'
+                        })
+                    else:
+                        df_filtered = df.copy()
+        except Exception as e:
+            # On any error, fall back to uploaded data
+            print(f"Health calc DB error: {e}")
+            df_filtered = df.copy()
         
-        # Find date column
-        date_col = None
-        for col in ['Date', 'Start Date', 'date', 'Report Date', 'start_date']:
-            if col in df_filtered.columns:
-                date_col = col
-                break
+        # Ensure we have required columns
+        if 'Spend' not in df_filtered.columns or 'Sales' not in df_filtered.columns:
+            # Return empty health if data is invalid
+            return {
+                "health_score": 0,
+                "roas_score": 0,
+                "efficiency_score": 0,
+                "cvr_score": 0,
+                "efficiency_rate": 0,
+                "waste_ratio": 100,
+                "wasted_spend": 0,
+                "current_roas": 0,
+                "current_acos": 0,
+                "cvr": 0,
+                "total_spend": 0,
+                "total_sales": 0
+            }
         
-        if date_col:
-            try:
-                df_filtered[date_col] = pd.to_datetime(df_filtered[date_col], errors='coerce')
-                valid_dates = df_filtered[date_col].dropna()
-                if not valid_dates.empty:
-                    max_date = valid_dates.max()
-                    cutoff_date = max_date - timedelta(days=30)
-                    df_filtered = df_filtered[df_filtered[date_col] >= cutoff_date]
-            except:
-                pass  # If date filtering fails, use full dataset as fallback
-        
-        # Use filtered data for all calculations
+        # Calculate metrics
         total_spend = df_filtered['Spend'].sum()
         total_sales = df_filtered['Sales'].sum()
-        total_orders = df_filtered['Orders'].sum()
-        total_clicks = df_filtered['Clicks'].sum()
+        total_orders = df_filtered.get('Orders', pd.Series([0])).sum()
+        total_clicks = df_filtered.get('Clicks', pd.Series([0])).sum()
         
         current_roas = total_sales / total_spend if total_spend > 0 else 0
         current_acos = (total_spend / total_sales * 100) if total_sales > 0 else 0
         
-        # Efficiency calculation at TARGETING level (grouped)
-        # Measures % of spend that goes to converting targets (orders > 0)
-        if 'Targeting' in df_filtered.columns:
-            targeting_agg = df_filtered.groupby('Targeting').agg({'Spend': 'sum', 'Orders': 'sum'}).reset_index()
-            converting_spend = targeting_agg[targeting_agg['Orders'] > 0]['Spend'].sum()
-        else:
-            converting_spend = df_filtered.loc[df_filtered['Orders'] > 0, 'Spend'].sum()
+        # Efficiency calculation - ROW LEVEL, not aggregated
+        # Each row is Campaign->AdGroup->Target->Date, check conversion at that granularity
+        converting_spend = df_filtered.loc[df_filtered.get('Orders', 0) > 0, 'Spend'].sum()
         
         efficiency_rate = (converting_spend / total_spend * 100) if total_spend > 0 else 0
         wasted_spend = total_spend - converting_spend
@@ -2331,19 +2377,18 @@ class OptimizerModule(BaseFeature):
         cvr = (total_orders / total_clicks * 100) if total_clicks > 0 else 0
         
         roas_score = min(100, current_roas / 4.0 * 100)
-        efficiency_score = efficiency_rate  # Direct: 46% converting = score of 46
-        cvr_score = min(100, cvr / 5.0 * 100)
+        efficiency_score = efficiency_rate
+        cvr_score = min(100, cvr / 10.0 * 100)
         health_score = (roas_score * 0.4 + efficiency_score * 0.4 + cvr_score * 0.2)
         
         health_metrics = {
             "health_score": health_score,
             "roas_score": roas_score,
-            "efficiency_score": efficiency_score,  # Renamed from waste_score
+            "efficiency_score": efficiency_score,
             "cvr_score": cvr_score,
             "efficiency_rate": efficiency_rate,
             "waste_ratio": waste_ratio,
             "wasted_spend": wasted_spend,
-
             "current_roas": current_roas,
             "current_acos": current_acos,
             "cvr": cvr,
@@ -2353,9 +2398,6 @@ class OptimizerModule(BaseFeature):
         
         # Persist to database for Home tab cockpit
         try:
-            from core.db_manager import get_db_manager
-            db = get_db_manager(st.session_state.get('test_mode', False))
-            client_id = st.session_state.get('active_account_id')
             if db and client_id:
                 db.save_account_health(client_id, health_metrics)
         except Exception:
