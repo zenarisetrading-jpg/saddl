@@ -512,7 +512,7 @@ class PostgresManager:
         with self._get_connection() as conn:
             with conn.cursor(cursor_factory=RealDictCursor) as cursor:
                 execute_values(cursor, """
-                    INSERT INTO category_mappings (client_id, sku, category, sub_category, updated_at)
+                    INSERT INTO category_mappings (client_id, sku, category, sub_category)
                     VALUES %s
                     ON CONFLICT (client_id, sku) DO UPDATE SET
                         category = EXCLUDED.category,
@@ -771,18 +771,21 @@ class PostgresManager:
         with self._get_connection() as conn:
             with conn.cursor(cursor_factory=RealDictCursor) as cursor:
                 cursor.execute("""
-                    SELECT DISTINCT DATE(action_date) as action_date 
-                    FROM actions_log 
+                    SELECT DISTINCT start_date
+                    FROM target_stats 
                     WHERE client_id = %s 
-                    ORDER BY action_date DESC
+                    ORDER BY start_date DESC
                 """, (client_id,))
-                return [str(row['action_date']) for row in cursor.fetchall()]
+                return [str(row['start_date']) for row in cursor.fetchall()]
     
     def get_action_impact(self, client_id: str, window_days: int = 7) -> pd.DataFrame:
         """
         Calculate impact using rule-based expected outcomes.
         
-        OPTIMIZED: Uses batch SQL for data retrieval, then applies rules in Python.
+        CLEAN FIXED-WINDOW APPROACH:
+        - AFTER window: Last 7 days of available data (e.g., Dec 10-16)
+        - BEFORE window: Previous 7 days (e.g., Dec 3-9)
+        - Eligible actions: Actions taken BEFORE the AFTER window starts
         
         Rules:
         - NEGATIVE → After = $0 (blocked)
@@ -790,73 +793,147 @@ class PostgresManager:
         - BID_CHANGE → Use observed (can't predict)
         - PAUSE → After = $0
         """
-        # Single batch query to get all data at once
+        # Calculate intervals based on window_days
+        # W=7 -> after_start = latest-6, before_end = latest-7, before_start = latest-13
+        w = window_days
+        w_minus_1 = w - 1
+        w2 = 2 * w - 1 # This is the 13 for W=7
+        
+        # Single batch query with dynamic fixed windows
         query = """
-            WITH upload_dates AS (
-                SELECT start_date, ROW_NUMBER() OVER (ORDER BY start_date DESC) as rn
-                FROM (SELECT DISTINCT start_date FROM target_stats WHERE client_id = %(client_id)s) d
-            ),
-            latest AS (
+            WITH date_range AS (
+                -- Get latest data date and calculate windows
                 SELECT 
-                    MAX(CASE WHEN rn = 1 THEN start_date END) as after_date,
-                    MAX(CASE WHEN rn = 2 THEN start_date END) as before_date
-                FROM upload_dates WHERE rn <= 2
+                    MAX(start_date) as latest_date,
+                    MAX(start_date) - INTERVAL '%(w_minus_1)s days' as after_start,  
+                    MAX(start_date) - INTERVAL '%(w)s days' as before_end,   
+                    MAX(start_date) - INTERVAL '%(w2)s days' as before_start 
+                FROM target_stats 
+                WHERE client_id = %(client_id)s
             ),
             before_stats AS (
-                SELECT LOWER(target_text) as target_lower, LOWER(campaign_name) as campaign_lower,
-                       SUM(spend) as spend, SUM(sales) as sales
-                FROM target_stats t, latest l
-                WHERE t.client_id = %(client_id)s AND t.start_date = l.before_date
+                -- Aggregate performance in BEFORE window (e.g., Dec 3-9)
+                SELECT 
+                    LOWER(target_text) as target_lower, 
+                    LOWER(campaign_name) as campaign_lower,
+                    SUM(spend) as spend, 
+                    SUM(sales) as sales
+                FROM target_stats t
+                CROSS JOIN date_range dr
+                WHERE t.client_id = %(client_id)s 
+                  AND t.start_date >= dr.before_start 
+                  AND t.start_date <= dr.before_end
                 GROUP BY LOWER(target_text), LOWER(campaign_name)
             ),
             after_stats AS (
-                SELECT LOWER(target_text) as target_lower, LOWER(campaign_name) as campaign_lower,
-                       SUM(spend) as spend, SUM(sales) as sales
-                FROM target_stats t, latest l
-                WHERE t.client_id = %(client_id)s AND t.start_date = l.after_date
+                -- Aggregate performance in AFTER window (e.g., Dec 10-16)
+                SELECT 
+                    LOWER(target_text) as target_lower, 
+                    LOWER(campaign_name) as campaign_lower,
+                    SUM(spend) as spend, 
+                    SUM(sales) as sales
+                FROM target_stats t
+                CROSS JOIN date_range dr
+                WHERE t.client_id = %(client_id)s 
+                  AND t.start_date >= dr.after_start 
+                  AND t.start_date <= dr.latest_date
                 GROUP BY LOWER(target_text), LOWER(campaign_name)
             ),
             before_campaign AS (
-                SELECT LOWER(campaign_name) as campaign_lower, SUM(spend) as spend, SUM(sales) as sales
-                FROM target_stats t, latest l
-                WHERE t.client_id = %(client_id)s AND t.start_date = l.before_date
+                -- Fallback: Campaign-level BEFORE stats
+                SELECT 
+                    LOWER(campaign_name) as campaign_lower, 
+                    SUM(spend) as spend, 
+                    SUM(sales) as sales
+                FROM target_stats t
+                CROSS JOIN date_range dr
+                WHERE t.client_id = %(client_id)s 
+                  AND t.start_date >= dr.before_start 
+                  AND t.start_date <= dr.before_end
                 GROUP BY LOWER(campaign_name)
             ),
             after_campaign AS (
-                SELECT LOWER(campaign_name) as campaign_lower, SUM(spend) as spend, SUM(sales) as sales
-                FROM target_stats t, latest l
-                WHERE t.client_id = %(client_id)s AND t.start_date = l.after_date
+                -- Fallback: Campaign-level AFTER stats
+                SELECT 
+                    LOWER(campaign_name) as campaign_lower, 
+                    SUM(spend) as spend, 
+                    SUM(sales) as sales
+                FROM target_stats t
+                CROSS JOIN date_range dr
+                WHERE t.client_id = %(client_id)s 
+                  AND t.start_date >= dr.after_start 
+                  AND t.start_date <= dr.latest_date
                 GROUP BY LOWER(campaign_name)
             )
             SELECT 
-                a.action_date, a.action_type, a.target_text, a.campaign_name,
-                a.ad_group_name, a.old_value, a.new_value, a.reason,
-                l.before_date, l.after_date,
+                a.action_date, 
+                a.action_type, 
+                a.target_text, 
+                a.campaign_name,
+                a.ad_group_name, 
+                a.old_value, 
+                a.new_value, 
+                a.reason,
+                dr.before_start as before_date,
+                dr.before_end as before_end_date,
+                dr.after_start as after_date,
+                dr.latest_date as after_end_date,
                 COALESCE(bs.spend, bc.spend, 0) as before_spend,
                 COALESCE(bs.sales, bc.sales, 0) as before_sales,
                 COALESCE(afs.spend, ac.spend, 0) as observed_after_spend,
                 COALESCE(afs.sales, ac.sales, 0) as observed_after_sales,
                 CASE WHEN bs.spend IS NOT NULL THEN 'target' ELSE 'campaign' END as match_level
             FROM actions_log a
-            CROSS JOIN latest l
-            LEFT JOIN before_stats bs ON LOWER(a.target_text) = bs.target_lower AND LOWER(a.campaign_name) = bs.campaign_lower
-            LEFT JOIN after_stats afs ON LOWER(a.target_text) = afs.target_lower AND LOWER(a.campaign_name) = afs.campaign_lower
-            LEFT JOIN before_campaign bc ON LOWER(a.campaign_name) = bc.campaign_lower
-            LEFT JOIN after_campaign ac ON LOWER(a.campaign_name) = ac.campaign_lower
+            CROSS JOIN date_range dr
+            LEFT JOIN before_stats bs 
+                ON LOWER(a.target_text) = bs.target_lower 
+                AND LOWER(a.campaign_name) = bs.campaign_lower
+            LEFT JOIN after_stats afs 
+                ON LOWER(a.target_text) = afs.target_lower 
+                AND LOWER(a.campaign_name) = afs.campaign_lower
+            LEFT JOIN before_campaign bc 
+                ON LOWER(a.campaign_name) = bc.campaign_lower
+            LEFT JOIN after_campaign ac 
+                ON LOWER(a.campaign_name) = ac.campaign_lower
             WHERE a.client_id = %(client_id)s 
               AND LOWER(a.action_type) NOT IN ('hold', 'monitor', 'flagged')
-              AND l.before_date IS NOT NULL AND l.after_date IS NOT NULL
+              -- Only include actions taken BEFORE the after window starts
+              AND DATE(a.action_date) < dr.after_start
             ORDER BY a.action_date DESC
         """
         
         with self._get_connection() as conn:
-            df = pd.read_sql(query, conn, params={'client_id': client_id})
+            df = pd.read_sql(query, conn, params={
+                'client_id': client_id,
+                'w_minus_1': w_minus_1,
+                'w': w,
+                'w2': w2
+            })
         
         if df.empty:
             return df
         
         # Normalize action types
         df['action_type'] = df['action_type'].str.upper()
+        
+        # ==========================================
+        # LAYER 1: ACCOUNT BASELINE CALCULATION
+        # ==========================================
+        # Calculate account-wide spend and ROAS changes to normalize validation
+        total_before_spend = df['before_spend'].sum()
+        total_after_spend = df['observed_after_spend'].sum()
+        total_before_sales = df['before_sales'].sum()
+        total_after_sales = df['observed_after_sales'].sum()
+        
+        # Baseline metrics (stored for later use)
+        baseline_spend_change = (total_after_spend / total_before_spend - 1) if total_before_spend > 0 else 0
+        baseline_roas_before = total_before_sales / total_before_spend if total_before_spend > 0 else 0
+        baseline_roas_after = total_after_sales / total_after_spend if total_after_spend > 0 else 0
+        baseline_roas_change = (baseline_roas_after / baseline_roas_before - 1) if baseline_roas_before > 0 else 0
+        
+        # Store in dataframe for downstream use
+        df['_baseline_spend_change'] = baseline_spend_change
+        df['_baseline_roas_change'] = baseline_roas_change
         
         # Initialize columns
         df['after_spend'] = 0.0
@@ -877,10 +954,30 @@ class PostgresManager:
         df.loc[neg_mask, 'attribution'] = 'cost_avoidance'
         
         # Check if negative was actually implemented
-        neg_not_impl = neg_mask & (df['observed_after_spend'] > 0)
+        # Only use observed_after_spend if we have target-level match (not campaign fallback)
+        has_target_match = df['match_level'] == 'target'
+        
+        # Clear case: Target found in after window with spend = keyword still active
+        neg_not_impl = neg_mask & has_target_match & (df['observed_after_spend'] > 0)
         df.loc[neg_not_impl, 'validation_status'] = '⚠️ NOT IMPLEMENTED'
-        neg_impl = neg_mask & (df['observed_after_spend'] == 0)
-        df.loc[neg_impl, 'validation_status'] = '✓ Confirmed blocked'
+        
+        # NORMALIZED VALIDATION for NEG
+        # Target is "confirmed blocked" only if spend dropped significantly MORE than baseline
+        # threshold: at least 50% below baseline change, or 100% drop (to $0)
+        target_spend_change = (df['observed_after_spend'] / df['before_spend'] - 1).fillna(-1)
+        threshold = min(baseline_spend_change - 0.5, -0.95)  # At least 50% worse than baseline
+        
+        # Clear case: Target found with $0 spend = definitely blocked
+        neg_impl_zero = neg_mask & has_target_match & (df['observed_after_spend'] == 0)
+        df.loc[neg_impl_zero, 'validation_status'] = '✓ Confirmed blocked'
+        
+        # Normalized case: Significant drop beyond baseline
+        neg_impl_normalized = neg_mask & has_target_match & (df['observed_after_spend'] > 0) & (target_spend_change < threshold)
+        df.loc[neg_impl_normalized, 'validation_status'] = '✓ Normalized match'
+        
+        # Unclear: Target not found in after window (could be blocked or just no data)
+        neg_unknown = neg_mask & ~has_target_match
+        df.loc[neg_unknown, 'validation_status'] = '◐ Unverified (no target data)'
         
         # Special: Preventative negatives
         prev_mask = neg_mask & (df['before_spend'] == 0)
@@ -909,31 +1006,116 @@ class PostgresManager:
         harv_impl = harv_mask & (df['observed_after_spend'] == 0)
         df.loc[harv_impl, 'validation_status'] = '✓ Harvested to exact'
         
-        # RULE 3: BID_CHANGE → Use observed data (unpredictable)
+        # RULE 3: BID_CHANGE → Incremental Revenue = before_spend * (roas_after - roas_before)
         bid_mask = df['action_type'].str.contains('BID', na=False)
         df.loc[bid_mask, 'after_spend'] = df.loc[bid_mask, 'observed_after_spend']
         df.loc[bid_mask, 'after_sales'] = df.loc[bid_mask, 'observed_after_sales']
         df.loc[bid_mask, 'delta_spend'] = df.loc[bid_mask, 'observed_after_spend'] - df.loc[bid_mask, 'before_spend']
         df.loc[bid_mask, 'delta_sales'] = df.loc[bid_mask, 'observed_after_sales'] - df.loc[bid_mask, 'before_sales']
-        df.loc[bid_mask, 'impact_score'] = df.loc[bid_mask, 'delta_sales'] - df.loc[bid_mask, 'delta_spend']
-        df.loc[bid_mask, 'validation_status'] = 'Observed data'
         
-        # RULE 4: PAUSE → After = $0
+        # ==========================================
+        # LAYER 2: DIRECTIONAL CPC VALIDATION
+        # ==========================================
+        # Parse old_value/new_value to determine if BID_UP or BID_DOWN
+        def parse_bid_direction(row):
+            old_str = str(row.get('old_value', '')).strip()
+            new_str = str(row.get('new_value', '')).strip()
+            
+            # If old_value is missing, can't determine direction
+            if not old_str or old_str == 'None' or old_str == 'nan':
+                return 'UNKNOWN'
+            
+            try:
+                old_val = float(old_str.replace('$', '').replace(',', ''))
+                new_val = float(new_str.replace('$', '').replace(',', ''))
+                return 'DOWN' if new_val < old_val else 'UP'
+            except:
+                return 'UNKNOWN'
+        
+        # Calculate individual ROAS changes for each action
+        for idx in df[bid_mask].index:
+            b_spend = df.at[idx, 'before_spend']
+            b_sales = df.at[idx, 'before_sales']
+            a_spend = df.at[idx, 'observed_after_spend']
+            a_sales = df.at[idx, 'observed_after_sales']
+            
+            r_before = b_sales / b_spend if b_spend > 0 else 0
+            r_after = a_sales / a_spend if a_spend > 0 else 0
+            
+            # Impact = incremental revenue at baseline spend
+            df.at[idx, 'impact_score'] = b_spend * (r_after - r_before)
+            
+            # LAYER 2: Check directional match (using spend change as CPC proxy)
+            bid_direction = parse_bid_direction(df.loc[idx])
+            spend_change = (a_spend / b_spend - 1) if b_spend > 0 else 0
+            
+            # Determine directional match only if we have direction info
+            if bid_direction == 'DOWN' and spend_change < 0:
+                directional_match = True
+            elif bid_direction == 'UP' and spend_change > 0:
+                directional_match = True
+            elif bid_direction == 'UNKNOWN':
+                directional_match = None  # Can't determine, fallback to Layer 3 only
+            else:
+                directional_match = False
+            
+            # LAYER 3: Normalized winner (beat account baseline)
+            target_roas_change = (r_after / r_before - 1) if r_before > 0 else 0
+            beat_baseline = target_roas_change > baseline_roas_change
+            
+            # Set validation status based on layers
+            if a_spend == 0:
+                df.at[idx, 'validation_status'] = '◐ No after data'
+            elif directional_match is True and beat_baseline:
+                df.at[idx, 'validation_status'] = '✓ Directional + Normalized'
+            elif directional_match is True:
+                df.at[idx, 'validation_status'] = '✓ Directional match'
+            elif directional_match is None and beat_baseline:
+                # Fallback: No direction info but beat baseline
+                df.at[idx, 'validation_status'] = '✓ Beat baseline'
+            elif beat_baseline:
+                df.at[idx, 'validation_status'] = '◐ Beat baseline only'
+            else:
+                df.at[idx, 'validation_status'] = '⚠️ No validation match'
+                df.at[idx, 'validation_status'] = '⚠️ No validation match'
+        
+        # RULE 4: PAUSE → Incremental loss = -before_sales (minus what you saved in spend)
         pause_mask = df['action_type'].str.contains('PAUSE', na=False)
         df.loc[pause_mask, 'after_spend'] = 0.0
         df.loc[pause_mask, 'after_sales'] = 0.0
         df.loc[pause_mask, 'delta_spend'] = -df.loc[pause_mask, 'before_spend']
         df.loc[pause_mask, 'delta_sales'] = -df.loc[pause_mask, 'before_sales']
+        # For pause, impact is net incremental revenue (sales lost - spend saved)
         df.loc[pause_mask, 'impact_score'] = df.loc[pause_mask, 'delta_sales'] - df.loc[pause_mask, 'delta_spend']
         df.loc[pause_mask, 'attribution'] = 'structural_change'
+
         
         pause_not_impl = pause_mask & (df['observed_after_spend'] > 0)
         df.loc[pause_not_impl, 'validation_status'] = '⚠️ Still has spend'
         pause_impl = pause_mask & (df['observed_after_spend'] == 0)
         df.loc[pause_impl, 'validation_status'] = '✓ Confirmed paused'
         
-        # Determine winners
-        df['is_winner'] = df['impact_score'] > 0
+        # ==========================================
+        # CREDIT SYSTEM: Only count confirmed implementations
+        # Zero out impact_score for actions that weren't implemented
+        # Actions are still shown in table, but don't count toward totals
+        # ==========================================
+        not_implemented_statuses = [
+            '⚠️ NOT IMPLEMENTED',
+            '⚠️ Source still active',
+            '⚠️ Still has spend',
+            '◐ Unverified (no target data)'  # Can't confirm, don't credit
+        ]
+        not_impl_mask = df['validation_status'].isin(not_implemented_statuses)
+        
+        # Determine winners based on ABSOLUTE net impact (Sales Δ - Spend Δ > 0)
+        # This is decoupled from 'impact_score' which uses the incremental formula
+        df['is_winner'] = (df['delta_sales'] - df['delta_spend']) > 0
+        
+        # Store original impact for display, then zero out for totals
+        df['potential_impact'] = df['impact_score'].copy()  # What it WOULD have been
+        df.loc[not_impl_mask, 'impact_score'] = 0  # Zero for not implemented
+
         
         # ==========================================
         # DEDUPLICATION: Prevent counting same impact multiple times
@@ -960,51 +1142,131 @@ class PostgresManager:
         
         return df
     
-    def get_impact_summary(self, client_id: str) -> Dict[str, Any]:
-        """Get aggregated impact metrics for a client."""
-        impact_df = self.get_action_impact(client_id)
+    def get_impact_summary(self, client_id: str, window_days: int = 7) -> Dict[str, Any]:
+        """Get aggregated impact metrics including ROAS analytics for a client."""
+        import numpy as np
+        from scipy import stats as scipy_stats
+        
+        impact_df = self.get_action_impact(client_id, window_days=window_days)
         
         if impact_df.empty:
             return {
                 'total_actions': 0,
-                'net_sales_impact': 0,
-                'net_spend_change': 0,
-                'winners': 0,
-                'losers': 0,
-                'win_rate': 0,
-                'roi': 0,
+                'roas_before': 0, 'roas_after': 0, 'roas_lift_pct': 0,
+                'incremental_revenue': 0,
+                'p_value': 1.0, 'is_significant': False, 'confidence_pct': 0,
+                'implementation_rate': 0,
+                'confirmed_impact': 0, 'pending': 0,
+                'win_rate': 0, 'winners': 0, 'losers': 0,
                 'by_action_type': {}
             }
         
-        # Calculate summary
         total_actions = len(impact_df)
-        net_sales = impact_df['delta_sales'].fillna(0).sum()
-        net_spend = impact_df['delta_spend'].fillna(0).sum()
+        
+        # ==========================================
+        # ROAS ANALYTICS (for BID_CHANGE actions with valid data)
+        # ==========================================
+        bid_df = impact_df[impact_df['action_type'].str.contains('BID', na=False)].copy()
+        bid_df = bid_df[(bid_df['before_spend'] > 0) & (bid_df['before_sales'] > 0)]
+        bid_df = bid_df[bid_df['observed_after_spend'] > 0]
+        
+        if len(bid_df) > 5:
+            # Aggregate ROAS (weighted by spend)
+            total_before_spend = bid_df['before_spend'].sum()
+            total_after_spend = bid_df['observed_after_spend'].sum()
+            total_before_sales = bid_df['before_sales'].sum()
+            total_after_sales = bid_df['observed_after_sales'].sum()
+            
+            roas_before = total_before_sales / total_before_spend if total_before_spend > 0 else 0
+            roas_after = total_after_sales / total_after_spend if total_after_spend > 0 else 0
+            roas_lift_pct = ((roas_after - roas_before) / roas_before * 100) if roas_before > 0 else 0
+            
+            # Incremental revenue = what you'd gain at same spend with new efficiency
+            incremental_revenue = roas_lift_pct / 100 * total_before_spend * roas_before
+            
+            # Statistical significance (t-test on per-action ROAS % change)
+            bid_df['roas_change_pct'] = (bid_df['observed_after_sales'] / bid_df['observed_after_spend'] - 
+                                         bid_df['before_sales'] / bid_df['before_spend']) / \
+                                        (bid_df['before_sales'] / bid_df['before_spend'])
+            # Remove extreme outliers
+            valid = bid_df[(bid_df['roas_change_pct'] > -0.95) & (bid_df['roas_change_pct'] < 10)]['roas_change_pct']
+            
+            if len(valid) > 2:
+                t_stat, p_value = scipy_stats.ttest_1samp(valid, 0)
+                p_value = float(p_value) if not np.isnan(p_value) else 1.0
+            else:
+                p_value = 1.0
+            
+            is_significant = p_value < 0.05
+            confidence_pct = (1 - p_value) * 100
+        else:
+            roas_before, roas_after, roas_lift_pct = 0, 0, 0
+            incremental_revenue = 0
+            p_value, is_significant, confidence_pct = 1.0, False, 0
+        
+        # ==========================================
+        # IMPLEMENTATION RATE
+        # ==========================================
+        # Updated patterns to recognize new layered validation statuses
+        not_implemented = impact_df['validation_status'].str.contains('NOT IMPLEMENTED|Source still active|Still has spend|No validation match', na=False, regex=True)
+        confirmed = impact_df['validation_status'].str.contains('✓|Directional|Normalized|Observed', na=False, regex=True)
+        pending = impact_df['validation_status'].str.contains('Unverified|Preventative|Beat baseline only|No after data', na=False, regex=True)
+        
+        confirmed_count = confirmed.sum()
+        not_impl_count = not_implemented.sum()
+        pending_count = pending.sum()
+        
+        impl_rate = (confirmed_count / (confirmed_count + not_impl_count) * 100) if (confirmed_count + not_impl_count) > 0 else 0
+        
+        # ==========================================
+        # WIN RATE & BY ACTION TYPE
+        # ==========================================
         winners = impact_df['is_winner'].fillna(False).sum()
         losers = total_actions - winners
         win_rate = (winners / total_actions * 100) if total_actions > 0 else 0
-        roi = net_sales / net_spend if net_spend != 0 else 0
         
-        # By action type
+        # ==========================================
+        # REVENUE IMPACT (Sum of individual incremental impacts)
+        # ==========================================
+        # Individual actions now have impact_score = incremental revenue
+        revenue_impact = impact_df['impact_score'].fillna(0).sum()
+        
+        # ==========================================
+        # BY ACTION TYPE -> Incremental Revenue Breakdown
+        # ==========================================
         by_action_type = {}
         for action_type in impact_df['action_type'].unique():
             type_data = impact_df[impact_df['action_type'] == action_type]
             by_action_type[action_type] = {
                 'count': len(type_data),
-                'net_sales': type_data['delta_sales'].fillna(0).sum(),
+                'net_sales': type_data['impact_score'].fillna(0).sum(), # This is incremental $
                 'net_spend': type_data['delta_spend'].fillna(0).sum()
             }
         
         return {
             'total_actions': total_actions,
-            'net_sales_impact': net_sales,
-            'net_spend_change': net_spend,
+            # ROAS Analytics
+            'roas_before': round(roas_before, 2),
+            'roas_after': round(roas_after, 2),
+            'roas_lift_pct': round(roas_lift_pct, 1), # Will be labeled "ROAS Change" in UI
+            'incremental_revenue': round(revenue_impact, 2), # Primary metric
+            # Statistical Significance
+            'p_value': round(p_value, 4),
+            'is_significant': is_significant,
+            'confidence_pct': round(confidence_pct, 1),
+            # Implementation
+            'implementation_rate': round(impl_rate, 1),
+            'confirmed_impact': int(confirmed_count),
+            'pending': int(pending_count),
+            'not_implemented': int(not_impl_count),
+            # Legacy/Secondary
+            'win_rate': round(win_rate, 1),
             'winners': int(winners),
             'losers': int(losers),
-            'win_rate': win_rate,
-            'roi': roi,
             'by_action_type': by_action_type
         }
+
+
 
     # ==========================================
     # REFERENCE DATA STATUS

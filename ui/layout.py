@@ -273,19 +273,72 @@ def render_home():
             if top_action:
                 action_display = {"HARVEST": "Harvests", "NEGATIVE": "Keyword Defense", "BID_UPDATE": "Bid Changes", "BID_CHANGE": "Bid Changes"}.get(top_action, top_action.title())
             
-            # Trend indicator
+            # Trend indicator with clearer labels and tooltip
+            # Positive: Sales increased after optimizer actions - good!
+            # Attention: Sales decreased - may need to review actions or wait for more data
+            # Stable: No net change - actions had neutral effect
             if impact > 0:
                 arrow_svg = '<svg xmlns="http://www.w3.org/2000/svg" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="#22c55e" stroke-width="2.5" style="vertical-align:middle"><polyline points="22 7 13.5 15.5 8.5 10.5 2 17"></polyline><polyline points="16 7 22 7 22 13"></polyline></svg>'
-                trend_html = f'{arrow_svg} <span style="color:#22c55e">Positive</span>'
+                trend_text = "Growing"
+                trend_color = "#22c55e"
+                trend_tooltip = "Sales are increasing after your optimization actions. Keep up the good work!"
             elif impact < 0:
                 arrow_svg = '<svg xmlns="http://www.w3.org/2000/svg" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="#f59e0b" stroke-width="2.5" style="vertical-align:middle"><polyline points="6 9 12 15 18 9"></polyline></svg>'
-                trend_html = f'{arrow_svg} <span style="color:#f59e0b">Attention</span>'
+                trend_text = "Review Needed"
+                trend_color = "#f59e0b"
+                trend_tooltip = "Sales have decreased compared to before optimization. This could be normal short-term fluctuation, or it may indicate your changes need adjustment. Don't panic - review your recent actions in the Impact Analyzer."
             else:
-                trend_html = '<span style="color:#64748b">Stable</span>'
+                arrow_svg = ''
+                trend_text = "Stable"
+                trend_color = "#64748b"
+                trend_tooltip = "Sales are unchanged since your last optimization. Actions had a neutral effect."
             
-            st.markdown(f'''<div style="display: flex; justify-content: space-around; text-align: center; margin-top: auto;">
-                <div><div style="font-size: 0.95rem; font-weight: 700; color: #94a3b8;">{action_display or "—"}</div><div style="font-size: 0.6rem; color: #64748b;">Top Driver</div></div>
-                <div><div style="font-size: 0.95rem; font-weight: 700;">{trend_html}</div><div style="font-size: 0.6rem; color: #64748b;">Trend</div></div>
+            trend_html = f'{arrow_svg} <span style="color:{trend_color}">{trend_text}</span>'
+            
+            # CSS tooltip that works in Streamlit (title attribute doesn't work reliably)
+            tooltip_css = '''
+            <style>
+            .tooltip-container { position: relative; display: inline-block; cursor: help; }
+            .tooltip-container .tooltip-text {
+                visibility: hidden;
+                width: 220px;
+                background-color: #1e293b;
+                color: #e2e8f0;
+                text-align: left;
+                border-radius: 6px;
+                padding: 8px 10px;
+                position: absolute;
+                z-index: 1000;
+                bottom: 125%;
+                left: 50%;
+                margin-left: -110px;
+                opacity: 0;
+                transition: opacity 0.2s;
+                font-size: 0.75rem;
+                line-height: 1.4;
+                box-shadow: 0 4px 12px rgba(0,0,0,0.3);
+            }
+            .tooltip-container:hover .tooltip-text { visibility: visible; opacity: 1; }
+            .info-icon { font-size: 0.7rem; color: #64748b; margin-left: 3px; }
+            </style>
+            '''
+            
+            st.markdown(f'''{tooltip_css}
+            <div style="display: flex; justify-content: space-around; text-align: center; margin-top: auto;">
+                <div>
+                    <div style="font-size: 0.95rem; font-weight: 700; color: #94a3b8;">{action_display or "—"}</div>
+                    <div style="font-size: 0.6rem; color: #64748b;">
+                        Top Driver
+                        <span class="tooltip-container"><span class="info-icon">ⓘ</span><span class="tooltip-text">The action type that contributed most to your recent sales change.</span></span>
+                    </div>
+                </div>
+                <div>
+                    <div style="font-size: 0.95rem; font-weight: 700;">{trend_html}</div>
+                    <div style="font-size: 0.6rem; color: #64748b;">
+                        30-Day Trend
+                        <span class="tooltip-container"><span class="info-icon">ⓘ</span><span class="tooltip-text">{trend_tooltip}</span></span>
+                    </div>
+                </div>
             </div>''', unsafe_allow_html=True)
         else:
             st.markdown('<div class="cockpit-value" style="text-align:center;">—</div>', unsafe_allow_html=True)

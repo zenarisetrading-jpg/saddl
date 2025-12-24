@@ -1303,48 +1303,54 @@ If Auto outperforms Manual: Discovery is working - harvest more aggressively
     # =========================================================================
 
     def render_floating_interface(self):
-        """Renders the chat interface as a floating widget in the bottom-right corner."""
-        
+        """Standard styling for a prominent Assistant button."""
         st.markdown("""
         <style>
-        /* SIBLING ANCHOR STRATEGY - ROBUST */
-        /* Use General Sibling (~) instead of Adjacent (+) to be safer */
-        span#zenny-anchor ~ [data-testid="stPopover"] {
-            position: fixed !important;
-            bottom: 30px !important;
-            right: 30px !important;
-            z-index: 999999 !important;
-            display: inline-block !important;
-            width: auto !important;
-            height: auto !important;
+        /* Standard positioning - not floating fixed */
+        [data-testid="stPopover"] {
+            margin: 20px 0;
+            display: inline-block;
         }
         
-        span#zenny-anchor ~ [data-testid="stPopover"] > button {
-            width: 56px !important; /* FAB Size */
-            height: 56px !important;
-            border-radius: 50% !important; /* Perfect Circle */
-            padding: 0 !important;
-            background: linear-gradient(135deg, #5B556F 0%, #464156 100%) !important; /* Brand Wine Gradient */
-            color: #ffffff !important;
-            border: 1px solid rgba(255,255,255,0.2) !important;
-            box-shadow: 0 4px 15px rgba(0,0,0,0.3) !important;
-            font-size: 24px !important; /* Larger Icon */
+        /* Prominent Action Button Style */
+    [data-testid="stPopover"] > button {
+        background: linear-gradient(135deg, #06b6d4 0%, #3b82f6 100%) !important;
+        border: 1px solid rgba(255, 255, 255, 0.2) !important;
+        border-radius: 12px !important;
+        padding: 14px 28px !important;
+        color: #ffffff !important;
+        font-weight: 700 !important;
+        font-size: 1.05rem !important;
+        box-shadow: 0 4px 20px rgba(6, 182, 212, 0.4) !important;
+        transition: all 0.3s cubic-bezier(0.175, 0.885, 0.32, 1.275) !important;
+        text-shadow: 0 1px 2px rgba(0,0,0,0.2) !important;
+        min-width: 220px !important;
+    }
+    
+    [data-testid="stPopover"] > button:hover {
+        transform: translateY(-3px) scale(1.02) !important;
+        box-shadow: 0 8px 25px rgba(6, 182, 212, 0.5) !important;
+        border-color: #ffffff !important;
+        background: linear-gradient(135deg, #0891b2 0%, #2563eb 100%) !important;
+    }
+    
+    /* Animation for sparkle */
+    @keyframes sparkle-pulse {
+        0% { transform: scale(1); opacity: 1; }
+        50% { transform: scale(1.2); opacity: 0.8; }
+        100% { transform: scale(1); opacity: 1; }
+    }
+    
+    [data-testid="stPopover"] button span:first-child {
+        animation: sparkle-pulse 2s infinite ease-in-out;
+        display: inline-block;
+    }
+    
+        /* Pulse for the icon */
+        [data-testid="stPopover"] button div[data-testid="stMarkdownContainer"] {
             display: flex !important;
             align-items: center !important;
-            justify-content: center !important;
-            transition: transform 0.2s cubic-bezier(0.34, 1.56, 0.64, 1) !important;
-        }
-        
-        span#zenny-anchor ~ [data-testid="stPopover"] > button:hover {
-            transform: scale(1.1) rotate(5deg) !important;
-            background: linear-gradient(135deg, #6A6382 0%, #5B556F 100%) !important;
-            box-shadow: 0 6px 20px rgba(0,0,0,0.4) !important;
-            color: #ffffff !important;
-        }
-        
-        /* Hide the caret/arrow if possible */
-        span#zenny-anchor ~ [data-testid="stPopover"] > button::after {
-            display: none !important;
+            gap: 10px !important;
         }
         </style>
         """, unsafe_allow_html=True)
@@ -1352,63 +1358,25 @@ If Auto outperforms Manual: Discovery is working - harvest more aggressively
     def render_interface(self):
         """
         Render the Ask Zenny interface.
-        Supports both full-page mode (Ask Zenny tab) and floating mode (popover).
         """
         is_full_page = st.session_state.get('current_module') == 'assistant'
+        self.render_floating_interface()
         
         if is_full_page:
             # === FULL PAGE MODE ===
-            col1, col2 = st.columns([0.08, 0.92])
+            col1, col2 = st.columns([0.1, 0.9])
             with col1:
-                st.markdown("""
-                <div style="
-                    width: 50px;
-                    height: 50px;
-                    background: linear-gradient(135deg, #6366f1 0%, #06b6d4 100%);
-                    border-radius: 12px;
-                    display: flex;
-                    align-items: center;
-                    justify-content: center;
-                    font-size: 24px;
-                    box-shadow: 0 4px 12px rgba(99, 102, 241, 0.3);
-                    margin-top: 8px;
-                ">✨</div>
-                """, unsafe_allow_html=True)
+                st.markdown('<div style="font-size: 40px;">✨</div>', unsafe_allow_html=True)
             with col2:
-                st.title("Ask Zenny")
-            st.caption("Your AI Campaign Strategist with full dataset access")
-            
-            # Render chat directly in main container
+                st.title("AI Campaign Strategist")
+            st.caption("Strategic insights and real-time optimization guidance powered by Zenny.")
             self._render_chat_content(height=600)
             
         else:
-            # === FLOATING MODE (POPOVER) ===
-            # This is displayed on other pages
-            
-            # Inject Anchor Span
-            st.markdown('<span id="zenny-anchor"></span>', unsafe_allow_html=True)
-            
-            # Use icon-only label for the FAB result
-            with st.popover("✨", use_container_width=False):
-                col1, col2 = st.columns([0.2, 0.8])
-                with col1:
-                    st.markdown("""
-                    <div style="
-                        width: 40px;
-                        height: 40px;
-                        background: linear-gradient(135deg, #5B556F 0%, #464156 100%);
-                        border-radius: 10px;
-                        display: flex;
-                        align-items: center;
-                        justify-content: center;
-                        font-size: 20px;
-                        box-shadow: 0 4px 12px rgba(91, 85, 111, 0.3);
-                        color: white;
-                    ">✨</div>
-                    """, unsafe_allow_html=True)
-                with col2:
-                    st.subheader("Ask Zenny")
-                
+            # === COMPACT MODE (Standard Button) ===
+            # Prominent branding label
+            with st.popover("✨ Ask your AI strategist", use_container_width=False):
+                st.subheader("Ask Zenny")
                 st.markdown('<div style="margin-bottom: 10px; color: #8F8CA3; font-size: 0.9em;">AI Campaign Strategist</div>', unsafe_allow_html=True)
                 self._render_chat_content(height=400)
 

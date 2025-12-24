@@ -2044,7 +2044,8 @@ class OptimizerModule(BaseFeature):
                 "Run optimization with recommended settings",
                 type="primary",
                 use_container_width=True,
-                key="opt_run_primary"
+                key="opt_run_primary",
+                help="Balanced mode with standard thresholds"
             ):
                 st.session_state["run_optimizer"] = True
                 st.rerun()

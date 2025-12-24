@@ -191,10 +191,6 @@ def run_consolidated_optimizer():
     # Work with a copy to avoid modifying Hub data in-place
     df = df_raw.copy()
     
-    # Show which data we're using
-    upload_ts = st.session_state.unified_data.get('upload_timestamps', {}).get('search_term_report')
-    if upload_ts:
-        st.info(f"📊 Using Search Term Report uploaded at {upload_ts.strftime('%Y-%m-%d %H:%M')}")
     
     # Apply enrichment (IDs, SKUs) to the fresh data WITHOUT mixing with DB historical data
     # This adds CampaignId, AdGroupId, SKU, etc. from bulk/APR files
