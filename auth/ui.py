@@ -60,95 +60,89 @@ def render_signup_form() -> None:
 
 
 # =============================================================================
-# LOGIN FORM - PREMIUM UI
+# LOGIN FORM - PREMIUM UI (Brand Aligned)
 # =============================================================================
 def render_login_form() -> dict:
-    """Render a premium login form matching SADDLE brand."""
+    """Render a premium login form matching SADDLE brand guidelines."""
     auth = AuthService()
     
-    # Premium Login CSS
+    # Brand-aligned Login CSS
     st.markdown("""
     <style>
     /* Hide default Streamlit elements */
     #MainMenu, footer, header {visibility: hidden;}
     
-    /* Login container styling */
-    .login-wrapper {
-        min-height: 100vh;
-        display: flex;
-        align-items: center;
-        justify-content: center;
-        background: linear-gradient(180deg, #0B0B0D 0%, #151822 50%, #1a1f2e 100%);
-    }
-    
-    .login-card {
-        background: rgba(30, 35, 50, 0.85);
-        border: 1px solid rgba(91, 86, 112, 0.2);
-        border-radius: 20px;
-        padding: 3rem;
-        width: 100%;
-        max-width: 420px;
-        backdrop-filter: blur(20px);
-        box-shadow: 0 20px 60px rgba(0, 0, 0, 0.4);
+    /* Full page brand background */
+    .stApp {
+        background: linear-gradient(180deg, #0B0B0D 0%, #1a1825 50%, #5B5670 100%) !important;
     }
     
     .login-logo {
         text-align: center;
-        margin-bottom: 2rem;
+        margin-bottom: 2.5rem;
     }
     
     .login-title {
         color: #E9EAF0;
-        font-size: 1.75rem;
+        font-size: 2rem;
         font-weight: 700;
         text-align: center;
         margin-bottom: 0.5rem;
         letter-spacing: -0.02em;
+        font-family: Inter, -apple-system, sans-serif;
     }
     
     .login-subtitle {
         color: #9A9AAA;
         text-align: center;
-        margin-bottom: 2rem;
-        font-size: 0.95rem;
+        margin-bottom: 2.5rem;
+        font-size: 1rem;
     }
     
-    /* Input styling */
+    /* Input styling - brand aligned */
     .stTextInput > div > div > input {
-        background: rgba(11, 11, 13, 0.6) !important;
-        border: 1px solid rgba(91, 86, 112, 0.3) !important;
-        border-radius: 10px !important;
+        background: rgba(11, 11, 13, 0.7) !important;
+        border: 1px solid rgba(91, 86, 112, 0.4) !important;
+        border-radius: 12px !important;
         color: #E9EAF0 !important;
-        padding: 0.85rem 1rem !important;
-        font-size: 0.95rem !important;
+        padding: 1rem 1.2rem !important;
+        font-size: 1rem !important;
     }
     
     .stTextInput > div > div > input:focus {
         border-color: #2A8EC9 !important;
-        box-shadow: 0 0 0 2px rgba(42, 142, 201, 0.2) !important;
+        box-shadow: 0 0 0 3px rgba(42, 142, 201, 0.2) !important;
     }
     
     .stTextInput > div > div > input::placeholder {
         color: #6B6B7B !important;
     }
     
-    /* Primary button */
+    /* PRIMARY CTA - Embossed Saddle Purple with Signal Blue accent */
     .stButton > button[kind="primary"] {
-        background: linear-gradient(135deg, #2A8EC9 0%, #1e7bb8 100%) !important;
-        color: white !important;
-        border: none !important;
-        border-radius: 10px !important;
-        padding: 0.85rem 1.5rem !important;
+        background: linear-gradient(135deg, #5B5670 0%, #464156 100%) !important;
+        color: #E9EAF0 !important;
+        border: 1px solid rgba(233, 234, 240, 0.15) !important;
+        border-radius: 12px !important;
+        padding: 1rem 2rem !important;
         font-weight: 600 !important;
         font-size: 1rem !important;
-        letter-spacing: 0.02em !important;
-        box-shadow: 0 4px 15px rgba(42, 142, 201, 0.3) !important;
+        letter-spacing: 0.03em !important;
+        box-shadow: 
+            0 4px 20px rgba(91, 86, 112, 0.4),
+            inset 0 1px 0 rgba(255, 255, 255, 0.1),
+            inset 0 -1px 0 rgba(0, 0, 0, 0.2) !important;
         transition: all 0.2s ease !important;
+        text-transform: none !important;
     }
     
     .stButton > button[kind="primary"]:hover {
-        transform: translateY(-1px) !important;
-        box-shadow: 0 6px 20px rgba(42, 142, 201, 0.4) !important;
+        background: linear-gradient(135deg, #6c6684 0%, #5B5670 100%) !important;
+        transform: translateY(-2px) !important;
+        box-shadow: 
+            0 8px 30px rgba(91, 86, 112, 0.5),
+            inset 0 1px 0 rgba(255, 255, 255, 0.15),
+            inset 0 -1px 0 rgba(0, 0, 0, 0.2) !important;
     }
     
     /* Form styling */
@@ -158,12 +152,25 @@ def render_login_form() -> dict:
         padding: 0 !important;
     }
     
-    /* Labels */
+    /* Labels - Slate Grey */
     .stTextInput label {
         color: #9A9AAA !important;
-        font-size: 0.85rem !important;
+        font-size: 0.9rem !important;
         font-weight: 500 !important;
-        margin-bottom: 0.3rem !important;
+        margin-bottom: 0.4rem !important;
+    }
+    
+    /* Checkbox styling */
+    .stCheckbox label {
+        color: #E9EAF0 !important;
+    }
+    
+    /* Links - Signal Blue */
+    a {
+        color: #2A8EC9 !important;
+    }
+    a:hover {
+        color: #8FC9D6 !important;
     }
     </style>
     """, unsafe_allow_html=True)
@@ -172,7 +179,7 @@ def render_login_form() -> dict:
     col1, col2, col3 = st.columns([1, 2, 1])
     
     with col2:
-        # Logo
+        # Logo - BIGGER (120px)
         import base64
         from pathlib import Path
         logo_path = Path(__file__).parent.parent / "static" / "saddle_logo.png"
@@ -181,7 +188,7 @@ def render_login_form() -> dict:
                 logo_data = base64.b64encode(f.read()).decode()
             st.markdown(f"""
                 <div class="login-logo">
-                    <img src="data:image/png;base64,{logo_data}" style="height: 80px;" />
+                    <img src="data:image/png;base64,{logo_data}" style="height: 120px;" />
                 </div>
             """, unsafe_allow_html=True)
         

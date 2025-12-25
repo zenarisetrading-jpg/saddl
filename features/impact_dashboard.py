@@ -18,7 +18,7 @@ from datetime import datetime, timedelta
 from core.db_manager import get_db_manager
 
 @st.cache_data(ttl=60, show_spinner=False)  # Reduced TTL and will bust cache
-def _fetch_impact_data(client_id: str, test_mode: bool, window_days: int = 7, cache_version: str = "v2_roas") -> Tuple[pd.DataFrame, Dict[str, Any]]:
+def _fetch_impact_data(client_id: str, test_mode: bool, window_days: int = 7, cache_version: str = "v4_dedup") -> Tuple[pd.DataFrame, Dict[str, Any]]:
 
     """
     Cached data fetcher for impact analysis.
@@ -73,9 +73,12 @@ def render_impact_dashboard():
             label_visibility="collapsed",
             key="impact_time_frame"
         )
-        # Ensure time_frame is never None
         if time_frame is None:
             time_frame = "30D"
+
+        if st.button("🔄 Force Refresh Cache", key="clear_impact_cache"):
+            st.cache_data.clear()
+            st.rerun()
 
     
     # Dark theme compatible CSS
@@ -132,7 +135,7 @@ def render_impact_dashboard():
         # Use cached fetcher
         test_mode = st.session_state.get('test_mode', False)
         # Force cache bust with version + timestamp
-        cache_version = "v3_roas_" + str(st.session_state.get('data_upload_timestamp', 'init'))
+        cache_version = "v4_roas_" + str(st.session_state.get('data_upload_timestamp', 'init'))
         # Parse time frame to days for the before/after comparison window
         time_frame_days = {"7D": 7, "14D": 14, "30D": 30, "60D": 60, "90D": 90}
         window_days = time_frame_days.get(time_frame, 7)
@@ -140,11 +143,28 @@ def render_impact_dashboard():
 
 
     
-    if full_summary['total_actions'] == 0:
+    # Fixed KeyError: Use 'all' summary for initial check
+    if full_summary.get('all', {}).get('total_actions', 0) == 0:
         st.info("No actions with matching 'next week' performance data found. This means either:\n"
                 "- Actions were logged but no performance data for the following week exists yet.\n"
                 "- Upload next week's Search Term Report and run the optimizer to see impact.")
         return
+        
+    # Period Header Preparation
+    compare_text = ""
+    p = full_summary.get('period_info', {})
+    if p.get('before_start'):
+        try:
+            def fmt(d):
+                if isinstance(d, str):
+                    return datetime.strptime(d[:10], "%Y-%m-%d").strftime("%b %d")
+                return d.strftime("%b %d")
+            
+            b_range = f"{fmt(p['before_start'])} - {fmt(p['before_end'])}"
+            a_range = f"{fmt(p['after_start'])} - {fmt(p['after_end'])}"
+            compare_text = f"Comparing <code>{b_range}</code> (Before) vs. <code>{a_range}</code> (After)"
+        except Exception as e:
+            print(f"Header date error: {e}")
         
     
     # Time frame (7D, 14D, 30D) now controls the before/after comparison window in the SQL query
@@ -169,111 +189,36 @@ def render_impact_dashboard():
     # The UI uses full_summary directly from the backend for statistical rigor.
 
     
-    # ==========================================
-    # DATE RANGE CALLOUT
-    # ==========================================
-    if not impact_df.empty and 'action_date' in impact_df.columns:
-        action_dates = pd.to_datetime(impact_df['action_date'], errors='coerce').dropna()
-        if not action_dates.empty:
-            min_date = action_dates.min().strftime('%b %d, %Y')
-            max_date = action_dates.max().strftime('%b %d, %Y')
-            unique_weeks = impact_df['action_date'].nunique()
-            
-            # Handle single date vs range
-            if min_date == max_date:
-                date_text = f"from <strong>{min_date}</strong>"
-            else:
-                date_text = f"from <strong>{min_date}</strong> to <strong>{max_date}</strong>"
-            
-            # Dynamic Title based on filter
-            title_text = f"{time_frame} Impact Summary"
-            
-            # Theme-aware calendar icon
-            theme_mode = st.session_state.get('theme_mode', 'dark')
-            cal_color = "#60a5fa" if theme_mode == 'dark' else "#3b82f6"
-            calendar_icon = f'<svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="{cal_color}" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" style="vertical-align: middle; margin-right: 6px;"><rect x="3" y="4" width="18" height="18" rx="2" ry="2"></rect><line x1="16" y1="2" x2="16" y2="6"></line><line x1="8" y1="2" x2="8" y2="6"></line><line x1="3" y1="10" x2="21" y2="10"></line></svg>'
-            
-            st.markdown(f"""
-            <div style="background: linear-gradient(135deg, rgba(59, 130, 246, 0.2) 0%, rgba(59, 130, 246, 0.05) 100%);
-                        border: 1px solid rgba(59, 130, 246, 0.3);
-                        border-radius: 8px;
-                        padding: 12px 16px;
-                        margin-bottom: 16px;">
-                {calendar_icon}<strong>{title_text}</strong> — Showing data {date_text} 
-                ({len(impact_df)} actions across {unique_weeks} optimization run{'s' if unique_weeks > 1 else ''})
-            </div>
-            """, unsafe_allow_html=True)
+    # Redundant date range callout removed (merged into top header)
     
     # ==========================================
-    # SPLIT: ACTIVE vs DORMANT ACTIONS
+    # CONSOLIDATED PREMIUM HEADER
     # ==========================================
     if not impact_df.empty:
-        # Active: rows where (before_spend + after_spend) > 0
-        active_mask = (impact_df['before_spend'].fillna(0) + impact_df['after_spend'].fillna(0)) > 0
-        active_df = impact_df[active_mask].copy()
-        dormant_df = impact_df[~active_mask].copy()
+        theme_mode = st.session_state.get('theme_mode', 'dark')
+        cal_color = "#60a5fa" if theme_mode == 'dark' else "#3b82f6"
+        calendar_icon = f'<svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="{cal_color}" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" style="vertical-align: middle; margin-right: 6px;"><rect x="3" y="4" width="18" height="18" rx="2" ry="2"></rect><line x1="16" y1="2" x2="16" y2="6"></line><line x1="8" y1="2" x2="8" y2="6"></line><line x1="3" y1="10" x2="21" y2="10"></line></svg>'
         
-        # Add migration tracking indicator for HARVEST with before_spend > 0
-        if 'action_type' in active_df.columns:
-            active_df['is_migration'] = (
-                (active_df['action_type'] == 'HARVEST') & 
-                (active_df['before_spend'].fillna(0) > 0)
-            )
-    else:
-        active_df = impact_df
-        dormant_df = pd.DataFrame()
-    
-    # Recalculate summary for ACTIVE ONLY to ensure consistency
-    active_count = len(active_df)
-    dormant_count = len(dormant_df)
-    
-    # Calculate active-only summary metrics
-    if not active_df.empty:
-        # Use impact_score for the main metric (rule-based expected outcome)
-        # impact_score = cost saved (for NEGATIVE) + lift (for HARVEST) + delta (for BID_CHANGE)
-        impact_col = 'impact_score' if 'impact_score' in active_df.columns else 'delta_sales'
-        spend_col = 'delta_spend' if 'delta_spend' in active_df.columns else 'delta_spend'
+        action_count = len(impact_df)
+        unique_weeks = impact_df['action_date'].nunique() if 'action_date' in impact_df.columns else 1
         
-        impact_scores = active_df[impact_col].fillna(0)
-        delta_spend = active_df[spend_col].fillna(0)
-        is_winner = active_df['is_winner'].fillna(False)
-        
-        # Build by_action_type with correct nested structure
-        by_action_type = {}
-        for action_type in active_df['action_type'].unique():
-            action_data = active_df[active_df['action_type'] == action_type]
-            by_action_type[action_type] = {
-                'net_sales': action_data[impact_col].fillna(0).sum(),  # Use impact_score
-                'net_spend': action_data[spend_col].fillna(0).sum()
-            }
-        
-        active_summary = {
-            'total_actions': active_count,
-            'net_sales_impact': impact_scores.sum(),  # Use impact_score for main metric
-            'net_spend_change': delta_spend.sum(),
-            'winners': is_winner.sum(),
-            'losers': (~is_winner).sum() if 'is_winner' in active_df.columns else 0,
-            'win_rate': (is_winner.sum() / active_count * 100) if active_count > 0 else 0,
-            'roi': impact_scores.sum() / abs(delta_spend.sum()) if delta_spend.sum() != 0 else 0,
-            'by_action_type': by_action_type
-        }
-    else:
-        # Fallback if active_df is empty
-        if time_frame:  # Always apply time frame filter
-             # If filtering and no active data, show Zeros (don't fallback to lifetime)
-             active_summary = {
-                'total_actions': 0,
-                'net_sales_impact': 0,
-                'net_spend_change': 0,
-                'winners': 0,
-                'losers': 0,
-                'win_rate': 0,
-                'roi': 0,
-                'by_action_type': {}
-            }
-        else:
-             active_summary = full_summary
-    
+        st.markdown(f"""
+        <div style="background: linear-gradient(135deg, rgba(59, 130, 246, 0.15) 0%, rgba(59, 130, 246, 0.05) 100%);
+                    border: 1px solid rgba(59, 130, 246, 0.3);
+                    border-radius: 12px; padding: 16px; margin-bottom: 24px;">
+            <div style="display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 12px;">
+                <div style="display: flex; align-items: center;">
+                    {calendar_icon}
+                    <span style="font-weight: 600; font-size: 1.1rem; color: #60a5fa; margin-right: 12px;">{time_frame} Impact Summary</span>
+                    <span style="color: #94a3b8; font-size: 0.95rem;">{compare_text}</span>
+                </div>
+                <div style="color: #94a3b8; font-size: 0.85rem; opacity: 0.8;">
+                    {action_count} actions total across {unique_weeks} runs
+                </div>
+            </div>
+        </div>
+        """, unsafe_allow_html=True)
+
     # ==========================================
     # UNIVERSAL VALIDATION TOGGLE
     # ==========================================
@@ -282,59 +227,32 @@ def render_impact_dashboard():
         show_validated_only = st.toggle(
             "Validated Only", 
             value=True, 
-            help="Show only CPC-validated actions with confirmed implementation"
+            help="Show only actions confirmed by actual CPC/Bid data"
         )
     with toggle_col2:
         if show_validated_only:
-            st.caption("✓ Showing **validated actions only** — CPC matched suggested bid")
+            st.caption("✓ Showing **validated actions only** — filtering all cards and charts.")
         else:
-            st.caption("📊 Showing **all actions** - includes unvalidated and pending")
-    
-    # Filter based on toggle
-    validated_mask = impact_df['validation_status'].str.contains('✓|CPC Validated|CPC Match|Directional|Confirmed', na=False, regex=True)
-    display_df = impact_df[validated_mask] if show_validated_only else impact_df
-    
-    # ==========================================
-    # RECALCULATE SUMMARY FOR DISPLAY DATA
-    # ==========================================
-    if show_validated_only and not display_df.empty:
-        # Recalculate metrics for validated-only view
-        bid_df = display_df[display_df['action_type'].str.contains('BID', na=False)].copy()
-        bid_df = bid_df[(bid_df['before_spend'] > 0) & (bid_df['observed_after_spend'] > 0)]
-        
-        if len(bid_df) > 2:
-            total_before_spend = bid_df['before_spend'].sum()
-            total_after_spend = bid_df['observed_after_spend'].sum()
-            total_before_sales = bid_df['before_sales'].sum()
-            total_after_sales = bid_df['observed_after_sales'].sum()
+            st.caption("📊 Showing **all actions** — including pending and unverified.")
             
-            roas_before = total_before_sales / total_before_spend if total_before_spend > 0 else 0
-            roas_after = total_after_sales / total_after_spend if total_after_spend > 0 else 0
-            roas_lift_pct = ((roas_after - roas_before) / roas_before * 100) if roas_before > 0 else 0
-            incremental_revenue = total_before_spend * (roas_after - roas_before)
-            
-            display_summary = {
-                **full_summary,
-                'total_actions': len(display_df),
-                'roas_before': round(roas_before, 2),
-                'roas_after': round(roas_after, 2),
-                'roas_lift_pct': round(roas_lift_pct, 1),
-                'incremental_revenue': round(incremental_revenue, 2),
-                'confirmed_impact': len(display_df),
-                'implementation_rate': 100.0,
-                'before_sales': total_before_sales,
-                'after_sales': total_after_sales,
-                'before_spend': total_before_spend
-            }
-        else:
-            display_summary = {**full_summary, 'total_actions': len(display_df)}
-    else:
-        display_summary = full_summary
+    # ==========================================
+    # DATA PREPARATION: ACTIVE vs DORMANT
+    # ==========================================
+    # Filter based on toggle BEFORE splitting
+    v_mask = impact_df['validation_status'].str.contains('✓|CPC Validated|CPC Match|Directional|Confirmed|Normalized', na=False, regex=True)
+    display_df = impact_df[v_mask].copy() if show_validated_only else impact_df.copy()
     
-    # ==========================================
-    # HERO TILES (Using display_summary which respects toggle)
-    # ==========================================
-    _render_hero_tiles(display_summary, len(display_df), dormant_count)
+    # Measured (Active) vs Pending (Dormant)
+    # Measured if there was spend in BEFORE or AFTER window
+    measured_mask = (display_df['before_spend'].fillna(0) + display_df['observed_after_spend'].fillna(0)) > 0
+    active_df = display_df[measured_mask].copy()
+    dormant_df = display_df[~measured_mask].copy()
+    
+    # Use pre-calculated summary from backend for the tiles
+    display_summary = full_summary.get('validated' if show_validated_only else 'all', {})
+    
+    # HERO TILES (Now synchronized)
+    _render_hero_tiles(display_summary, len(active_df), len(dormant_df))
     
     st.divider()
 
@@ -513,8 +431,8 @@ def _render_hero_tiles(summary: Dict[str, Any], active_count: int = 0, dormant_c
         <div class="hero-card">
             <div class="hero-label">{roas_icon} ROAS Lift</div>
             <div class="hero-value" style="color: {roas_color};">{prefix}{roas_lift:.1f}%</div>
-            <div class="hero-sub">{sig_icon} {'significant' if is_sig else 'not significant'}</div>
-            <div style="font-size: 0.7rem; color: #94a3b8; margin-top: 4px; line-height: 1.1;">Shows the lift beyond your normal performance baseline</div>
+            <div class="hero-sub">{sig_icon} {'significant' if is_sig else 'not significant'} (N={active_count})</div>
+            <div style="font-size: 0.7rem; color: #94a3b8; margin-top: 4px; line-height: 1.1;">Comparing performance before vs after optimization</div>
         </div>
         """, unsafe_allow_html=True)
     
