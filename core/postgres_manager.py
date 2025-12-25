@@ -1322,14 +1322,11 @@ class PostgresManager:
             df['before_sales'].round(2).astype(str)
         )
         
-        # Keep first (favors specific target data if mixed with campaign fallback)
+        # Keep first (favors specific target records if they exist)
+        # For weekly buckets, we also deduplicate within the bucket implicitly here.
         df = df.drop_duplicates(subset='_dedup_key', keep='first')
         df = df.drop(columns=['_dedup_key'])
         
-        after_count = len(df)
-        if before_count > after_count:
-            print(f"\n[DEDUP] Campaign Overcount Fix: {before_count} → {after_count} actions")
-            
         _query_cache.set(cache_key, df)
         return df
 
@@ -1406,7 +1403,7 @@ class PostgresManager:
         win_rate = (winners / total_actions * 100) if total_actions > 0 else 0
         
         # ==========================================
-        # 3. ACTION TYPE BREAKDOWN & DEBUG TABLE
+        # 3. ACTION TYPE BREAKDOWN
         # ==========================================
         by_type = {}
         for action_type in df['action_type'].unique():
@@ -1416,16 +1413,6 @@ class PostgresManager:
                 'net_sales': type_data['impact_score'].fillna(0).sum(),
                 'net_spend': type_data['delta_spend'].fillna(0).sum()
             }
-
-        # FINAL TABLE DEBUG (User requested for terminal review)
-        print(f"\n--- {window_days}D RAW PERFORMANCE TABLE ({label}) ---")
-        print(f"Metrics ({label} - BID only):")
-        print(f"  Sales: {total_before_sales:,.0f} (Before) → {total_after_sales:,.0f} (After)")
-        print(f"  Spend: {total_before_spend:,.0f} (Before) → {total_after_spend:,.0f} (After)")
-        print(f"  ROAS: {roas_before:.2f} (Before) → {roas_after:.2f} (After)")
-        print(f"  Lift: {roas_lift_pct:+.1f}% | Incremental: {incremental_revenue:,.0f}")
-        print(f"  Actions: {total_actions} ({winners} winners, {total_actions - winners} losers/flat)")
-        print("-" * 50)
         
         return {
             'total_actions': total_actions,

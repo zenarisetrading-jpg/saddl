@@ -17,7 +17,7 @@ from typing import Dict, Any, Optional, Tuple
 from datetime import datetime, timedelta
 from core.db_manager import get_db_manager
 
-@st.cache_data(ttl=60, show_spinner=False)  # Reduced TTL and will bust cache
+@st.cache_data(ttl=3600, show_spinner=False)  # Restored production TTL
 def _fetch_impact_data(client_id: str, test_mode: bool, window_days: int = 7, cache_version: str = "v4_dedup") -> Tuple[pd.DataFrame, Dict[str, Any]]:
 
     """
@@ -75,10 +75,6 @@ def render_impact_dashboard():
         )
         if time_frame is None:
             time_frame = "30D"
-
-        if st.button("🔄 Force Refresh Cache", key="clear_impact_cache"):
-            st.cache_data.clear()
-            st.rerun()
 
     
     # Dark theme compatible CSS
