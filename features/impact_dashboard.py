@@ -512,9 +512,9 @@ def _render_hero_tiles(summary: Dict[str, Any], active_count: int = 0, dormant_c
         st.markdown(f"""
         <div class="hero-card">
             <div class="hero-label">{roas_icon} ROAS Lift</div>
-            <div style="font-size: 0.7rem; color: #94a3b8; margin-top: -8px; margin-bottom: 8px; line-height: 1.1;">Shows the lift beyond your normal performance baseline</div>
             <div class="hero-value" style="color: {roas_color};">{prefix}{roas_lift:.1f}%</div>
             <div class="hero-sub">{sig_icon} {'significant' if is_sig else 'not significant'}</div>
+            <div style="font-size: 0.7rem; color: #94a3b8; margin-top: 4px; line-height: 1.1;">Shows the lift beyond your normal performance baseline</div>
         </div>
         """, unsafe_allow_html=True)
     
@@ -1196,10 +1196,10 @@ def get_recent_impact_summary() -> Optional[dict]:
         # USE CACHED DATA FETCHER
         test_mode = st.session_state.get('test_mode', False)
         # Use data upload timestamp as cache version
-        # Use 7-day window to CAPTURE recent actions (SQL excludes actions inside the window),
+        # Use 1-day window to CAPTURE even the most recent actions (SQL restriction),
         # then scale to 30 days to estimate full monthly impact.
-        # If we use window_days=30, it excludes all actions from the last 29 days -> Blank Tile.
-        impact_df, _ = _fetch_impact_data(selected_client, test_mode, window_days=7, cache_version=cv)
+        # This prevents blank tiles for fresh data.
+        impact_df, _ = _fetch_impact_data(selected_client, test_mode, window_days=1, cache_version=cv)
         
         if impact_df.empty:
             return None
@@ -1232,9 +1232,9 @@ def get_recent_impact_summary() -> Optional[dict]:
         impact_col = 'impact_score' if 'impact_score' in active_df.columns else 'delta_sales'
         spend_col = 'delta_spend' if 'delta_spend' in active_df.columns else 'delta_spend'
         
-        # SCALE 7-DAY IMPACT TO 30 DAYS
-        # Since we measure over 7 days, we project the 30-day run rate
-        scale_factor = 30 / 7
+        # SCALE 1-DAY IMPACT TO 30 DAYS
+        # Since we measure over 1 day, we project the 30-day run rate
+        scale_factor = 30 / 1
         impact_scores = active_df[impact_col].fillna(0) * scale_factor
         delta_spend = active_df[spend_col].fillna(0) * scale_factor
         is_winner = active_df['is_winner'].fillna(False)
