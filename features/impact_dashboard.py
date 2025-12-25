@@ -513,7 +513,7 @@ def _render_new_impact_analytics(summary: Dict[str, Any], impact_df: pd.DataFram
         _render_attribution_waterfall(summary, impact_df, currency, validated_only)
     
     with col2:
-        _render_stacked_revenue_bar(summary, currency)
+        _render_stacked_revenue_bar(summary, currency, validated_only)
 
 
 def _render_attribution_waterfall(summary: Dict[str, Any], impact_df: pd.DataFrame, currency: str, validated_only: bool):
@@ -639,10 +639,11 @@ def _render_attribution_waterfall(summary: Dict[str, Any], impact_df: pd.DataFra
     st.plotly_chart(fig, use_container_width=True)
 
 
-def _render_stacked_revenue_bar(summary: Dict[str, Any], currency: str):
+def _render_stacked_revenue_bar(summary: Dict[str, Any], currency: str, validated_only: bool = True):
     """Render stacked bar showing Before Revenue vs After (Baseline + Incremental)."""
     
-    st.markdown("#### 📈 Revenue Comparison")
+    title = "#### 📈 Baseline vs. Incremental Sales" if validated_only else "#### 📈 Revenue Comparison"
+    st.markdown(title)
     
     # Get actual values from summary
     before_sales = summary.get('before_sales', 0)
@@ -657,7 +658,7 @@ def _render_stacked_revenue_bar(summary: Dict[str, Any], currency: str):
         
         # Before bar - Brand Purple
         fig.add_trace(go.Bar(
-            name='Before',
+            name='Sales (Before)',
             x=['Before'],
             y=[before_sales],
             marker_color='#5B556F',  # Brand Purple
@@ -668,7 +669,7 @@ def _render_stacked_revenue_bar(summary: Dict[str, Any], currency: str):
         
         # After bar with incremental highlight
         fig.add_trace(go.Bar(
-            name='Baseline',
+            name='Baseline (Expected)',
             x=['After'],
             y=[before_sales],  # Same as before (baseline)
             marker_color='#5B556F',  # Brand Purple
@@ -680,7 +681,7 @@ def _render_stacked_revenue_bar(summary: Dict[str, Any], currency: str):
         lift = incremental  # Use the calculated incremental, not raw sales delta
         lift_color = '#22d3ee'  # Accent Cyan for incremental
         fig.add_trace(go.Bar(
-            name='Incremental (ROAS-based)',
+            name='Incremental (Lift)',
             x=['After'],
             y=[lift],
             marker_color=lift_color,
