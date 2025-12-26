@@ -6,291 +6,568 @@ from auth.service import AuthService
 
 
 # =============================================================================
-# SIGN UP FORM
+# SHARED STYLES FOR AUTH PAGES
 # =============================================================================
-def render_signup_form() -> None:
-    """Render a premium signup form with logo header."""
-    import base64
-    from pathlib import Path
-    
-    # Create centered layout
-    col1, col2, col3 = st.columns([1, 2, 1])
-    
-    with col2:
-        # Embossed Logo Header (same as login)
-        logo_path = Path(__file__).parent.parent / "static" / "saddle_logo.png"
-        if logo_path.exists():
-            with open(logo_path, "rb") as f:
-                logo_data = base64.b64encode(f.read()).decode()
-            st.markdown(f"""
-                <div style="
-                    text-align: center;
-                    margin-top: -2rem;
-                    margin-bottom: 1.5rem;
-                ">
-                    <div style="
-                        display: inline-block;
-                        padding: 20px 32px 16px 32px;
-                        background: linear-gradient(145deg, rgba(91, 86, 112, 0.15) 0%, rgba(11, 11, 13, 0.4) 100%);
-                        border-radius: 20px;
-                        border: 1px solid rgba(91, 86, 112, 0.3);
-                        box-shadow: 
-                            inset 0 2px 4px rgba(255, 255, 255, 0.05),
-                            inset 0 -2px 4px rgba(0, 0, 0, 0.3),
-                            0 8px 32px rgba(0, 0, 0, 0.4);
-                    ">
-                        <img src="data:image/png;base64,{logo_data}" style="height: 120px;" />
-                    </div>
-                </div>
-            """, unsafe_allow_html=True)
-        
-        st.markdown('<p style="color: #E9EAF0; font-size: 1.5rem; font-weight: 700; text-align: center; margin-bottom: 1rem;">Create Account</p>', unsafe_allow_html=True)
-        
-        with st.form("signup_form", clear_on_submit=False):
-            email = st.text_input("Email", placeholder="you@company.com")
-            password = st.text_input("Password", type="password", placeholder="Minimum 8 characters")
-            confirm = st.text_input("Confirm Password", type="password", placeholder="Confirm your password")
-            
-            submitted = st.form_submit_button("Create Account", type="primary", use_container_width=True)
-            
-            if submitted:
-                if not email or not password:
-                    st.error("Please fill in all fields")
-                elif password != confirm:
-                    st.error("Passwords do not match")
-                elif len(password) < 8:
-                    st.error("Password must be at least 8 characters")
-                else:
-                    auth = AuthService()
-                    result = auth.sign_up(email, password)
-                    if result["success"]:
-                        st.success(result.get("message", "Account created! Check your email."))
-                    else:
-                        st.error(result.get("error", "Signup failed"))
-        
-        # Back to Login - SAME SIZE as Create Account (inside col2)
-        if st.button("← Back to Login", key="back_to_login", type="primary", use_container_width=True):
-            st.session_state['auth_view'] = 'login'
-            st.rerun()
-
-
-# =============================================================================
-# LOGIN FORM - PREMIUM UI (Brand Aligned)
-# =============================================================================
-def render_login_form() -> dict:
-    """Render a premium login form matching SADDLE brand guidelines."""
-    auth = AuthService()
-    
-    # Brand-aligned Login CSS
+def _inject_auth_styles():
+    """Inject shared CSS for auth pages."""
     st.markdown("""
     <style>
-    /* Hide default Streamlit elements */
+    /* Hide Streamlit chrome and prevent scrolling */
     #MainMenu, footer, header {visibility: hidden;}
-    
-    /* Full page brand background */
     .stApp {
-        background: linear-gradient(180deg, #0B0B0D 0%, #1a1825 50%, #5B5670 100%) !important;
+        background: #0B0B0D !important;
+        overflow: hidden !important;
     }
     
-    .login-logo {
-        text-align: center;
-        margin-bottom: 2.5rem;
+    /* Force full viewport without scroll */
+    html, body, [data-testid="stAppViewContainer"], .main {
+        height: 100vh !important;
+        overflow: hidden !important;
     }
     
-    .login-title {
-        color: #E9EAF0;
-        font-size: 2rem;
-        font-weight: 700;
-        text-align: center;
-        margin-bottom: 0.5rem;
-        letter-spacing: -0.02em;
-        font-family: Inter, -apple-system, sans-serif;
+    .main .block-container {
+        padding: 0 !important; 
+        max-width: 100% !important;
+        margin: 0 !important;
+        height: 100vh !important;
+        overflow: hidden !important;
     }
     
-    .login-subtitle {
-        color: #9A9AAA;
-        text-align: center;
-        margin-bottom: 2.5rem;
-        font-size: 1rem;
-    }
-    
-    /* Input styling - brand aligned */
-    .stTextInput > div > div > input {
-        background: rgba(11, 11, 13, 0.7) !important;
-        border: 1px solid rgba(91, 86, 112, 0.4) !important;
-        border-radius: 12px !important;
-        color: #E9EAF0 !important;
-        padding: 1rem 1.2rem !important;
-        font-size: 1rem !important;
-    }
-    
-    .stTextInput > div > div > input:focus {
-        border-color: #2A8EC9 !important;
-        box-shadow: 0 0 0 3px rgba(42, 142, 201, 0.2) !important;
-    }
-    
-    .stTextInput > div > div > input::placeholder {
-        color: #6B6B7B !important;
-    }
-    
-    /* PRIMARY CTA - Embossed Saddle Purple with Signal Blue accent */
-    .stButton > button[kind="primary"] {
-        background: linear-gradient(135deg, #5B5670 0%, #464156 100%) !important;
-        color: #E9EAF0 !important;
-        border: 1px solid rgba(233, 234, 240, 0.15) !important;
-        border-radius: 12px !important;
-        padding: 1rem 2rem !important;
-        font-weight: 600 !important;
-        font-size: 1rem !important;
-        letter-spacing: 0.03em !important;
-        box-shadow: 
-            0 4px 20px rgba(91, 86, 112, 0.4),
-            inset 0 1px 0 rgba(255, 255, 255, 0.1),
-            inset 0 -1px 0 rgba(0, 0, 0, 0.2) !important;
-        transition: all 0.2s ease !important;
-        text-transform: none !important;
-    }
-    
-    .stButton > button[kind="primary"]:hover {
-        background: linear-gradient(135deg, #6c6684 0%, #5B5670 100%) !important;
-        transform: translateY(-2px) !important;
-        box-shadow: 
-            0 8px 30px rgba(91, 86, 112, 0.5),
-            inset 0 1px 0 rgba(255, 255, 255, 0.15),
-            inset 0 -1px 0 rgba(0, 0, 0, 0.2) !important;
-    }
-    
-    /* Form styling */
-    [data-testid="stForm"] {
-        background: transparent !important;
-        border: none !important;
+    /* Remove column gaps */
+    [data-testid="stHorizontalBlock"] {
+        gap: 0 !important;
+        margin: 0 !important;
         padding: 0 !important;
+        height: 100vh !important;
     }
     
-    /* Labels - Slate Grey */
-    .stTextInput label {
-        color: #9A9AAA !important;
-        font-size: 0.9rem !important;
-        font-weight: 500 !important;
-        margin-bottom: 0.4rem !important;
+    [data-testid="column"] {
+        padding: 0 !important;
+        margin: 0 !important;
+        height: 100vh !important;
+        overflow: hidden !important;
     }
     
-    /* Checkbox styling */
-    .stCheckbox label {
+    /* Premium Input styling - compact */
+    .stTextInput > div > div > input {
+        background: rgba(91, 86, 112, 0.08) !important;
+        border: 1px solid rgba(91, 86, 112, 0.25) !important;
+        border-radius: 10px !important;
         color: #E9EAF0 !important;
+        padding: 12px 16px !important;
+        font-size: 0.9rem !important;
+        transition: all 0.2s ease !important;
+    }
+    .stTextInput > div > div > input:focus {
+        border-color: #5B5670 !important;
+        box-shadow: 0 0 0 2px rgba(91, 86, 112, 0.15) !important;
+    }
+    .stTextInput > div > div > input::placeholder {
+        color: rgba(154, 154, 170, 0.6) !important;
+    }
+    .stTextInput label {
+        color: #9A9AAA !important; 
+        font-size: 0.8rem !important;
+        font-weight: 500 !important;
+    }
+    .stTextInput {margin-bottom: 8px !important;}
+    
+    /* Premium Button styling */
+    .stButton > button[kind="primary"],
+    .stFormSubmitButton > button {
+        background: linear-gradient(135deg, #5B5670 0%, #4a4560 100%) !important;
+        color: #E9EAF0 !important;
+        border: none !important;
+        border-radius: 10px !important;
+        padding: 12px 20px !important;
+        font-weight: 600 !important;
+        font-size: 0.9rem !important;
+        transition: all 0.2s ease !important;
+        box-shadow: 0 4px 15px rgba(91, 86, 112, 0.3) !important;
+    }
+    .stButton > button[kind="primary"]:hover,
+    .stFormSubmitButton > button:hover {
+        background: linear-gradient(135deg, #6c6684 0%, #5B5670 100%) !important;
+        transform: translateY(-1px) !important;
     }
     
-    /* Links - Signal Blue */
-    a {
-        color: #2A8EC9 !important;
+    .stButton > button[kind="tertiary"],
+    .stButton > button[kind="secondary"] {
+        color: #9A9AAA !important;
+        background: transparent !important;
+        border: 1px solid rgba(91, 86, 112, 0.25) !important;
+        border-radius: 10px !important;
+        font-size: 0.8rem !important;
+        padding: 10px !important;
     }
-    a:hover {
-        color: #8FC9D6 !important;
+    .stButton > button[kind="tertiary"]:hover,
+    .stButton > button[kind="secondary"]:hover {
+        color: #E9EAF0 !important;
+        border-color: #5B5670 !important;
+        background: rgba(91, 86, 112, 0.1) !important;
+    }
+    
+    [data-testid="stForm"] {border: none !important; padding: 0 !important;}
+    
+    /* Divider */
+    .auth-divider {
+        display: flex;
+        align-items: center;
+        gap: 12px;
+        margin: 16px 0;
+        color: #5B5670;
+        font-size: 0.75rem;
+    }
+    .auth-divider::before, .auth-divider::after {
+        content: '';
+        flex: 1;
+        height: 1px;
+        background: rgba(91, 86, 112, 0.25);
     }
     </style>
     """, unsafe_allow_html=True)
+
+
+# =============================================================================
+# SIGN UP FORM - 50:50 SPLIT DESIGN
+# =============================================================================
+def render_signup_form() -> None:
+    """Render premium signup form with 50:50 split layout."""
+    import base64
+    from pathlib import Path
     
-    # Create centered login layout
-    col1, col2, col3 = st.columns([1, 2, 1])
+    # Load assets
+    logo_path = Path(__file__).parent.parent / "static" / "saddle_logo.png"
+    bg_path = Path(__file__).parent.parent / "assets" / "login_bg.png"
     
-    with col2:
-        # Logo - 2x SIZE (240px) with EMBOSSED CONTAINER
-        import base64
-        from pathlib import Path
-        logo_path = Path(__file__).parent.parent / "static" / "saddle_logo.png"
-        if logo_path.exists():
-            with open(logo_path, "rb") as f:
-                logo_data = base64.b64encode(f.read()).decode()
-            st.markdown(f"""
-                <div style="
-                    text-align: center;
-                    margin-top: -2rem;
-                    margin-bottom: 1.5rem;
-                ">
-                    <div style="
-                        display: inline-block;
-                        padding: 24px 40px 20px 40px;
-                        background: linear-gradient(145deg, rgba(91, 86, 112, 0.15) 0%, rgba(11, 11, 13, 0.4) 100%);
-                        border-radius: 24px;
-                        border: 1px solid rgba(91, 86, 112, 0.3);
-                        box-shadow: 
-                            inset 0 2px 4px rgba(255, 255, 255, 0.05),
-                            inset 0 -2px 4px rgba(0, 0, 0, 0.3),
-                            0 8px 32px rgba(0, 0, 0, 0.4);
-                    ">
-                        <img src="data:image/png;base64,{logo_data}" style="height: 200px;" />
-                        <p style="
-                            color: #8FC9D6;
-                            font-size: 0.9rem;
-                            font-weight: 500;
-                            letter-spacing: 0.05em;
-                            margin-top: 8px;
-                            margin-bottom: 0;
-                        ">Amazon advertising, simplified</p>
-                    </div>
+    logo_b64 = ""
+    if logo_path.exists():
+        with open(logo_path, "rb") as f:
+            logo_b64 = base64.b64encode(f.read()).decode()
+    
+    bg_b64 = ""
+    if bg_path.exists():
+        with open(bg_path, "rb") as f:
+            bg_b64 = base64.b64encode(f.read()).decode()
+    
+    # Inject CSS
+    st.markdown(f"""
+    <style>
+    #MainMenu, footer, header {{visibility: hidden;}}
+    .stApp {{background: #0B0B0D !important;}}
+    .block-container {{padding: 0 !important; max-width: 100% !important; margin: 0 !important;}}
+    [data-testid="stHorizontalBlock"] {{gap: 0 !important; margin: 0 !important; padding: 0 !important;}}
+    [data-testid="column"] {{padding: 0 !important; margin: 0 !important;}}
+    
+    .stTextInput > div > div > input {{
+        background: #0B0B0D !important;
+        border: 1px solid rgba(91, 86, 112, 0.4) !important;
+        border-radius: 6px !important;
+        color: #E9EAF0 !important;
+        padding: 10px 12px !important;
+        font-size: 0.85rem !important;
+    }}
+    .stTextInput label {{color: #9A9AAA !important; font-size: 0.75rem !important;}}
+    .stFormSubmitButton > button {{
+        background: #5B5670 !important;
+        color: #E9EAF0 !important;
+        border: none !important;
+        border-radius: 6px !important;
+        padding: 10px !important;
+        font-weight: 600 !important;
+    }}
+    </style>
+    """, unsafe_allow_html=True)
+    
+    # 50:50 columns
+    col_left, col_right = st.columns(2)
+    
+    with col_left:
+        if bg_b64:
+            st.markdown(f'''
+            <div style="height: 100vh; background: url(data:image/png;base64,{bg_b64}) center/cover no-repeat;"></div>
+            ''', unsafe_allow_html=True)
+    
+    with col_right:
+        st.markdown('<div style="height: 20px;"></div>', unsafe_allow_html=True)
+        _, form_col, _ = st.columns([0.15, 0.7, 0.15])
+        
+        with form_col:
+            # Logo with tagline
+            if logo_b64:
+                st.markdown(f'''
+                <div style="text-align: center; margin-bottom: 24px;">
+                    <img src="data:image/png;base64,{logo_b64}" style="height: 180px; margin-bottom: -10px;" />
+                    <p style="color: #9A9AAA; font-size: 0.85rem; margin: 0; font-weight: 600; text-transform: uppercase; letter-spacing: 1px;">Amazon advertising, simplified</p>
                 </div>
-            """, unsafe_allow_html=True)
-        
-        st.markdown('<p class="login-title" style="margin-bottom: 4px;">Welcome Back</p>', unsafe_allow_html=True)
-        st.markdown('<p class="login-subtitle" style="margin-bottom: 1rem;">Sign in to your account</p>', unsafe_allow_html=True)
-        
-        # Login form - COMPACT: Email & Password on same row
-        with st.form("login_form", clear_on_submit=False):
-            col_email, col_pwd = st.columns(2)
-            with col_email:
-                email = st.text_input("Email", placeholder="you@company.com", key="login_email", label_visibility="collapsed")
-            with col_pwd:
-                password = st.text_input("Password", type="password", placeholder="Password", key="login_password", label_visibility="collapsed")
+                ''', unsafe_allow_html=True)
             
-            submitted = st.form_submit_button("Sign In", type="primary", use_container_width=True)
+            # Signup Card Container
+            st.markdown('''
+            <div style="
+                background: rgba(91, 86, 112, 0.15);
+                border: 1px solid rgba(91, 86, 112, 0.4);
+                border-radius: 12px;
+                padding: 24px;
+            ">
+                <h3 style="color: #E9EAF0; font-size: 1.2rem; font-weight: 600; margin: 0 0 20px 0;">Create Account</h3>
+            </div>
+            ''', unsafe_allow_html=True)
             
-            if submitted:
-                if not email or not password:
-                    st.error("Please enter your email and password")
-                    return {"authenticated": False}
+            st.markdown('<div style="margin-top: -60px; padding: 0 24px 24px 24px; background: rgba(91, 86, 112, 0.15); border-radius: 0 0 12px 12px; border: 1px solid rgba(91, 86, 112, 0.4); border-top: none;">', unsafe_allow_html=True)
+            
+            # Form
+            with st.form("signup_form", clear_on_submit=False):
+                email = st.text_input("Email address", placeholder="name@example.com")
+                password = st.text_input("Password", type="password", placeholder="Minimum 8 characters")
+                confirm = st.text_input("Confirm Password", type="password", placeholder="Confirm password")
                 
-                result = auth.sign_in(email, password)
-                if result["success"]:
-                    st.success("Welcome back!")
-                    st.rerun()
-                else:
-                    st.error(result.get("error", "Login failed"))
-        
-        # Forgot Password / Sign up Links
-        col_fp, col_su = st.columns(2)
-        with col_fp:
-            if st.button("Forgot password?", key="forgot_pwd_btn", type="tertiary", use_container_width=True):
-                st.session_state['auth_view'] = 'reset'
+                submitted = st.form_submit_button("Create Account", type="primary", use_container_width=True)
+                
+                if submitted:
+                    if not email or not password:
+                        st.error("Please fill in all fields")
+                    elif password != confirm:
+                        st.error("Passwords do not match")
+                    elif len(password) < 8:
+                        st.error("Password must be at least 8 characters")
+                    else:
+                        auth = AuthService()
+                        result = auth.sign_up(email, password)
+                        if result["success"]:
+                            st.success(result.get("message", "Account created! Check your email."))
+                        else:
+                            st.error(result.get("error", "Signup failed"))
+            
+            # Already have account link
+            st.markdown('<div style="height: 8px;"></div>', unsafe_allow_html=True)
+            st.markdown('<span style="color: #9A9AAA; font-size: 0.8rem;">Already have an account? </span>', unsafe_allow_html=True)
+            if st.button("Sign in", key="back_to_login", type="tertiary"):
+                st.session_state['auth_view'] = 'login'
                 st.rerun()
-        with col_su:
-            if st.button("Sign up", key="signup_btn", type="tertiary", use_container_width=True):
-                st.session_state['auth_view'] = 'signup'
-                st.rerun()
+            
+            st.markdown('</div>', unsafe_allow_html=True)
+
+
+# =============================================================================
+# LOGIN FORM - PREMIUM 50:50 SPLIT DESIGN
+# =============================================================================
+def render_login_form() -> dict:
+    """Render premium login with 50:50 split layout."""
+    auth = AuthService()
     
+    import base64
+    from pathlib import Path
+    
+    # Load assets
+    logo_path = Path(__file__).parent.parent / "static" / "saddle_logo.png"
+    bg_path = Path(__file__).parent.parent / "assets" / "login_bg.png"
+    
+    logo_b64 = ""
+    if logo_path.exists():
+        with open(logo_path, "rb") as f:
+            logo_b64 = base64.b64encode(f.read()).decode()
+    
+    bg_b64 = ""
+    if bg_path.exists():
+        with open(bg_path, "rb") as f:
+            bg_b64 = base64.b64encode(f.read()).decode()
+    
+    # Inject CSS
+    st.markdown(f"""
+    <style>
+    #MainMenu, footer, header {{visibility: hidden;}}
+    .stApp {{background: #0B0B0D !important;}}
+    
+    .block-container {{
+        padding: 0 !important;
+        max-width: 100% !important;
+        margin: 0 !important;
+    }}
+    
+    [data-testid="stHorizontalBlock"] {{
+        gap: 0 !important;
+        margin: 0 !important;
+        padding: 0 !important;
+    }}
+    
+    [data-testid="column"] {{
+        padding: 0 !important;
+        margin: 0 !important;
+    }}
+    
+    .stTextInput > div > div > input {{
+        background: rgba(91, 86, 112, 0.1) !important;
+        border: 1px solid rgba(91, 86, 112, 0.3) !important;
+        border-radius: 10px !important;
+        color: #E9EAF0 !important;
+        padding: 12px 16px !important;
+    }}
+    .stTextInput label {{color: #9A9AAA !important; font-size: 0.85rem !important;}}
+    .stTextInput {{margin-bottom: 8px !important;}}
+    
+    .stFormSubmitButton > button, .stButton > button[kind="primary"] {{
+        background: linear-gradient(135deg, #5B5670 0%, #4a4560 100%) !important;
+        color: #E9EAF0 !important;
+        border: none !important;
+        border-radius: 10px !important;
+        padding: 12px !important;
+        font-weight: 600 !important;
+    }}
+    
+    .stButton > button[kind="tertiary"], .stButton > button[kind="secondary"] {{
+        background: transparent !important;
+        border: 1px solid rgba(91, 86, 112, 0.3) !important;
+        color: #9A9AAA !important;
+        border-radius: 10px !important;
+        font-size: 0.85rem !important;
+    }}
+    
+    [data-testid="stForm"] {{border: none !important; padding: 0 !important;}}
+    </style>
+    """, unsafe_allow_html=True)
+    
+    # 50:50 columns
+    col_left, col_right = st.columns(2)
+    
+    with col_left:
+        # Background image panel
+        if bg_b64:
+            st.markdown(f'''
+            <div style="
+                height: 100vh;
+                background: url(data:image/png;base64,{bg_b64}) center/cover no-repeat;
+            "></div>
+            ''', unsafe_allow_html=True)
+    
+    with col_right:
+        # Minimal top spacing
+        st.markdown('<div style="height: 20px;"></div>', unsafe_allow_html=True)
+        
+        # Center the form content
+        _, form_col, _ = st.columns([0.15, 0.7, 0.15])
+        
+        with form_col:
+            # Logo (bigger) with tagline
+            if logo_b64:
+                st.markdown(f'''
+                <div style="text-align: center; margin-bottom: 24px;">
+                    <img src="data:image/png;base64,{logo_b64}" style="height: 240px; margin-bottom: -10px;" />
+                    <p style="color: #9A9AAA; font-size: 0.85rem; margin: 0; font-weight: 600; font-family: -apple-system, BlinkMacSystemFont, 'SF Pro Display', sans-serif; text-transform: uppercase; letter-spacing: 1px;">Amazon advertising, simplified</p>
+                </div>
+                ''', unsafe_allow_html=True)
+            
+            # Custom styling
+            st.markdown('''
+            <style>
+            .stTextInput > div > div > input {
+                background: #0B0B0D !important;
+                border: 1px solid rgba(91, 86, 112, 0.4) !important;
+                border-radius: 6px !important;
+                color: #E9EAF0 !important;
+                padding: 10px 12px !important;
+                font-size: 0.85rem !important;
+            }
+            .stTextInput > div > div > input:focus {
+                border-color: #5B5670 !important;
+            }
+            .stTextInput > div > div > input::placeholder {
+                color: #9A9AAA !important;
+            }
+            .stTextInput label {
+                color: #9A9AAA !important;
+                font-size: 0.75rem !important;
+                font-weight: 500 !important;
+            }
+            
+            .stFormSubmitButton > button {
+                background: #5B5670 !important;
+                color: #E9EAF0 !important;
+                border: none !important;
+                border-radius: 6px !important;
+                padding: 10px !important;
+                font-weight: 600 !important;
+                font-size: 0.85rem !important;
+            }
+            .stFormSubmitButton > button:hover {
+                background: #6c6684 !important;
+            }
+            </style>
+            ''', unsafe_allow_html=True)
+            
+            # Login Card Container - wraps everything
+            st.markdown('''
+            <div style="
+                background: rgba(91, 86, 112, 0.15);
+                border: 1px solid rgba(91, 86, 112, 0.4);
+                border-radius: 12px;
+                padding: 24px;
+            ">
+                <h3 style="color: #E9EAF0; font-size: 1.2rem; font-weight: 600; margin: 0 0 20px 0;">Login</h3>
+            </div>
+            ''', unsafe_allow_html=True)
+            
+            # Overlay form inside the card using negative margin
+            st.markdown('<div style="margin-top: -60px; padding: 0 24px 24px 24px; background: rgba(91, 86, 112, 0.15); border-radius: 0 0 12px 12px; border: 1px solid rgba(91, 86, 112, 0.4); border-top: none;">', unsafe_allow_html=True)
+            
+            # Login Form
+            with st.form("login_form", clear_on_submit=False):
+                email = st.text_input("Email address", placeholder="name@example.com", key="login_email")
+                
+                # Password label with forgot link
+                col_pwd_label, col_forgot = st.columns([1, 1])
+                with col_pwd_label:
+                    st.markdown('<span style="color: #9A9AAA; font-size: 0.75rem; font-weight: 500;">Password</span>', unsafe_allow_html=True)
+                with col_forgot:
+                    if st.form_submit_button("Forgot password?", type="tertiary"):
+                        pass  # Can't navigate from form submit, handled separately
+                
+                password = st.text_input("Password", type="password", placeholder="password", key="login_password", label_visibility="collapsed")
+                
+                submitted = st.form_submit_button("Sign in", type="primary", use_container_width=True)
+                
+                if submitted:
+                    if not email or not password:
+                        st.error("Please enter email & password")
+                        return {"authenticated": False}
+                    result = auth.sign_in(email, password)
+                    if result["success"]:
+                        st.success("Welcome back!")
+                        st.rerun()
+                    else:
+                        st.error(result.get("error", "Login failed"))
+            
+            # Not registered link + Forgot password (functional buttons)
+            st.markdown('<div style="height: 8px;"></div>', unsafe_allow_html=True)
+            
+            col_signup, col_forgot_btn = st.columns([2, 1])
+            with col_signup:
+                st.markdown('<span style="color: #9A9AAA; font-size: 0.8rem;">Not registered? </span>', unsafe_allow_html=True)
+                if st.button("Create account", key="create_acc", type="tertiary"):
+                    st.session_state['auth_view'] = 'signup'
+                    st.rerun()
+            with col_forgot_btn:
+                if st.button("Forgot password?", key="forgot_pwd", type="tertiary"):
+                    st.session_state['auth_view'] = 'reset'
+                    st.rerun()
+            
+            st.markdown('</div>', unsafe_allow_html=True)
+
     return {"authenticated": auth.is_authenticated()}
 
 
 # =============================================================================
-# PASSWORD RESET
+# PASSWORD RESET - 50:50 SPLIT DESIGN
 # =============================================================================
 def render_password_reset() -> None:
-    """Render password reset form."""
-    st.markdown('<p style="color: #E9EAF0; font-size: 1.5rem; font-weight: 600; margin-bottom: 1rem;">Reset Password</p>', unsafe_allow_html=True)
+    """Render password reset form with 50:50 split layout."""
+    import base64
+    from pathlib import Path
     
-    with st.form("reset_form"):
-        email = st.text_input("Email", placeholder="Enter your email address")
-        submitted = st.form_submit_button("Send Reset Link", type="primary", use_container_width=True)
+    # Load assets
+    logo_path = Path(__file__).parent.parent / "static" / "saddle_logo.png"
+    bg_path = Path(__file__).parent.parent / "assets" / "login_bg.png"
+    
+    logo_b64 = ""
+    if logo_path.exists():
+        with open(logo_path, "rb") as f:
+            logo_b64 = base64.b64encode(f.read()).decode()
+    
+    bg_b64 = ""
+    if bg_path.exists():
+        with open(bg_path, "rb") as f:
+            bg_b64 = base64.b64encode(f.read()).decode()
+    
+    # Inject CSS
+    st.markdown(f"""
+    <style>
+    #MainMenu, footer, header {{visibility: hidden;}}
+    .stApp {{background: #0B0B0D !important;}}
+    .block-container {{padding: 0 !important; max-width: 100% !important; margin: 0 !important;}}
+    [data-testid="stHorizontalBlock"] {{gap: 0 !important; margin: 0 !important; padding: 0 !important;}}
+    [data-testid="column"] {{padding: 0 !important; margin: 0 !important;}}
+    
+    .stTextInput > div > div > input {{
+        background: #0B0B0D !important;
+        border: 1px solid rgba(91, 86, 112, 0.4) !important;
+        border-radius: 6px !important;
+        color: #E9EAF0 !important;
+        padding: 10px 12px !important;
+        font-size: 0.85rem !important;
+    }}
+    .stTextInput label {{color: #9A9AAA !important; font-size: 0.75rem !important;}}
+    .stFormSubmitButton > button {{
+        background: #5B5670 !important;
+        color: #E9EAF0 !important;
+        border: none !important;
+        border-radius: 6px !important;
+        padding: 10px !important;
+        font-weight: 600 !important;
+    }}
+    </style>
+    """, unsafe_allow_html=True)
+    
+    # 50:50 columns
+    col_left, col_right = st.columns(2)
+    
+    with col_left:
+        if bg_b64:
+            st.markdown(f'''
+            <div style="height: 100vh; background: url(data:image/png;base64,{bg_b64}) center/cover no-repeat;"></div>
+            ''', unsafe_allow_html=True)
+    
+    with col_right:
+        st.markdown('<div style="height: 20px;"></div>', unsafe_allow_html=True)
+        _, form_col, _ = st.columns([0.15, 0.7, 0.15])
         
-        if submitted:
-            if not email:
-                st.error("Please enter your email")
-            else:
-                auth = AuthService()
-                result = auth.reset_password(email)
-                if result["success"]:
-                    st.success(result.get("message", "Check your email for reset link"))
-                else:
-                    st.error(result.get("error", "Failed to send reset email"))
+        with form_col:
+            # Logo with tagline
+            if logo_b64:
+                st.markdown(f'''
+                <div style="text-align: center; margin-bottom: 24px;">
+                    <img src="data:image/png;base64,{logo_b64}" style="height: 180px; margin-bottom: -10px;" />
+                    <p style="color: #9A9AAA; font-size: 0.85rem; margin: 0; font-weight: 600; text-transform: uppercase; letter-spacing: 1px;">Amazon advertising, simplified</p>
+                </div>
+                ''', unsafe_allow_html=True)
+            
+            # Reset Card Container
+            st.markdown('''
+            <div style="
+                background: rgba(91, 86, 112, 0.15);
+                border: 1px solid rgba(91, 86, 112, 0.4);
+                border-radius: 12px;
+                padding: 24px;
+            ">
+                <h3 style="color: #E9EAF0; font-size: 1.2rem; font-weight: 600; margin: 0 0 20px 0;">Reset Password</h3>
+            </div>
+            ''', unsafe_allow_html=True)
+            
+            st.markdown('<div style="margin-top: -60px; padding: 0 24px 24px 24px; background: rgba(91, 86, 112, 0.15); border-radius: 0 0 12px 12px; border: 1px solid rgba(91, 86, 112, 0.4); border-top: none;">', unsafe_allow_html=True)
+            
+            # Form
+            with st.form("reset_form"):
+                email = st.text_input("Email address", placeholder="Enter your email address")
+                submitted = st.form_submit_button("Send Reset Link", type="primary", use_container_width=True)
+                
+                if submitted:
+                    if not email:
+                        st.error("Please enter your email")
+                    else:
+                        auth = AuthService()
+                        result = auth.reset_password(email)
+                        if result["success"]:
+                            st.success(result.get("message", "Check your email for reset link"))
+                        else:
+                            st.error(result.get("error", "Failed to send reset email"))
+            
+            # Back to login link
+            st.markdown('<div style="height: 8px;"></div>', unsafe_allow_html=True)
+            st.markdown('<span style="color: #9A9AAA; font-size: 0.8rem;">Remember your password? </span>', unsafe_allow_html=True)
+            if st.button("Sign in", key="back_to_login_reset", type="tertiary"):
+                st.session_state['auth_view'] = 'login'
+                st.rerun()
+            
+            st.markdown('</div>', unsafe_allow_html=True)
 
 
 # =============================================================================

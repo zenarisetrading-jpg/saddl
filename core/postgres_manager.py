@@ -1336,7 +1336,10 @@ class PostgresManager:
             'incremental_revenue': 0, 'p_value': 1.0, 'is_significant': False,
             'confidence_pct': 0, 'implementation_rate': 0, 'confirmed_impact': 0,
             'pending': 0, 'not_implemented': 0, 'win_rate': 0, 'winners': 0, 'losers': 0,
-            'by_action_type': {}
+            'by_action_type': {},
+            # Decision Impact fields
+            'decision_impact': 0, 'spend_avoided': 0,
+            'pct_good': 0, 'pct_neutral': 0, 'pct_bad': 0, 'market_downshift_count': 0
         }
 
     def _calculate_metrics_from_df(self, df: pd.DataFrame, window_days: int, label: str = "ALL") -> Dict[str, Any]:
@@ -1350,7 +1353,7 @@ class PostgresManager:
         total_actions = len(df)
         
         # ==========================================
-        # 1. ROAS ANALYTICS (BID_CHANGE ONLY)
+        # 1. ROAS ANALYTICS + DECISION IMPACT (BID_CHANGE ONLY)
         # ==========================================
         bid_mask = df['action_type'].str.contains('BID', na=False)
         bid_df = df[bid_mask].copy()
@@ -1369,25 +1372,126 @@ class PostgresManager:
             roas_lift_pct = ((roas_after - roas_before) / roas_before * 100) if roas_before > 0 else 0
             incremental_revenue = total_before_spend * (roas_after - roas_before)
             
-            # Simple T-Test
-            with np.errstate(divide='ignore', invalid='ignore'):
-                bid_df['before_roas'] = bid_df['before_sales'] / bid_df['before_spend']
-                bid_df['after_roas'] = bid_df['observed_after_sales'] / bid_df['observed_after_spend']
-                bid_df['roas_change'] = (bid_df['after_roas'] - bid_df['before_roas']).replace([np.inf, -np.inf], np.nan).fillna(0)
+            # ==========================================
+            # DECISION IMPACT CALCULATIONS
+            # ==========================================
+            # CPC: Use old_value (bid) if available, else derive from spend/clicks
+            bid_df['cpc_before'] = pd.to_numeric(bid_df['old_value'], errors='coerce').fillna(
+                bid_df['before_spend'] / bid_df['before_clicks'].replace(0, np.nan)
+            )
+            bid_df['cpc_after'] = bid_df['observed_after_spend'] / bid_df['after_clicks'].replace(0, np.nan)
             
-            # Filter outliers
-            clean_changes = bid_df[bid_df['roas_change'].abs() < 50]['roas_change']
-            if len(clean_changes) > 2:
-                _, p_v = scipy_stats.ttest_1samp(clean_changes, 0)
-                p_value = float(p_v) if not np.isnan(p_v) else 1.0
+            # Sales per Click (proxy for CVR * AOV)
+            bid_df['spc_before'] = bid_df['before_sales'] / bid_df['before_clicks'].replace(0, np.nan)
+            
+            # Counterfactual: Expected sales if we kept old CPC
+            # Expected_Clicks = After_Spend / Before_CPC
+            # Expected_Sales = Expected_Clicks * Before_Sales_Per_Click
+            bid_df['expected_clicks'] = bid_df['observed_after_spend'] / bid_df['cpc_before']
+            bid_df['expected_sales'] = bid_df['expected_clicks'] * bid_df['spc_before']
+            
+            # Decision Impact = Actual - Counterfactual
+            bid_df['decision_impact'] = bid_df['observed_after_sales'] - bid_df['expected_sales']
+            
+            # Spend Changes
+            bid_df['spend_change'] = bid_df['observed_after_spend'] - bid_df['before_spend']
+            bid_df['spend_avoided'] = (bid_df['before_spend'] - bid_df['observed_after_spend']).clip(lower=0)
+            
+            # CPC Change %
+            bid_df['cpc_change_pct'] = (bid_df['cpc_after'] - bid_df['cpc_before']) / bid_df['cpc_before']
+            
+            # ==========================================
+            # GUARDRAILS
+            # ==========================================
+            # Guardrail 1: Market Downshift (CPC dropped 25%+)
+            bid_df['market_downshift'] = bid_df['cpc_after'] <= 0.75 * bid_df['cpc_before']
+            
+            # Guardrail 2: Insufficient Baseline (no clicks before)
+            bid_df['insufficient_baseline'] = bid_df['before_clicks'] == 0
+            
+            # ==========================================
+            # OUTCOME CLASSIFICATION
+            # ==========================================
+            def classify_outcome(row):
+                # Missing data -> Neutral
+                if pd.isna(row.get('decision_impact')) or row.get('insufficient_baseline', False):
+                    return 'Neutral'
+                
+                impact = row['decision_impact']
+                spend_avoided = row.get('spend_avoided', 0)
+                spend_before = row.get('before_spend', 0)
+                cpc_change = row.get('cpc_change_pct', 0)
+                action = str(row.get('action_type', '')).upper()
+                sales_before = row.get('before_sales', 0)
+                
+                # Thresholds
+                impact_small = abs(impact) < max(0.05 * sales_before, 25) if sales_before > 0 else abs(impact) < 25
+                spend_avoided_low = spend_avoided < 0.10 * spend_before if spend_before > 0 else True
+                
+                # HOLD classification
+                if 'HOLD' in action:
+                    low_vol = abs(cpc_change) < 0.10 if pd.notna(cpc_change) else True
+                    return 'Good' if low_vol else 'Neutral'
+                
+                # BID_DOWN / PAUSE classification
+                if 'DOWN' in action or 'PAUSE' in action:
+                    if spend_avoided_low and impact < 0:
+                        return 'Bad'
+                    return 'Good' if spend_avoided > 0 else 'Neutral'
+                
+                # BID_UP classification
+                if 'UP' in action:
+                    incr_sales = row['observed_after_sales'] - row['before_sales']
+                    incr_spend = row['observed_after_spend'] - row['before_spend']
+                    if incr_sales > incr_spend:
+                        return 'Good'
+                    elif impact < 0 and not row.get('market_downshift', False):
+                        return 'Bad'
+                    return 'Neutral'
+                
+                # Default logic
+                if impact > 0:
+                    return 'Good'
+                elif impact_small or row.get('market_downshift', False):
+                    return 'Neutral'
+                else:
+                    return 'Bad'
+            
+            bid_df['outcome'] = bid_df.apply(classify_outcome, axis=1)
+            
+            # Aggregate Decision Impact metrics
+            valid_impacts = bid_df['decision_impact'].dropna()
+            total_decision_impact = valid_impacts.sum() if len(valid_impacts) > 0 else 0
+            total_spend_avoided = bid_df['spend_avoided'].sum()
+            market_downshift_count = int(bid_df['market_downshift'].sum())
+            
+            # Outcome percentages
+            outcome_counts = bid_df['outcome'].value_counts()
+            n_outcomes = len(bid_df)
+            pct_good = (outcome_counts.get('Good', 0) / n_outcomes * 100) if n_outcomes > 0 else 0
+            pct_neutral = (outcome_counts.get('Neutral', 0) / n_outcomes * 100) if n_outcomes > 0 else 0
+            pct_bad = (outcome_counts.get('Bad', 0) / n_outcomes * 100) if n_outcomes > 0 else 0
+            
+            # Z-Test on AGGREGATE values only (not individual actions)
+            n = len(bid_df)
+            if n >= 10 and roas_before > 0:
+                se_before = roas_before / np.sqrt(n)
+                se_after = roas_after / np.sqrt(n)
+                se_diff = np.sqrt(se_before**2 + se_after**2)
+                z_stat = (roas_after - roas_before) / se_diff if se_diff > 0 else 0
+                from scipy.stats import norm
+                p_value = 1 - norm.cdf(z_stat) if z_stat > 0 else 1.0
             else:
                 p_value = 1.0
                 
-            is_significant = (p_value <= 0.10) and (roas_lift_pct > 0)  # 90% confidence - marketing standard
+            is_significant = (p_value <= 0.10) and (roas_lift_pct > 0)
             confidence_pct = (1 - p_value) * 100
         else:
             roas_before, roas_after, roas_lift_pct, incremental_revenue = 0, 0, 0, 0
             p_value, is_significant, confidence_pct = 1.0, False, 0
+            total_decision_impact, total_spend_avoided = 0, 0
+            pct_good, pct_neutral, pct_bad = 0, 0, 0
+            market_downshift_count = 0
             
         # ==========================================
         # 2. IMPLEMENTATION & WIN RATE (ALL IN DF)
@@ -1431,6 +1535,13 @@ class PostgresManager:
             'winners': winners,
             'losers': total_actions - winners,
             'by_action_type': by_type,
+            # NEW: Decision Impact metrics
+            'decision_impact': round(total_decision_impact, 2),
+            'spend_avoided': round(total_spend_avoided, 2),
+            'pct_good': round(pct_good, 1),
+            'pct_neutral': round(pct_neutral, 1),
+            'pct_bad': round(pct_bad, 1),
+            'market_downshift_count': market_downshift_count,
             'period_info': {
                 'before_start': df['before_date'].iloc[0] if 'before_date' in df.columns else None,
                 'before_end': df['before_end_date'].iloc[0] if 'before_end_date' in df.columns else None,

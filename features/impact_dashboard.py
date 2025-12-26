@@ -131,11 +131,25 @@ def render_impact_dashboard():
         # Use cached fetcher
         test_mode = st.session_state.get('test_mode', False)
         # Force cache bust with version + timestamp
-        cache_version = "v4_roas_" + str(st.session_state.get('data_upload_timestamp', 'init'))
+        cache_version = "v8_decision_impact_" + str(st.session_state.get('data_upload_timestamp', 'init'))
         # Parse time frame to days for the before/after comparison window
         time_frame_days = {"7D": 7, "14D": 14, "30D": 30, "60D": 60, "90D": 90}
         window_days = time_frame_days.get(time_frame, 7)
         impact_df, full_summary = _fetch_impact_data(selected_client, test_mode, window_days, cache_version)
+        
+        # Terminal debug: Show Decision Impact metrics
+        print(f"\n=== DECISION IMPACT DEBUG ({selected_client}) ===")
+        for w in [7, 14, 30]:
+            try:
+                db = get_db_manager(test_mode)
+                s = db.get_impact_summary(selected_client, window_days=w)
+                val = s.get('validated', {})
+                print(f"{w}D: ROAS {val.get('roas_before',0):.2f}x -> {val.get('roas_after',0):.2f}x | Lift: {val.get('roas_lift_pct',0):.1f}% | N={val.get('total_actions',0)}")
+                print(f"    Decision Impact: {val.get('decision_impact',0):.0f} | Spend Avoided: {val.get('spend_avoided',0):.0f}")
+                print(f"    Good: {val.get('pct_good',0):.0f}% | Neutral: {val.get('pct_neutral',0):.0f}% | Bad: {val.get('pct_bad',0):.0f}% | Market Downshift: {val.get('market_downshift_count',0)}")
+            except Exception as e:
+                print(f"{w}D: Error - {e}")
+        print("===================================\n")
 
 
     
@@ -407,43 +421,80 @@ def _render_hero_tiles(summary: Dict[str, Any], active_count: int = 0, dormant_c
     </style>
     """, unsafe_allow_html=True)
     
-    # 4 Hero Cards
+    # ==========================================
+    # PRIMARY METRICS CARDS (Row 1) - Decision-Focused
+    # ==========================================
+    # Extract new Decision Impact metrics
+    decision_impact = summary.get('decision_impact', 0)
+    spend_avoided = summary.get('spend_avoided', 0)
+    pct_good = summary.get('pct_good', 0)
+    pct_neutral = summary.get('pct_neutral', 0)
+    pct_bad = summary.get('pct_bad', 0)
+    market_downshift = summary.get('market_downshift_count', 0)
+    
+    # NPS-style Decision Quality Score = Good% - Bad%
+    decision_quality_score = pct_good - pct_bad
+    
+    from utils.formatters import get_account_currency
+    currency = get_account_currency()
+    
+    # Icons for new cards
+    target_icon = f'<svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="{icon_color}" stroke-width="2"><circle cx="12" cy="12" r="10"></circle><circle cx="12" cy="12" r="6"></circle><circle cx="12" cy="12" r="2"></circle></svg>'
+    shield_icon = f'<svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="{icon_color}" stroke-width="2"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"></path></svg>'
+    score_icon = f'<svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="{icon_color}" stroke-width="2"><path d="M12 20V10"></path><path d="M18 20V4"></path><path d="M6 20v-4"></path></svg>'
+    
     col1, col2, col3, col4 = st.columns(4)
     
     with col1:
+        di_color = positive_text if decision_impact > 0 else negative_text if decision_impact < 0 else neutral_text
+        di_prefix = '+' if decision_impact > 0 else ''
         st.markdown(f"""
         <div class="hero-card">
-            <div class="hero-label">{actions_icon} Actions</div>
-            <div class="hero-value" style="color: {neutral_text};">{total_actions:,}</div>
-            <div class="hero-sub">optimization runs</div>
+            <div class="hero-label">{target_icon} Decision Impact</div>
+            <div class="hero-value" style="color: {di_color};">{di_prefix}{currency}{decision_impact:,.0f}</div>
+            <div class="hero-sub">market-adjusted</div>
         </div>
         """, unsafe_allow_html=True)
     
     with col2:
-        roas_color = positive_text if roas_lift > 0 else negative_text if roas_lift < 0 else neutral_text
-        prefix = '+' if roas_lift > 0 else ''
-        sig_icon = sig_positive if is_sig else sig_negative
+        sa_color = positive_text if spend_avoided > 0 else neutral_text
         st.markdown(f"""
         <div class="hero-card">
-            <div class="hero-label">{roas_icon} ROAS Lift</div>
-            <div class="hero-value" style="color: {roas_color};">{prefix}{roas_lift:.1f}%</div>
-            <div class="hero-sub">{sig_icon} {'significant' if is_sig else 'not significant'} (N={active_count})</div>
+            <div class="hero-label">{shield_icon} Spend Avoided</div>
+            <div class="hero-value" style="color: {sa_color};">{currency}{spend_avoided:,.0f}</div>
+            <div class="hero-sub">capital protected</div>
         </div>
         """, unsafe_allow_html=True)
     
     with col3:
-        from utils.formatters import get_account_currency
-        currency = get_account_currency()
-        rev_color = positive_text if incr_revenue > 0 else negative_text if incr_revenue < 0 else neutral_text
-        prefix = '+' if incr_revenue > 0 else ''
+        # NPS-style bands: +40 to +100 Exceptional, +10 to +39 Strong, -10 to +9 Neutral, <-10 Needs review
+        if decision_quality_score >= 40:
+            score_color = positive_text
+            score_label = "Exceptional"
+        elif decision_quality_score >= 10:
+            score_color = positive_text
+            score_label = "Strong"
+        elif decision_quality_score >= -10:
+            score_color = neutral_text
+            score_label = "Neutral"
+        else:
+            score_color = negative_text
+            score_label = "Needs review"
+        
+        score_prefix = '+' if decision_quality_score > 0 else ''
         st.markdown(f"""
         <div class="hero-card">
-            <div class="hero-label">{revenue_icon} Revenue Impact</div>
-            <div class="hero-value" style="color: {rev_color};">{prefix}{currency}{incr_revenue:,.0f}</div>
-            <div class="hero-sub">incremental change</div>
+            <div class="hero-label">{score_icon} Decision Quality</div>
+            <div class="hero-value" style="color: {score_color};">{score_prefix}{decision_quality_score:.0f}</div>
+            <div class="hero-sub">{score_label}</div>
+            <div class="hero-sub" style="margin-top: 4px;">
+                <span style="color: {positive_text};">{pct_good:.0f}%</span> / 
+                <span style="color: {neutral_text};">{pct_neutral:.0f}%</span> / 
+                <span style="color: {negative_text};">{pct_bad:.0f}%</span>
+                <span style="color: #64748b; font-size: 0.65rem; margin-left: 4px;">Good / Neutral / Bad</span>
+            </div>
         </div>
         """, unsafe_allow_html=True)
-
     
     with col4:
         impl_color = positive_text if impl_rate >= 70 else negative_text if impl_rate < 40 else neutral_text
@@ -455,36 +506,24 @@ def _render_hero_tiles(summary: Dict[str, Any], active_count: int = 0, dormant_c
         </div>
         """, unsafe_allow_html=True)
     
-    # Insightful callout row based on ROAS metrics
-    roas_lift = summary.get('roas_lift_pct', 0)
-    is_significant = summary.get('is_significant', False)
-    before_roas = summary.get('roas_before', 0)
-    after_roas = summary.get('roas_after', 0)
-    
-    if incr_revenue > 0 and roas_lift > 0:
-        if is_significant:
-            callout_text = f"<strong>{roas_lift:+.1f}%</strong> ROAS improvement is statistically significant — validated across {total_actions} optimizations"
-        else:
-            callout_text = f"ROAS improved from <strong>{before_roas:.2f}x → {after_roas:.2f}x</strong> ({roas_lift:+.1f}%) on validated bid changes"
-        callout_color = positive_text
-    elif incr_revenue < 0:
-        callout_text = f"ROAS declined <strong>{roas_lift:.1f}%</strong> — review bid strategies or wait for more data"
-        callout_color = negative_text
-    else:
-        callout_text = f"Impact is break-even — continue monitoring validated actions"
-        callout_color = neutral_text
-    
+    # ==========================================
+    # SINGLE COMBINED CALLOUT (Context + Stats)
+    # ==========================================
     win_rate = summary.get('win_rate', 0)
     confirmed = summary.get('confirmed_impact', 0)
     pending = summary.get('pending', 0)
-    
     wr_color = positive_text if win_rate >= 60 else negative_text if win_rate < 40 else neutral_text
     
+    market_context = f" ({market_downshift} market shifts detected)" if market_downshift > 0 else ""
+    
     st.markdown(f"""
-    <div style="background: rgba(143, 140, 163, 0.05); border: 1px solid rgba(143, 140, 163, 0.1); border-radius: 8px; 
+    <div style="background: rgba(143, 140, 163, 0.08); border: 1px solid rgba(143, 140, 163, 0.15); border-radius: 8px; 
                 padding: 12px 20px; margin-top: 16px; display: flex; align-items: center; justify-content: space-between;">
         <div style="display: flex; align-items: center; gap: 10px;">
-            <span style="color: {callout_color}; font-weight: 500;">{callout_text}</span>
+            <span style="font-size: 1.1rem;">💡</span>
+            <span style="color: #8F8CA3; font-size: 0.85rem;">
+                Results adjust for market changes. We measure whether <strong>your decisions</strong> helped.{market_context}
+            </span>
         </div>
         <div style="display: flex; gap: 24px; color: #8F8CA3; font-size: 0.85rem;">
             <span>Win Rate: <strong style="color: {wr_color};">{win_rate:.0f}%</strong></span>
@@ -494,23 +533,289 @@ def _render_hero_tiles(summary: Dict[str, Any], active_count: int = 0, dormant_c
     """, unsafe_allow_html=True)
 
 
-
-
 def _render_new_impact_analytics(summary: Dict[str, Any], impact_df: pd.DataFrame, validated_only: bool = True):
-    """Render new impact analytics: Attribution Waterfall + Stacked Revenue Bar."""
+    """Render new impact analytics: 3 Core Charts."""
     
     from utils.formatters import get_account_currency
     currency = get_account_currency()
     
-    col1, col2 = st.columns([1.2, 0.8])
+    # Chart 1: Decision Outcome Matrix (full width)
+    _render_decision_outcome_matrix(impact_df, summary)
+    
+    # Charts 2 & 3 side by side
+    col1, col2 = st.columns(2)
     
     with col1:
-        _render_attribution_waterfall(summary, impact_df, currency, validated_only)
+        _render_decision_quality_distribution(summary)
     
     with col2:
-        _render_stacked_revenue_bar(summary, currency, validated_only)
+        _render_capital_allocation_flow(impact_df, currency)
 
 
+def _render_decision_outcome_matrix(impact_df: pd.DataFrame, summary: Dict[str, Any]):
+    """Chart 1: Decision Outcome Matrix - The visual backbone."""
+    
+    import plotly.graph_objects as go
+    import numpy as np
+    
+    st.markdown("#### 🎯 Decision Outcome Matrix")
+    st.caption("Were decisions correct given market conditions?")
+    
+    if impact_df.empty:
+        st.info("No data to display")
+        return
+    
+    # Filter to confirmed actions with valid data
+    df = impact_df.copy()
+    df = df[df['before_spend'] > 0]
+    
+    # Calculate CPC before and after
+    df['cpc_before'] = df['before_spend'] / df['before_clicks'].replace(0, np.nan)
+    df['cpc_after'] = df['observed_after_spend'] / df['after_clicks'].replace(0, np.nan)
+    df['cpc_change_pct'] = ((df['cpc_after'] - df['cpc_before']) / df['cpc_before'] * 100).fillna(0)
+    
+    # Calculate Decision Impact (market-adjusted)
+    df['spc_before'] = df['before_sales'] / df['before_clicks'].replace(0, np.nan)
+    df['expected_clicks'] = df['observed_after_spend'] / df['cpc_before']
+    df['expected_sales'] = df['expected_clicks'] * df['spc_before']
+    df['decision_impact'] = df['observed_after_sales'] - df['expected_sales']
+    
+    # Clean infinite/nan values
+    df = df[np.isfinite(df['cpc_change_pct']) & np.isfinite(df['decision_impact'])]
+    df = df[df['cpc_change_pct'].abs() < 200]  # Filter extreme outliers
+    
+    if len(df) < 3:
+        st.info("Insufficient data for matrix")
+        return
+    
+    # Color by action type (including NEGATIVE)
+    action_colors = {
+        'BID_UP': '#22c55e',      # Green
+        'BID_DOWN': '#3b82f6',    # Blue
+        'BID': '#6366f1',         # Indigo (generic bid)
+        'HOLD': '#8b5cf6',        # Purple
+        'PAUSE': '#f59e0b',       # Orange
+        'NEGATIVE': '#ef4444',    # Red (negatives stand out)
+        'BID_CHANGE': '#6366f1',  # Indigo
+    }
+    
+    # Normalize action types
+    df['action_clean'] = df['action_type'].str.upper().str.replace('_CHANGE', '').str.replace('ADJUSTMENT', '').str.replace('_ADD', '')
+    
+    # Determine if point is in "neutral zone" (close to 0,0)
+    impact_threshold = max(df['decision_impact'].abs().quantile(0.25), 50)
+    cpc_threshold = 10  # ±10% CPC change is neutral zone
+    df['is_neutral_zone'] = (df['decision_impact'].abs() < impact_threshold) & (df['cpc_change_pct'].abs() < cpc_threshold)
+    
+    fig = go.Figure()
+    
+    # Add dots for each action type
+    for action_type in df['action_clean'].unique():
+        type_df = df[df['action_clean'] == action_type]
+        color = action_colors.get(action_type, '#8F8CA3')
+        
+        # Different opacity based on zone
+        neutral_mask = type_df['is_neutral_zone']
+        
+        # Non-neutral points (full opacity)
+        if (~neutral_mask).any():
+            non_neutral = type_df[~neutral_mask]
+            fig.add_trace(go.Scatter(
+                x=non_neutral['cpc_change_pct'],
+                y=non_neutral['decision_impact'],
+                mode='markers',
+                name=action_type.replace('_', ' ').title(),
+                marker=dict(size=10, color=color, opacity=0.8),
+                hovertemplate='CPC: %{x:.1f}%<br>Impact: %{y:,.0f}<extra></extra>',
+                legendgroup=action_type
+            ))
+        
+        # Neutral zone points (muted opacity)
+        if neutral_mask.any():
+            neutral = type_df[neutral_mask]
+            fig.add_trace(go.Scatter(
+                x=neutral['cpc_change_pct'],
+                y=neutral['decision_impact'],
+                mode='markers',
+                name=action_type.replace('_', ' ').title(),
+                marker=dict(size=8, color=color, opacity=0.35),  # Smaller, more muted
+                hovertemplate='CPC: %{x:.1f}%<br>Impact: %{y:,.0f} (neutral)<extra></extra>',
+                legendgroup=action_type,
+                showlegend=False  # Don't duplicate legend
+            ))
+    
+    # Add quadrant lines
+    fig.add_hline(y=0, line_dash="dash", line_color="rgba(255,255,255,0.3)")
+    fig.add_vline(x=0, line_dash="dash", line_color="rgba(255,255,255,0.3)")
+    
+    # Add quadrant labels
+    x_range = max(abs(df['cpc_change_pct'].min()), abs(df['cpc_change_pct'].max()), 20)
+    y_range = max(abs(df['decision_impact'].min()), abs(df['decision_impact'].max()), 100)
+    
+    annotations = [
+        dict(x=-x_range*0.5, y=y_range*0.7, text="🟢 Good Defense", showarrow=False, font=dict(color='#22c55e', size=11)),
+        dict(x=x_range*0.5, y=y_range*0.7, text="🟢 Good Offense", showarrow=False, font=dict(color='#22c55e', size=11)),
+        dict(x=-x_range*0.5, y=-y_range*0.7, text="🟡 Market-Driven Loss", showarrow=False, font=dict(color='#f59e0b', size=11)),
+        dict(x=x_range*0.5, y=-y_range*0.7, text="🔴 Decision Error", showarrow=False, font=dict(color='#ef4444', size=11)),
+    ]
+    
+    fig.update_layout(
+        height=400,
+        margin=dict(t=30, b=50, l=50, r=30),
+        paper_bgcolor='rgba(0,0,0,0)',
+        plot_bgcolor='rgba(0,0,0,0)',
+        xaxis=dict(
+            title=dict(text="CPC Change %", font=dict(color='#94a3b8')),
+            showgrid=True, gridcolor='rgba(128,128,128,0.1)',
+            tickfont=dict(color='#94a3b8'),
+            zeroline=False
+        ),
+        yaxis=dict(
+            title=dict(text="Decision Impact", font=dict(color='#94a3b8')),
+            showgrid=True, gridcolor='rgba(128,128,128,0.1)',
+            tickfont=dict(color='#94a3b8'),
+            zeroline=False
+        ),
+        legend=dict(
+            orientation='h', yanchor='bottom', y=1.02, xanchor='center', x=0.5,
+            font=dict(color='#94a3b8', size=11)
+        ),
+        annotations=annotations
+    )
+    
+    st.plotly_chart(fig, use_container_width=True)
+
+
+def _render_decision_quality_distribution(summary: Dict[str, Any]):
+    """Chart 2: Decision Quality Distribution (NPS-Style Donut)."""
+    
+    import plotly.graph_objects as go
+    
+    st.markdown("#### 📊 Decision Quality Distribution")
+    
+    pct_good = summary.get('pct_good', 0)
+    pct_neutral = summary.get('pct_neutral', 0)
+    pct_bad = summary.get('pct_bad', 0)
+    
+    # NPS-style score
+    decision_quality_score = pct_good - pct_bad
+    
+    if pct_good + pct_neutral + pct_bad == 0:
+        st.info("No outcome data")
+        return
+    
+    # Donut chart
+    fig = go.Figure(data=[go.Pie(
+        values=[pct_good, pct_neutral, pct_bad],
+        labels=['Good', 'Neutral', 'Bad'],
+        hole=0.6,
+        marker=dict(colors=['#22c55e', '#64748b', '#ef4444']),
+        textinfo='label+percent',
+        textfont=dict(size=12, color='#e2e8f0'),
+        hovertemplate='%{label}: %{value:.1f}%<extra></extra>',
+        sort=False
+    )])
+    
+    # Add score in center
+    score_color = '#22c55e' if decision_quality_score > 0 else '#ef4444' if decision_quality_score < 0 else '#64748b'
+    score_prefix = '+' if decision_quality_score > 0 else ''
+    
+    fig.add_annotation(
+        text=f"<b style='font-size:28px; color:{score_color};'>{score_prefix}{decision_quality_score:.0f}</b><br><span style='font-size:11px; color:#8F8CA3;'>Quality Score</span>",
+        showarrow=False,
+        font=dict(size=14, color='#e2e8f0')
+    )
+    
+    fig.update_layout(
+        height=350,
+        margin=dict(t=30, b=60, l=30, r=30),
+        paper_bgcolor='rgba(0,0,0,0)',
+        plot_bgcolor='rgba(0,0,0,0)',
+        showlegend=False
+    )
+    
+    st.plotly_chart(fig, use_container_width=True)
+    
+    # Important copy
+    st.caption("*Neutrals excluded to focus on signal, not noise.*")
+
+
+def _render_capital_allocation_flow(impact_df: pd.DataFrame, currency: str):
+    """Chart 3: Capital Allocation Flow (Spend Lens)."""
+    
+    import plotly.graph_objects as go
+    import numpy as np
+    
+    st.markdown("#### 💰 Capital Allocation Flow")
+    
+    if impact_df.empty:
+        st.info("No data to display")
+        return
+    
+    df = impact_df.copy()
+    
+    # Calculate spend categories
+    df['spend_maintained'] = df[['before_spend', 'observed_after_spend']].min(axis=1)
+    df['spend_avoided'] = (df['before_spend'] - df['observed_after_spend']).clip(lower=0)
+    df['spend_added'] = (df['observed_after_spend'] - df['before_spend']).clip(lower=0)
+    
+    # Aggregate by action type
+    action_map = {
+        'BID_DOWN': 'Bid Down',
+        'BID_UP': 'Bid Up',
+        'PAUSE': 'Pause',
+        'HOLD': 'Hold',
+        'BID_CHANGE': 'Bid Change',
+    }
+    
+    df['action_clean'] = df['action_type'].str.upper().map(
+        lambda x: next((v for k, v in action_map.items() if k in str(x)), 'Other')
+    )
+    
+    # Aggregate totals
+    total_original = df['before_spend'].sum()
+    total_maintained = df['spend_maintained'].sum()
+    total_avoided = df['spend_avoided'].sum()
+    total_reallocated = df['spend_added'].sum()
+    
+    if total_original == 0:
+        st.info("No spend data")
+        return
+    
+    # Sankey diagram
+    fig = go.Figure(go.Sankey(
+        node=dict(
+            pad=20,
+            thickness=25,
+            line=dict(color='rgba(0,0,0,0)', width=0),
+            label=[
+                f"Original<br>{currency}{total_original:,.0f}",
+                f"Maintained<br>{currency}{total_maintained:,.0f}",
+                f"Avoided<br>{currency}{total_avoided:,.0f}",
+                f"Reallocated<br>{currency}{total_reallocated:,.0f}"
+            ],
+            color=['#5B556F', '#64748b', '#22c55e', '#3b82f6'],
+        ),
+        link=dict(
+            source=[0, 0, 0],
+            target=[1, 2, 3],
+            value=[total_maintained, total_avoided, total_reallocated],
+            color=['rgba(100,116,139,0.4)', 'rgba(34,197,94,0.4)', 'rgba(59,130,246,0.4)']
+        )
+    ))
+    
+    fig.update_layout(
+        height=350,
+        margin=dict(t=30, b=30, l=30, r=30),
+        paper_bgcolor='rgba(0,0,0,0)',
+        plot_bgcolor='rgba(0,0,0,0)',
+        font=dict(size=11, color='#e2e8f0')
+    )
+    
+    st.plotly_chart(fig, use_container_width=True)
+
+
+# Legacy chart functions (kept for backward compatibility but not called)
 def _render_attribution_waterfall(summary: Dict[str, Any], impact_df: pd.DataFrame, currency: str, validated_only: bool):
     """Render attribution-based waterfall showing ROAS contribution by action type."""
     
@@ -936,14 +1241,16 @@ def _render_winners_losers_chart(impact_df: pd.DataFrame):
 
 
 def _render_drill_down_table(impact_df: pd.DataFrame, show_migration_badge: bool = False):
-    """Render detailed drill-down table with optional migration badges."""
+    """Render detailed drill-down table with decision-adjusted metrics."""
+    
+    import numpy as np
     
     with st.expander("📋 Detailed Action Log", expanded=False):
         if impact_df.empty:
             st.info("No actions to display")
             return
         
-        # Create display dataframe
+        # Create display dataframe with all decision-adjusted calculations
         display_df = impact_df.copy()
         
         # Add migration badge for HARVEST with before_spend > 0
@@ -955,26 +1262,91 @@ def _render_drill_down_table(impact_df: pd.DataFrame, show_migration_badge: bool
         else:
             display_df['action_display'] = display_df['action_type']
         
-        # Define display columns based on available data
+        # ==========================================
+        # CALCULATE DECISION-ADJUSTED METRICS
+        # ==========================================
+        
+        # Spend Avoided = max(0, Before_Spend - After_Spend)
+        display_df['spend_avoided'] = (display_df['before_spend'] - display_df['observed_after_spend']).clip(lower=0)
+        
+        # CPC Before = Before_Spend / Before_Clicks (NULL if clicks=0)
+        display_df['before_clicks'] = display_df.get('before_clicks', 0)
+        display_df['after_clicks'] = display_df.get('after_clicks', 0)
+        display_df['cpc_before'] = display_df['before_spend'] / display_df['before_clicks'].replace(0, np.nan)
+        display_df['cpc_after'] = display_df['observed_after_spend'] / display_df['after_clicks'].replace(0, np.nan)
+        
+        # CPC Change % = (CPC_After - CPC_Before) / CPC_Before
+        display_df['cpc_change_pct'] = ((display_df['cpc_after'] - display_df['cpc_before']) / display_df['cpc_before'] * 100).fillna(0)
+        
+        # Sales Per Click (proxy for CVR × AOV)
+        display_df['spc_before'] = display_df['before_sales'] / display_df['before_clicks'].replace(0, np.nan)
+        
+        # Expected Sales = (After_Spend / CPC_Before) × SPC_Before
+        display_df['expected_clicks'] = display_df['observed_after_spend'] / display_df['cpc_before']
+        display_df['expected_sales'] = display_df['expected_clicks'] * display_df['spc_before']
+        
+        # Decision Impact = After_Sales - Expected_Sales
+        display_df['decision_impact'] = display_df['observed_after_sales'] - display_df['expected_sales']
+        
+        # Market Tag logic
+        def get_market_tag(row):
+            if row['before_clicks'] == 0:
+                return "Low Data"
+            if pd.notna(row['cpc_after']) and pd.notna(row['cpc_before']) and row['cpc_before'] > 0:
+                if row['cpc_after'] <= 0.75 * row['cpc_before']:
+                    return "Market Downshift"
+            return "Normal"
+        display_df['market_tag'] = display_df.apply(get_market_tag, axis=1)
+        
+        # Decision Outcome logic
+        def get_decision_outcome(row):
+            action = str(row['action_type']).upper()
+            di = row['decision_impact'] if pd.notna(row['decision_impact']) else 0
+            sa = row['spend_avoided'] if pd.notna(row['spend_avoided']) else 0
+            bs = row['before_spend'] if pd.notna(row['before_spend']) else 0
+            market_tag = row['market_tag']
+            
+            # Low Data → Neutral
+            if market_tag == "Low Data":
+                return "🟡 Neutral"
+            
+            # Good: DI > 0 OR (defensive + significant spend avoided + market downshift)
+            if di > 0:
+                return "🟢 Good"
+            if action in ['BID_DOWN', 'PAUSE', 'NEGATIVE'] and bs > 0 and sa >= 0.1 * bs:
+                return "🟢 Good"
+            
+            # Neutral: small impact
+            before_sales = row['before_sales'] if pd.notna(row['before_sales']) else 0
+            threshold = max(0.05 * before_sales, 10)  # 5% of before_sales or $10
+            if abs(di) < threshold:
+                return "🟡 Neutral"
+            
+            # Bad: negative impact in normal market
+            if di < 0 and market_tag == "Normal":
+                return "🔴 Bad"
+            
+            # Default to Neutral for edge cases
+            return "🟡 Neutral"
+        
+        display_df['decision_outcome'] = display_df.apply(get_decision_outcome, axis=1)
+        
+        # ==========================================
+        # SELECT FINAL COLUMNS (per spec)
+        # ==========================================
         display_cols = [
             'action_display', 'target_text', 'reason',
-            'before_spend', 'observed_after_spend', 'delta_spend',
-            'before_sales', 'observed_after_sales', 'delta_sales',
-            'impact_score', 'validation_status'
+            'before_spend', 'observed_after_spend', 'spend_avoided',
+            'before_sales', 'observed_after_sales',
+            'cpc_before', 'cpc_after', 'cpc_change_pct',
+            'expected_sales', 'decision_impact',
+            'market_tag', 'decision_outcome', 'validation_status'
         ]
         
         # Filter to columns that actually exist
         cols_to_use = [c for c in display_cols if c in display_df.columns]
         display_df = display_df[cols_to_use].copy()
         
-        # Format Result label for display (internal logic)
-        if 'impact_score' in display_df.columns:
-            def get_impact_status(score):
-                if score > 0: return "📈 Positive"
-                if score < 0: return "📉 Negative"
-                return "➖ Neutral"
-            display_df['Result Status'] = display_df['impact_score'].apply(get_impact_status)
-
         # Rename for user-friendly display
         final_rename = {
             'action_display': 'Action Taken',
@@ -982,11 +1354,16 @@ def _render_drill_down_table(impact_df: pd.DataFrame, show_migration_badge: bool
             'reason': 'Logic Basis',
             'before_spend': 'Before Spend',
             'observed_after_spend': 'After Spend',
-            'delta_spend': 'Spend Change',
+            'spend_avoided': 'Spend Avoided',
             'before_sales': 'Before Sales',
             'observed_after_sales': 'After Sales',
-            'delta_sales': 'Sales Change',
-            'impact_score': 'Revenue Impact',
+            'cpc_before': 'CPC Before',
+            'cpc_after': 'CPC After',
+            'cpc_change_pct': 'CPC Change %',
+            'expected_sales': 'Expected Sales',
+            'decision_impact': 'Decision Impact',
+            'market_tag': 'Market Tag',
+            'decision_outcome': 'Decision Outcome',
             'validation_status': 'Validation Status'
         }
         display_df = display_df.rename(columns=final_rename)
@@ -994,10 +1371,20 @@ def _render_drill_down_table(impact_df: pd.DataFrame, show_migration_badge: bool
         # Format currency columns
         from utils.formatters import get_account_currency
         df_currency = get_account_currency()
-        currency_cols = ['Before Spend', 'After Spend', 'Spend Change', 'Before Sales', 'After Sales', 'Sales Change', 'Revenue Impact']
+        currency_cols = ['Before Spend', 'After Spend', 'Spend Avoided', 'Before Sales', 'After Sales', 'Expected Sales', 'Decision Impact']
         for col in currency_cols:
             if col in display_df.columns:
                 display_df[col] = display_df[col].apply(lambda x: f"{df_currency}{x:,.2f}" if pd.notna(x) else "-")
+        
+        # Format CPC columns
+        cpc_cols = ['CPC Before', 'CPC After']
+        for col in cpc_cols:
+            if col in display_df.columns:
+                display_df[col] = display_df[col].apply(lambda x: f"{df_currency}{x:.2f}" if pd.notna(x) else "-")
+        
+        # Format CPC Change %
+        if 'CPC Change %' in display_df.columns:
+            display_df['CPC Change %'] = display_df['CPC Change %'].apply(lambda x: f"{x:+.1f}%" if pd.notna(x) else "-")
         
         # Show migration legend if applicable
         if show_migration_badge and 'is_migration' in impact_df.columns and impact_df['is_migration'].any():
@@ -1007,9 +1394,21 @@ def _render_drill_down_table(impact_df: pd.DataFrame, show_migration_badge: bool
             display_df,
             use_container_width=True,
             column_config={
-                "Revenue Impact": st.column_config.TextColumn(
-                    "Revenue Impact",
-                    help="Incremental revenue calculated using before_spend * (after_roas - before_roas)"
+                "Decision Impact": st.column_config.TextColumn(
+                    "Decision Impact",
+                    help="Market-adjusted: After_Sales - Expected_Sales (what would have happened without change)"
+                ),
+                "Expected Sales": st.column_config.TextColumn(
+                    "Expected Sales",
+                    help="Counterfactual: (After_Spend / CPC_Before) × CVR_Before × AOV_Before"
+                ),
+                "Market Tag": st.column_config.TextColumn(
+                    "Market Tag",
+                    help="Normal | Market Downshift (CPC dropped >25%) | Low Data (no baseline clicks)"
+                ),
+                "Decision Outcome": st.column_config.TextColumn(
+                    "Decision Outcome",
+                    help="Good: positive impact or successful defense | Neutral: small/ambiguous | Bad: negative impact in stable market"
                 ),
                 "Validation Status": st.column_config.TextColumn(
                     "Validation Status",
@@ -1017,7 +1416,6 @@ def _render_drill_down_table(impact_df: pd.DataFrame, show_migration_badge: bool
                 )
             }
         )
-
         
         # Download button
         csv = impact_df.to_csv(index=False)
