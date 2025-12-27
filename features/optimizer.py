@@ -102,6 +102,7 @@ DEFAULT_CONFIG = {
     
     # Harvest forecast
     "HARVEST_EFFICIENCY_MULTIPLIER": 1.30,  # 30% efficiency gain from exact match
+    "HARVEST_LAUNCH_MULTIPLIER": 2.0,  # Bid multiplier for new harvest keywords to compete for impressions
     
     # Bucket median sanity check
     "BUCKET_MEDIAN_FLOOR_MULTIPLIER": 0.5,  # Bucket median must be >= 50% of target ROAS
@@ -491,24 +492,25 @@ def identify_harvest_candidates(
     # Individual threshold checks for debugging
     pass_clicks = merged["Clicks"] >= config["HARVEST_CLICKS"]
     pass_orders = merged["Orders"] >= min_orders_threshold  # CHANGE #5: CVR-based dynamic threshold
-    pass_sales = merged["Sales"] >= config["HARVEST_SALES"]
+    # pass_sales = merged["Sales"] >= config["HARVEST_SALES"]  # REMOVED: Currency threshold doesn't work across geos
     pass_roas = merged.apply(calculate_roas_threshold, axis=1)
     
-    harvest_mask = pass_clicks & pass_orders & pass_sales & pass_roas
+    # Currency-based threshold (HARVEST_SALES) removed - only clicks, orders, ROAS matter
+    harvest_mask = pass_clicks & pass_orders & pass_roas
     
     candidates = merged[harvest_mask].copy()
     
     # DEBUG: Show why terms fail
-    print(f"\\n=== HARVEST DEBUG ===")
+    print(f"\n=== HARVEST DEBUG ===")
     print(f"Discovery rows: {len(discovery_df)}")
     print(f"Grouped search terms: {len(grouped)}")
-    print(f"Threshold config: Clicks>={config['HARVEST_CLICKS']}, Orders>={min_orders_threshold} (CVR-based), Sales>=${config['HARVEST_SALES']}, ROAS>={config['HARVEST_ROAS_MULT']}x bucket median")
-    print(f"Pass clicks: {pass_clicks.sum()}, Pass orders: {pass_orders.sum()}, Pass sales: {pass_sales.sum()}, Pass ROAS: {pass_roas.sum()}")
+    print(f"Threshold config: Clicks>={config['HARVEST_CLICKS']}, Orders>={min_orders_threshold} (CVR-based), ROAS>{config['HARVEST_ROAS_MULT']}x bucket median")
+    print(f"Pass clicks: {pass_clicks.sum()}, Pass orders: {pass_orders.sum()}, Pass ROAS: {pass_roas.sum()}")
     print(f"After ALL thresholds: {len(candidates)} candidates")
     
     # DEBUG: Check for specific terms
     test_terms = ['water cups for kids', 'water cups', 'steel water bottle', 'painting set for kids']
-    print(f"\\n--- Checking specific terms ---")
+    print(f"\n--- Checking specific terms ---")
     for test_term in test_terms:
         in_grouped = merged[merged["Customer Search Term"].str.contains(test_term, case=False, na=False)]
         if len(in_grouped) > 0:
@@ -516,14 +518,13 @@ def identify_harvest_candidates(
                 req_roas = baseline_roas * config["HARVEST_ROAS_MULT"]
                 pass_all = (r["Clicks"] >= config["HARVEST_CLICKS"] and 
                            r["Orders"] >= min_orders_threshold and 
-                           r["Sales"] >= config["HARVEST_SALES"] and 
                            r["ROAS"] >= req_roas)
-                print(f"  '{r['Customer Search Term']}': Clicks={r['Clicks']}, Orders={r['Orders']}, Sales=${r['Sales']:.2f}, ROAS={r['ROAS']:.2f} vs {req_roas:.2f} | PASS={pass_all}")
+                print(f"  '{r['Customer Search Term']}': Clicks={r['Clicks']}, Orders={r['Orders']}, Sales={r['Sales']:.2f}, ROAS={r['ROAS']:.2f} vs {req_roas:.2f} | PASS={pass_all}")
         else:
             print(f"  '{test_term}' - NOT FOUND in Customer Search Term column")
     
     # Show sample of terms that pass all but ROAS
-    almost_pass = pass_clicks & pass_orders & pass_sales & (~pass_roas)
+    almost_pass = pass_clicks & pass_orders & (~pass_roas)
     if almost_pass.sum() > 0:
         print(f"\\nTerms failing ONLY on ROAS ({almost_pass.sum()} total):")
         for _, r in merged[almost_pass].head(5).iterrows():
@@ -557,7 +558,9 @@ def identify_harvest_candidates(
     survivors_df = pd.DataFrame(survivors)
     
     if not survivors_df.empty:
-        survivors_df["New Bid"] = survivors_df["CPC"] * 1.1
+        # Apply launch multiplier (2x by default) to ensure new harvest keywords can compete
+        launch_mult = DEFAULT_CONFIG.get("HARVEST_LAUNCH_MULTIPLIER", 2.0)
+        survivors_df["New Bid"] = survivors_df["CPC"] * launch_mult
         survivors_df = survivors_df.sort_values("Sales", ascending=False)
     
     return survivors_df
@@ -1621,7 +1624,9 @@ def _forecast_scenario(
             if base_clicks < 5:
                 continue
             
-            new_bid = float(row.get("New Bid", base_cpc * 1.1) or base_cpc * 1.1)
+            # Use launch multiplier (2x) for harvest bids
+            launch_mult = config.get("HARVEST_LAUNCH_MULTIPLIER", 2.0)
+            new_bid = float(row.get("New Bid", base_cpc * launch_mult) or base_cpc * launch_mult)
             base_cvr = base_orders / base_clicks if base_clicks > 0 else 0
             base_aov = base_sales / base_orders if base_orders > 0 else 0
             
@@ -1760,14 +1765,17 @@ def _analyze_risks(bid_changes: pd.DataFrame) -> dict:
 
 def _log_optimization_events(results: dict, client_id: str, report_date: str):
     """
-    Standardizes and logs optimization actions (bids, negatives, harvests) to the database.
-    This enables the Impact Analyzer to track performance 'before' and 'after' these actions.
+    Standardizes and logs optimization actions (bids, negatives, harvests).
+    
+    If user has already accepted actions this session (optimizer_actions_accepted=True),
+    writes directly to DB and shows undo toast.
+    Otherwise, stores in session state for confirmation when leaving optimizer tab.
     """
     from core.db_manager import get_db_manager
     import uuid
     import streamlit as st
+    import time
     
-    db = get_db_manager(st.session_state.get('test_mode', False))
     batch_id = str(uuid.uuid4())[:8]
     actions_to_log = []
 
@@ -1848,14 +1856,44 @@ def _log_optimization_events(results: dict, client_id: str, report_date: str):
         })
 
 
-    if actions_to_log:
-        try:
-            db.log_action_batch(actions_to_log, client_id, batch_id, report_date)
-            return len(actions_to_log)
-        except Exception as e:
-            st.error(f"Failed to log actions: {str(e)}")
-            return 0
-    return 0
+    # === DEDUPLICATE ACTIONS ===
+    # Remove duplicates that would violate the unique constraint:
+    # (client_id, action_date, target_text, action_type, campaign_name)
+    # Keep the last occurrence (most recent values for the same target)
+    seen_keys = {}
+    for i, action in enumerate(actions_to_log):
+        key = (
+            action.get('target_text', '').lower().strip(),
+            action.get('action_type', ''),
+            action.get('campaign_name', '').strip()
+        )
+        seen_keys[key] = i  # Overwrite with latest index
+    
+    # Build deduplicated list (keeping only the last occurrence of each key)
+    unique_indices = set(seen_keys.values())
+    actions_to_log = [a for i, a in enumerate(actions_to_log) if i in unique_indices]
+
+    if not actions_to_log:
+        return 0
+    
+    # SIMPLIFIED FLOW: Always save directly to DB with undo capability
+    db = get_db_manager(st.session_state.get('test_mode', False))
+    try:
+        db.log_action_batch(actions_to_log, client_id, batch_id, report_date)
+        
+        # Set up undo capability
+        st.session_state['_last_saved_batch_id'] = batch_id
+        st.session_state['_last_saved_client_id'] = client_id
+        st.session_state['_undo_window_start'] = time.time()
+        
+        # Mark as accepted for future runs
+        st.session_state['optimizer_actions_accepted'] = True
+        
+        st.toast(f"✅ {len(actions_to_log)} actions saved to history", icon="💾")
+        return len(actions_to_log)
+    except Exception as e:
+        st.error(f"Failed to log actions: {str(e)}")
+        return 0
 
 
 # ==========================================
@@ -2128,13 +2166,9 @@ class OptimizerModule(BaseFeature):
                         help="Need this many clicks before graduation",
                         key="opt_harvest_clicks"
                     )
-                    st.number_input(
-                        "Min Sales ($)", 
-                        min_value=0.0, 
-                        step=25.0,
-                        help="Minimum revenue required",
-                        key="opt_harvest_sales"
-                    )
+                    # Removed: Currency threshold doesn't work across geos
+                    # st.number_input("Min Sales ($)", ...)
+                    pass  # Placeholder to keep layout
                 with col2:
                     st.number_input(
                         "Min Orders", 
@@ -2214,14 +2248,9 @@ class OptimizerModule(BaseFeature):
                         key="opt_neg_clicks_threshold"
                     )
                 with col2:
-                    st.number_input(
-                        "Min Spend (0 sales)", 
-                        min_value=5.0, 
-                        max_value=50.0, 
-                        step=5.0,
-                        help="Or block after wasting this much $",
-                        key="opt_neg_spend_threshold"
-                    )
+                    # Removed: Currency threshold doesn't work across geos
+                    # st.number_input("Min Spend (0 sales)", ...)
+                    st.caption("Clicks-only filter active")
                 
                 st.info("💡 Thresholds auto-adjust based on your conversion rate")
             
@@ -2290,14 +2319,14 @@ class OptimizerModule(BaseFeature):
             # Sync all session state values to self.config (convert integers to decimals)
             self.config["HARVEST_CLICKS"] = st.session_state["opt_harvest_clicks"]
             self.config["HARVEST_ORDERS"] = st.session_state["opt_harvest_orders"]
-            self.config["HARVEST_SALES"] = st.session_state["opt_harvest_sales"]
+            # self.config["HARVEST_SALES"] = st.session_state["opt_harvest_sales"]  # Removed: currency threshold
             self.config["HARVEST_ROAS_MULT"] = st.session_state["opt_harvest_roas_mult"] / 100.0
             self.config["ALPHA_EXACT"] = st.session_state["opt_alpha_exact"] / 100.0
             self.config["ALPHA_BROAD"] = st.session_state["opt_alpha_broad"] / 100.0
             self.config["MAX_BID_CHANGE"] = st.session_state["opt_max_bid_change"] / 100.0
             self.config["TARGET_ROAS"] = st.session_state["opt_target_roas"]
             self.config["NEGATIVE_CLICKS_THRESHOLD"] = st.session_state["opt_neg_clicks_threshold"]
-            self.config["NEGATIVE_SPEND_THRESHOLD"] = st.session_state["opt_neg_spend_threshold"]
+            # self.config["NEGATIVE_SPEND_THRESHOLD"] = st.session_state["opt_neg_spend_threshold"]  # Removed: currency threshold
             self.config["MIN_CLICKS_EXACT"] = st.session_state["opt_min_clicks_exact"]
             self.config["MIN_CLICKS_PT"] = st.session_state["opt_min_clicks_pt"]
             self.config["MIN_CLICKS_BROAD"] = st.session_state["opt_min_clicks_broad"]

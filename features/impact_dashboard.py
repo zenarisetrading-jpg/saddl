@@ -17,6 +17,69 @@ from typing import Dict, Any, Optional, Tuple
 from datetime import datetime, timedelta
 from core.db_manager import get_db_manager
 
+# ==========================================
+# IMPACT MATURITY CONFIGURATION
+# ==========================================
+IMPACT_CONFIG = {
+    "maturity_buffer_days": 3,      # Days after window to wait for attribution
+    "default_after_window_days": 7  # Default after measurement window
+}
+
+def get_maturity_status(action_date, latest_data_date, after_window_days: int = 7, maturity_buffer_days: int = 3) -> dict:
+    """
+    Check if action has matured enough for impact calculation.
+    
+    Maturity is based on whether the AVAILABLE DATA covers enough time after the action
+    for the after-window + attribution buffer to have settled.
+    
+    Args:
+        action_date: Date the action was logged (T0)
+        latest_data_date: The most recent date in the data (from DB)
+        after_window_days: Length of after measurement window
+        maturity_buffer_days: Additional days for Amazon attribution to settle
+        
+    Returns:
+        dict with is_mature, maturity_date, days_until_mature, status
+    """
+    # Parse action_date to date object
+    if isinstance(action_date, str):
+        action_date = datetime.strptime(action_date[:10], "%Y-%m-%d").date()
+    elif isinstance(action_date, datetime):
+        action_date = action_date.date()
+    elif hasattr(action_date, 'date'):  # pd.Timestamp
+        action_date = action_date.date()
+    
+    # Parse latest_data_date
+    if isinstance(latest_data_date, str):
+        latest_data_date = datetime.strptime(latest_data_date[:10], "%Y-%m-%d").date()
+    elif isinstance(latest_data_date, datetime):
+        latest_data_date = latest_data_date.date()
+    elif hasattr(latest_data_date, 'date'):
+        latest_data_date = latest_data_date.date()
+    
+    # Calculate when this action will be mature
+    after_window_end = action_date + timedelta(days=after_window_days)
+    maturity_date = after_window_end + timedelta(days=maturity_buffer_days)
+    
+    # Check against latest data date, not today
+    days_until_mature = (maturity_date - latest_data_date).days
+    is_mature = latest_data_date >= maturity_date
+    
+    if is_mature:
+        status = "Measured"
+    elif latest_data_date >= after_window_end:
+        status = f"Pending ({days_until_mature}d)"
+    else:
+        days_in = (latest_data_date - action_date).days
+        status = f"In Window ({max(0, days_in)}/{after_window_days}d)"
+    
+    return {
+        "is_mature": is_mature,
+        "maturity_date": maturity_date,
+        "days_until_mature": max(0, days_until_mature),
+        "status": status
+    }
+
 @st.cache_data(ttl=3600, show_spinner=False)  # Restored production TTL
 def _fetch_impact_data(client_id: str, test_mode: bool, window_days: int = 7, cache_version: str = "v4_dedup") -> Tuple[pd.DataFrame, Dict[str, Any]]:
 
@@ -137,8 +200,41 @@ def render_impact_dashboard():
         window_days = time_frame_days.get(time_frame, 7)
         impact_df, full_summary = _fetch_impact_data(selected_client, test_mode, window_days, cache_version)
         
+        # === MATURITY GATE ===
+        # Add maturity status to each action - determines if impact can be calculated
+        # Maturity is based on whether the DATA covers enough time after the action
+        # for the after-window + attribution buffer to have settled
+        actual_after_window = IMPACT_CONFIG['default_after_window_days']  # 7 days
+        buffer_days = IMPACT_CONFIG['maturity_buffer_days']  # 3 days
+        
+        # Get the latest date in the data from full_summary
+        period_info = full_summary.get('period_info', {})
+        latest_data_date = period_info.get('after_end') or period_info.get('latest_date')
+        
+        if not impact_df.empty and 'action_date' in impact_df.columns and latest_data_date:
+            impact_df['is_mature'] = impact_df['action_date'].apply(
+                lambda d: get_maturity_status(d, latest_data_date, actual_after_window, buffer_days)['is_mature']
+            )
+            impact_df['maturity_status'] = impact_df['action_date'].apply(
+                lambda d: get_maturity_status(d, latest_data_date, actual_after_window, buffer_days)['status']
+            )
+            
+            mature_count = int(impact_df['is_mature'].sum())
+            pending_attr_count = len(impact_df) - mature_count
+            
+            # Debug: Show the cutoff date
+            cutoff_date = pd.to_datetime(latest_data_date) - pd.Timedelta(days=actual_after_window + buffer_days)
+            print(f"Maturity cutoff: Actions from {cutoff_date.strftime('%b %d')} or earlier are mature (data through {pd.to_datetime(latest_data_date).strftime('%b %d')})")
+        else:
+            # Fallback if no action_date column or no latest date
+            impact_df['is_mature'] = True
+            impact_df['maturity_status'] = 'Measured'
+            mature_count = len(impact_df)
+            pending_attr_count = 0
+        
         # Terminal debug: Show Decision Impact metrics
         print(f"\n=== DECISION IMPACT DEBUG ({selected_client}) ===")
+        print(f"Maturity Gate: {mature_count} measured, {pending_attr_count} pending attribution")
         for w in [7, 14, 30]:
             try:
                 db = get_db_manager(test_mode)
@@ -146,7 +242,6 @@ def render_impact_dashboard():
                 val = s.get('validated', {})
                 print(f"{w}D: ROAS {val.get('roas_before',0):.2f}x -> {val.get('roas_after',0):.2f}x | Lift: {val.get('roas_lift_pct',0):.1f}% | N={val.get('total_actions',0)}")
                 print(f"    Decision Impact: {val.get('decision_impact',0):.0f} | Spend Avoided: {val.get('spend_avoided',0):.0f}")
-                print(f"    Good: {val.get('pct_good',0):.0f}% | Neutral: {val.get('pct_neutral',0):.0f}% | Bad: {val.get('pct_bad',0):.0f}% | Market Downshift: {val.get('market_downshift_count',0)}")
             except Exception as e:
                 print(f"{w}D: Error - {e}")
         print("===================================\n")
@@ -209,8 +304,12 @@ def render_impact_dashboard():
         cal_color = "#60a5fa" if theme_mode == 'dark' else "#3b82f6"
         calendar_icon = f'<svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="{cal_color}" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" style="vertical-align: middle; margin-right: 6px;"><rect x="3" y="4" width="18" height="18" rx="2" ry="2"></rect><line x1="16" y1="2" x2="16" y2="6"></line><line x1="8" y1="2" x2="8" y2="6"></line><line x1="3" y1="10" x2="21" y2="10"></line></svg>'
         
-        action_count = len(impact_df)
         unique_weeks = impact_df['action_date'].nunique() if 'action_date' in impact_df.columns else 1
+        
+        # Pending badge if there are pending actions
+        pending_badge = ""
+        if pending_attr_count > 0:
+            pending_badge = f'<span style="background: rgba(251, 191, 36, 0.15); color: #fbbf24; padding: 4px 10px; border-radius: 6px; font-size: 0.75rem; margin-left: 8px;">⏳ {pending_attr_count} pending</span>'
         
         st.markdown(f"""
         <div style="background: linear-gradient(135deg, rgba(59, 130, 246, 0.15) 0%, rgba(59, 130, 246, 0.05) 100%);
@@ -222,8 +321,8 @@ def render_impact_dashboard():
                     <span style="font-weight: 600; font-size: 1.1rem; color: #60a5fa; margin-right: 12px;">{time_frame} Impact Summary</span>
                     <span style="color: #94a3b8; font-size: 0.95rem;">{compare_text}</span>
                 </div>
-                <div style="color: #94a3b8; font-size: 0.85rem; opacity: 0.8;">
-                    {action_count} actions total across {unique_weeks} runs
+                <div style="color: #94a3b8; font-size: 0.85rem; display: flex; align-items: center;">
+                    Measured: {mature_count} | Pending: {pending_attr_count}
                 </div>
             </div>
         </div>
@@ -246,23 +345,28 @@ def render_impact_dashboard():
             st.caption("📊 Showing **all actions** — including pending and unverified.")
             
     # ==========================================
-    # DATA PREPARATION: ACTIVE vs DORMANT
+    # DATA PREPARATION: MATURE + VALIDATED
     # ==========================================
-    # Filter based on toggle BEFORE splitting
+    # Step 1: Filter by validation toggle
     v_mask = impact_df['validation_status'].str.contains('✓|CPC Validated|CPC Match|Directional|Confirmed|Normalized', na=False, regex=True)
     display_df = impact_df[v_mask].copy() if show_validated_only else impact_df.copy()
     
-    # Measured (Active) vs Pending (Dormant)
-    # Measured if there was spend in BEFORE or AFTER window
-    measured_mask = (display_df['before_spend'].fillna(0) + display_df['observed_after_spend'].fillna(0)) > 0
-    active_df = display_df[measured_mask].copy()
-    dormant_df = display_df[~measured_mask].copy()
+    # Step 2: MATURITY GATE - Split mature vs pending attribution
+    mature_mask = display_df['is_mature'] == True
+    mature_df = display_df[mature_mask].copy()  # ONLY mature actions for aggregates
+    pending_attr_df = display_df[~mature_mask].copy()  # Pending attribution
+    
+    # Step 3: Within mature, split Active vs Dormant (by spend)
+    spend_mask = (mature_df['before_spend'].fillna(0) + mature_df['observed_after_spend'].fillna(0)) > 0
+    active_df = mature_df[spend_mask].copy()
+    dormant_df = mature_df[~spend_mask].copy()
     
     # Use pre-calculated summary from backend for the tiles
     display_summary = full_summary.get('validated' if show_validated_only else 'all', {})
     
-    # HERO TILES (Now synchronized)
-    _render_hero_tiles(display_summary, len(active_df), len(dormant_df))
+    # HERO TILES (Now synchronized with maturity counts)
+    # Note: We need mature_count from the maturity gate section - use len(mature_df) for display consistency
+    _render_hero_tiles(display_summary, len(active_df), len(dormant_df), len(mature_df), len(pending_attr_df))
     
     st.divider()
 
@@ -270,35 +374,45 @@ def render_impact_dashboard():
         # ==========================================
         # MEASURED vs PENDING IMPACT TABS
         # ==========================================
+        pending_tab_label = f"▸ Pending Impact ({len(pending_attr_df) + len(dormant_df)})" if (len(pending_attr_df) + len(dormant_df)) > 0 else "▸ Pending Impact"
         tab_measured, tab_pending = st.tabs([
             "▸ Measured Impact", 
-            "▸ Pending Impact"
+            pending_tab_label
         ])
         
         with tab_measured:
-            # Filter active_df based on the universal toggle
-            active_display = display_df[(display_df['before_spend'].fillna(0) + display_df['after_spend'].fillna(0)) > 0] if not display_df.empty else display_df
-            
-            if active_display.empty:
+            # Show only MATURE actions with activity
+            if active_df.empty:
                 st.info("No measured impact data for the selected filter")
             else:
                 # IMPACT ANALYTICS: Attribution Waterfall + Stacked Revenue Bar
-                _render_new_impact_analytics(display_summary, active_display, show_validated_only)
+                _render_new_impact_analytics(display_summary, active_df, show_validated_only)
                 
                 st.divider()
                 
                 # Drill-down table with migration badges
-                _render_drill_down_table(active_display, show_migration_badge=True)
+                _render_drill_down_table(active_df, show_migration_badge=True)
         
         with tab_pending:
-            if dormant_df.empty:
-                st.success("✨ All executed optimizations have measured activity!")
-            else:
-                st.info("💤 **Pending Impact** — These actions were applied to keywords/targets "
-                    "with $0 spend in both periods. The baseline is established and impact is pending traffic.")
+            # Section 1: Pending Attribution (immature actions)
+            if not pending_attr_df.empty:
+                st.markdown("### ⏳ Pending Attribution")
+                st.caption("These actions are waiting for Amazon attribution data to settle. Impact will be calculated once mature.")
                 
-                # Simple table for dormant
+                pending_display = pending_attr_df[['action_date', 'action_type', 'target_text', 'maturity_status']].copy()
+                pending_display.columns = ['Action Date', 'Type', 'Target', 'Status']
+                st.dataframe(pending_display, use_container_width=True, hide_index=True)
+                st.divider()
+            
+            # Section 2: Dormant (zero spend)
+            if not dormant_df.empty:
+                st.markdown("### 💤 Waiting for Traffic")
+                st.caption("These mature actions have $0 spend in both periods. Impact is pending traffic.")
                 _render_dormant_table(dormant_df)
+            
+            # Success message if nothing pending
+            if pending_attr_df.empty and dormant_df.empty:
+                st.success("✨ All executed optimizations have measured activity!")
 
     st.markdown("<br>", unsafe_allow_html=True)
     st.caption(
@@ -331,7 +445,7 @@ def _render_empty_state():
     """)
 
 
-def _render_hero_tiles(summary: Dict[str, Any], active_count: int = 0, dormant_count: int = 0):
+def _render_hero_tiles(summary: Dict[str, Any], active_count: int = 0, dormant_count: int = 0, mature_count: int = 0, pending_count: int = 0):
     """Render the hero metric tiles with ROAS analytics."""
     
     # Theme-aware colors
@@ -510,8 +624,8 @@ def _render_hero_tiles(summary: Dict[str, Any], active_count: int = 0, dormant_c
     # SINGLE COMBINED CALLOUT (Context + Stats)
     # ==========================================
     win_rate = summary.get('win_rate', 0)
-    confirmed = summary.get('confirmed_impact', 0)
-    pending = summary.get('pending', 0)
+    confirmed = mature_count if mature_count > 0 else summary.get('confirmed_impact', 0)
+    pending = pending_count  # Use maturity-based pending count
     wr_color = positive_text if win_rate >= 60 else negative_text if win_rate < 40 else neutral_text
     
     market_context = f" ({market_downshift} market shifts detected)" if market_downshift > 0 else ""
@@ -741,12 +855,13 @@ def _render_decision_quality_distribution(summary: Dict[str, Any]):
 
 
 def _render_capital_allocation_flow(impact_df: pd.DataFrame, currency: str):
-    """Chart 3: Capital Allocation Flow (Spend Lens)."""
+    """Chart 3: Capital Allocation Flow - Before vs After Spend Distribution."""
     
     import plotly.graph_objects as go
     import numpy as np
     
-    st.markdown("#### 💰 Capital Allocation Flow")
+    st.markdown("#### 💰 Spend Flow: Before → After")
+    st.caption("How your spend shifted between periods")
     
     if impact_df.empty:
         st.info("No data to display")
@@ -754,53 +869,72 @@ def _render_capital_allocation_flow(impact_df: pd.DataFrame, currency: str):
     
     df = impact_df.copy()
     
-    # Calculate spend categories
-    df['spend_maintained'] = df[['before_spend', 'observed_after_spend']].min(axis=1)
-    df['spend_avoided'] = (df['before_spend'] - df['observed_after_spend']).clip(lower=0)
-    df['spend_added'] = (df['observed_after_spend'] - df['before_spend']).clip(lower=0)
+    # Total spend in each period
+    total_before = df['before_spend'].sum()
+    total_after = df['observed_after_spend'].sum()
     
-    # Aggregate by action type
-    action_map = {
-        'BID_DOWN': 'Bid Down',
-        'BID_UP': 'Bid Up',
-        'PAUSE': 'Pause',
-        'HOLD': 'Hold',
-        'BID_CHANGE': 'Bid Change',
-    }
-    
-    df['action_clean'] = df['action_type'].str.upper().map(
-        lambda x: next((v for k, v in action_map.items() if k in str(x)), 'Other')
-    )
-    
-    # Aggregate totals
-    total_original = df['before_spend'].sum()
-    total_maintained = df['spend_maintained'].sum()
-    total_avoided = df['spend_avoided'].sum()
-    total_reallocated = df['spend_added'].sum()
-    
-    if total_original == 0:
+    if total_before == 0 and total_after == 0:
         st.info("No spend data")
         return
     
-    # Sankey diagram
+    # Categorize each action by spend change direction
+    df['spend_change'] = df['observed_after_spend'] - df['before_spend']
+    
+    # Segment by action type and direction
+    # Reduced: Spend decreased (negatives, bid downs)
+    reduced_mask = df['spend_change'] < 0
+    reduced_before = df.loc[reduced_mask, 'before_spend'].sum()
+    reduced_after = df.loc[reduced_mask, 'observed_after_spend'].sum()
+    
+    # Maintained: Spend roughly same (within 10%)
+    maintained_mask = (df['spend_change'].abs() / df['before_spend'].replace(0, np.nan)).fillna(0) <= 0.10
+    maintained_before = df.loc[maintained_mask, 'before_spend'].sum()
+    maintained_after = df.loc[maintained_mask, 'observed_after_spend'].sum()
+    
+    # Increased: Spend increased (bid ups)
+    increased_mask = df['spend_change'] > 0
+    increased_before = df.loc[increased_mask, 'before_spend'].sum()
+    increased_after = df.loc[increased_mask, 'observed_after_spend'].sum()
+    
+    # Build Sankey: Before (left) → Categories (middle) → After (right)
+    # Nodes: 0=Before Total, 1=Reduced, 2=Maintained, 3=Increased, 4=After Total
+    
     fig = go.Figure(go.Sankey(
+        arrangement='snap',
         node=dict(
-            pad=20,
-            thickness=25,
+            pad=30,
+            thickness=30,
             line=dict(color='rgba(0,0,0,0)', width=0),
             label=[
-                f"Original<br>{currency}{total_original:,.0f}",
-                f"Maintained<br>{currency}{total_maintained:,.0f}",
-                f"Avoided<br>{currency}{total_avoided:,.0f}",
-                f"Reallocated<br>{currency}{total_reallocated:,.0f}"
+                f"Before<br>{currency}{total_before:,.0f}",
+                f"Reduced<br>{currency}{reduced_after:,.0f}",
+                f"Maintained<br>{currency}{maintained_after:,.0f}",
+                f"Increased<br>{currency}{increased_after:,.0f}",
+                f"After<br>{currency}{total_after:,.0f}"
             ],
-            color=['#5B556F', '#64748b', '#22c55e', '#3b82f6'],
+            color=['#5B556F', '#22c55e', '#64748b', '#3b82f6', '#5B556F'],
+            x=[0, 0.5, 0.5, 0.5, 1],
+            y=[0.5, 0.15, 0.5, 0.85, 0.5]
         ),
         link=dict(
-            source=[0, 0, 0],
-            target=[1, 2, 3],
-            value=[total_maintained, total_avoided, total_reallocated],
-            color=['rgba(100,116,139,0.4)', 'rgba(34,197,94,0.4)', 'rgba(59,130,246,0.4)']
+            source=[0, 0, 0, 1, 2, 3],
+            target=[1, 2, 3, 4, 4, 4],
+            value=[
+                reduced_before,      # Before → Reduced
+                maintained_before,   # Before → Maintained
+                increased_before,    # Before → Increased
+                reduced_after,       # Reduced → After
+                maintained_after,    # Maintained → After
+                increased_after      # Increased → After
+            ],
+            color=[
+                'rgba(34,197,94,0.3)',   # Green - money saved
+                'rgba(100,116,139,0.3)', # Gray - maintained
+                'rgba(59,130,246,0.3)',  # Blue - invested
+                'rgba(34,197,94,0.3)',
+                'rgba(100,116,139,0.3)',
+                'rgba(59,130,246,0.3)'
+            ]
         )
     ))
     
@@ -809,10 +943,33 @@ def _render_capital_allocation_flow(impact_df: pd.DataFrame, currency: str):
         margin=dict(t=30, b=30, l=30, r=30),
         paper_bgcolor='rgba(0,0,0,0)',
         plot_bgcolor='rgba(0,0,0,0)',
-        font=dict(size=11, color='#e2e8f0')
+        font=dict(color='#e2e8f0', size=11)
     )
     
     st.plotly_chart(fig, use_container_width=True)
+    
+    # Summary stats
+    spend_delta = total_after - total_before
+    spend_delta_pct = (spend_delta / total_before * 100) if total_before > 0 else 0
+    delta_color = "#22c55e" if spend_delta < 0 else "#3b82f6" if spend_delta > 0 else "#64748b"
+    delta_prefix = "+" if spend_delta > 0 else ""
+    
+    st.markdown(f"""
+    <div style="display: flex; justify-content: space-around; text-align: center; margin-top: 8px;">
+        <div>
+            <span style="color: #22c55e; font-weight: 600;">🟢 Reduced:</span>
+            <span style="color: #94a3b8;"> {currency}{reduced_before - reduced_after:,.0f} freed</span>
+        </div>
+        <div>
+            <span style="color: #3b82f6; font-weight: 600;">🔵 Increased:</span>
+            <span style="color: #94a3b8;"> {currency}{increased_after - increased_before:,.0f} invested</span>
+        </div>
+        <div>
+            <span style="color: {delta_color}; font-weight: 600;">Net:</span>
+            <span style="color: #94a3b8;"> {delta_prefix}{currency}{spend_delta:,.0f} ({delta_prefix}{spend_delta_pct:.1f}%)</span>
+        </div>
+    </div>
+    """, unsafe_allow_html=True)
 
 
 # Legacy chart functions (kept for backward compatibility but not called)

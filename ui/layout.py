@@ -25,6 +25,23 @@ def render_sidebar(navigate_to):
     Returns:
         Selected module name
     """
+    # Wrap navigate_to to check for pending actions when leaving optimizer
+    def safe_navigate(target_module):
+        current = st.session_state.get('current_module', 'home')
+        
+        # Check if leaving optimizer with pending actions that haven't been accepted
+        if current == 'optimizer' and target_module != 'optimizer':
+            pending = st.session_state.get('pending_actions')
+            accepted = st.session_state.get('optimizer_actions_accepted', False)
+            
+            if pending and not accepted:
+                # Store the target and show confirmation
+                st.session_state['_pending_navigation_target'] = target_module
+                st.session_state['_show_action_confirmation'] = True
+                st.rerun()
+                return
+        
+        navigate_to(target_module)
     # Sidebar Logo at TOP (theme-aware, prominent)
     import base64
     from pathlib import Path
@@ -47,41 +64,45 @@ def render_sidebar(navigate_to):
     st.sidebar.markdown("---")
     
     if st.sidebar.button("Home", use_container_width=True):
-        navigate_to('home')
+        safe_navigate('home')
     
     if st.sidebar.button("Account Overview", use_container_width=True):
-        navigate_to('performance')
+        safe_navigate('performance')
     
     st.sidebar.markdown("---")
     st.sidebar.markdown("##### SYSTEM")
     
     # Data Hub - central upload
     if st.sidebar.button("Data Hub", use_container_width=True):
-        navigate_to('data_hub')
+        safe_navigate('data_hub')
     
     st.sidebar.markdown("---")
     st.sidebar.markdown("##### ANALYZE")
     
     # Core features
     if st.sidebar.button("Optimizer", use_container_width=True):
-        navigate_to('optimizer')
+        safe_navigate('optimizer')
     
     if st.sidebar.button("ASIN Shield", use_container_width=True):
-        navigate_to('asin_mapper')
+        safe_navigate('asin_mapper')
     
     if st.sidebar.button("Clusters", use_container_width=True):
-        navigate_to('ai_insights')
+        safe_navigate('ai_insights')
     
     st.sidebar.markdown("---")
     st.sidebar.markdown("##### ACTIONS")
     
     if st.sidebar.button("Launchpad", use_container_width=True):
-        navigate_to('creator')
+        safe_navigate('creator')
     
     st.sidebar.markdown("---")
     
     if st.sidebar.button("Help", use_container_width=True):
-        navigate_to('readme')
+        safe_navigate('readme')
+    
+    # Show undo toast if available
+    from ui.action_confirmation import show_undo_toast
+    show_undo_toast()
     
     # Theme Toggle at BOTTOM
     st.sidebar.markdown("---")

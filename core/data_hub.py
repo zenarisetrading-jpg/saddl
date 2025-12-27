@@ -126,6 +126,10 @@ class DataHub:
             st.session_state.unified_data['upload_timestamps'] = {}
         st.session_state.unified_data['upload_timestamps']['search_term_report'] = datetime.now()
         
+        # Reset optimizer state on new data upload to force home page
+        st.session_state["run_optimizer"] = False
+        st.session_state["should_log_actions"] = False
+        
         # Trigger enrichment
         self._enrich_data()
         
@@ -559,6 +563,10 @@ class DataHub:
             st.session_state.unified_data['search_term_report'] = df_renamed
             st.session_state.unified_data['upload_status']['search_term_report'] = True
             st.session_state.unified_data['upload_timestamps']['search_term_report'] = datetime.now()
+            
+            # Reset optimizer state on new data load to force home page
+            st.session_state["run_optimizer"] = False
+            st.session_state["should_log_actions"] = False
             
             # --- 2. Load BULK ID MAPPING (FIRST - before other mappings) ---
             bulk_map = db.get_bulk_mapping(account_id)

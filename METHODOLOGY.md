@@ -109,3 +109,14 @@ We don't just "guess" impact. We confirm it:
 - **Confirmed Blocked**: For negatives, we verify that subsequent spend is actually $0.00.
 - **Source Isolated**: For harvests, we confirm the source campaign stopped bidding on the term.
 - **Observed Data**: For bids, we use actual spend/sales shifts from the Ads Console.
+
+### 5. Data Maturity Gate
+Amazon's attribution window is 7-14 days. To ensure accurate impact measurement:
+
+```
+is_mature = (action_date + 7 + 3) ≤ latest_data_date
+```
+
+- **7 days**: After-window for post-action performance
+- **3 days**: Buffer for attribution settlement
+- Actions not yet mature are shown as "Pending"

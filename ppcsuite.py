@@ -45,6 +45,13 @@ def main():
     # Setup page layout (CSS, etc.)
     setup_page()
     
+    # === CONFIRMATION DIALOG CHECK ===
+    # If confirmation is needed, show popup dialog (overlays on current page)
+    if st.session_state.get('_show_action_confirmation'):
+        from ui.action_confirmation import render_action_confirmation_modal
+        render_action_confirmation_modal()
+        # Dialog shows as popup - continue rendering page underneath
+    
     # Render sidebar navigation
     selected_module = render_sidebar(navigate_to)
     
