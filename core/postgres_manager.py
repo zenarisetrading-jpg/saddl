@@ -758,9 +758,44 @@ class PostgresManager:
                      reason, campaign_name, ad_group_name, target_text, match_type,
                      winner_source_campaign, new_campaign_name, before_match_type, after_match_type)
                     VALUES %s
-                    ON CONFLICT (client_id, action_date, target_text, action_type, campaign_name) DO NOTHING
+                    ON CONFLICT (client_id, action_date, target_text, action_type, campaign_name) 
+                    DO UPDATE SET
+                        batch_id = EXCLUDED.batch_id,
+                        entity_name = EXCLUDED.entity_name,
+                        old_value = EXCLUDED.old_value,
+                        new_value = EXCLUDED.new_value,
+                        reason = EXCLUDED.reason,
+                        ad_group_name = EXCLUDED.ad_group_name,
+                        match_type = EXCLUDED.match_type,
+                        winner_source_campaign = EXCLUDED.winner_source_campaign,
+                        new_campaign_name = EXCLUDED.new_campaign_name,
+                        before_match_type = EXCLUDED.before_match_type,
+                        after_match_type = EXCLUDED.after_match_type
                 """, data)
         return len(actions)
+
+    def delete_action_batch(self, client_id: str, batch_id: str) -> int:
+        """Delete a specific action batch (for undo functionality)."""
+        with self._get_connection() as conn:
+            with conn.cursor(cursor_factory=RealDictCursor) as cursor:
+                cursor.execute(
+                    "DELETE FROM actions_log WHERE client_id = %s AND batch_id = %s",
+                    (client_id, batch_id)
+                )
+                return cursor.rowcount
+
+    def clear_todays_actions(self, client_id: str) -> int:
+        """Delete all actions logged today for a client."""
+        from datetime import date
+        today = date.today().isoformat()
+        with self._get_connection() as conn:
+            with conn.cursor(cursor_factory=RealDictCursor) as cursor:
+                cursor.execute(
+                    "DELETE FROM actions_log WHERE client_id = %s AND DATE(action_date) = %s",
+                    (client_id, today)
+                )
+                return cursor.rowcount
+
 
     def create_account(self, account_id: str, account_name: str, account_type: str = 'brand', metadata: dict = None) -> bool:
         import json
@@ -992,6 +1027,21 @@ class PostgresManager:
                   AND t.start_date >= dr.after_start 
                   AND t.start_date <= dr.latest_date
                 GROUP BY LOWER(campaign_name)
+            ),
+            rolling_30d_stats AS (
+                -- 30-day rolling average for stable SPC baseline
+                SELECT 
+                    LOWER(target_text) as target_lower, 
+                    LOWER(campaign_name) as campaign_lower,
+                    SUM(sales) as rolling_sales,
+                    SUM(clicks) as rolling_clicks,
+                    CASE WHEN SUM(clicks) > 0 THEN SUM(sales) / SUM(clicks) ELSE NULL END as rolling_spc
+                FROM target_stats t
+                CROSS JOIN date_range dr
+                WHERE t.client_id = %(client_id)s 
+                  AND t.start_date >= dr.latest_date - INTERVAL '30 days'
+                  AND t.start_date <= dr.latest_date
+                GROUP BY LOWER(target_text), LOWER(campaign_name)
             )
             SELECT 
                 a.action_date, 
@@ -1015,7 +1065,8 @@ class PostgresManager:
                 COALESCE(afs.spend, ac.spend, 0) as observed_after_spend,
                 COALESCE(afs.sales, ac.sales, 0) as observed_after_sales,
                 COALESCE(afs.clicks, 0) as after_clicks,
-                CASE WHEN bs.spend IS NOT NULL THEN 'target' ELSE 'campaign' END as match_level
+                CASE WHEN bs.spend IS NOT NULL THEN 'target' ELSE 'campaign' END as match_level,
+                r30.rolling_spc as rolling_30d_spc
             FROM aggregated_actions a
             CROSS JOIN date_range dr
             LEFT JOIN before_stats bs 
@@ -1028,6 +1079,9 @@ class PostgresManager:
                 ON a.campaign_lower = bc.campaign_lower
             LEFT JOIN after_campaign ac 
                 ON a.campaign_lower = ac.campaign_lower
+            LEFT JOIN rolling_30d_stats r30
+                ON a.target_lower = r30.target_lower
+                AND a.campaign_lower = r30.campaign_lower
             ORDER BY a.action_date DESC
         """
         
@@ -1381,12 +1435,14 @@ class PostgresManager:
             )
             bid_df['cpc_after'] = bid_df['observed_after_spend'] / bid_df['after_clicks'].replace(0, np.nan)
             
-            # Sales per Click (proxy for CVR * AOV)
-            bid_df['spc_before'] = bid_df['before_sales'] / bid_df['before_clicks'].replace(0, np.nan)
+            # Sales per Click - Use 30D ROLLING AVERAGE for stable baseline
+            # Fallback to window-based SPC if rolling not available
+            bid_df['spc_window'] = bid_df['before_sales'] / bid_df['before_clicks'].replace(0, np.nan)
+            bid_df['spc_before'] = bid_df['rolling_30d_spc'].fillna(bid_df['spc_window'])
             
             # Counterfactual: Expected sales if we kept old CPC
             # Expected_Clicks = After_Spend / Before_CPC
-            # Expected_Sales = Expected_Clicks * Before_Sales_Per_Click
+            # Expected_Sales = Expected_Clicks * SPC_Baseline (30D rolling or window fallback)
             bid_df['expected_clicks'] = bid_df['observed_after_spend'] / bid_df['cpc_before']
             bid_df['expected_sales'] = bid_df['expected_clicks'] * bid_df['spc_before']
             

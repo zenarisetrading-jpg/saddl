@@ -223,6 +223,38 @@ def _render_user_settings():
                     st.success("✅ Password updated successfully!")
                 else:
                     st.error(result.get("error", "Failed to update password"))
+    
+    # Action Management Section
+    st.markdown(f"""
+        <div style="{card_style}">
+            <h3 style="color: #E9EAF0; font-size: 1.1rem; font-weight: 600; margin: 0 0 0.5rem 0; letter-spacing: 0.5px;">
+                Action Management
+            </h3>
+            <p style="color: #9A9AAA; font-size: 0.85rem; margin: 0 0 1rem 0;">Manage your optimization action history</p>
+        </div>
+    """, unsafe_allow_html=True)
+    
+    client_id = st.session_state.get('active_account_id')
+    
+    if client_id:
+        col1, col2 = st.columns([2, 1])
+        with col1:
+            st.markdown("""
+                <p style="color: #9A9AAA; font-size: 0.9rem; margin-top: 8px;">
+                    Clear all optimization actions logged today for the current account.
+                    This cannot be undone.
+                </p>
+            """, unsafe_allow_html=True)
+        with col2:
+            if st.button("🗑️ Clear Today's Actions", type="secondary", use_container_width=True, key="clear_todays_actions"):
+                from ui.action_confirmation import clear_todays_actions
+                deleted = clear_todays_actions(client_id)
+                if deleted > 0:
+                    st.success(f"✅ Cleared {deleted} actions from today.")
+                else:
+                    st.info("No actions found for today.")
+    else:
+        st.caption("Select an account from the sidebar to manage actions.")
 
 
 def _render_ad_accounts():

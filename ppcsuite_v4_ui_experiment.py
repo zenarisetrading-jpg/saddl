@@ -426,6 +426,66 @@ def run_consolidated_optimizer():
         </style>
         """, unsafe_allow_html=True)
         
+        # === QUICK PRESETS ===
+        st.markdown("**Quick Presets**")
+        preset_options = ["Conservative", "Balanced", "Aggressive"]
+        active_preset = st.session_state.get("last_preset", "Balanced")
+        preset_idx = preset_options.index(active_preset) if active_preset in preset_options else 1
+        
+        preset = st.radio(
+            "Choose optimization style",
+            preset_options,
+            index=preset_idx,
+            horizontal=True,
+            label_visibility="collapsed",
+            key="opt_preset_main"
+        )
+        
+        # Define preset values
+        preset_configs = {
+            "Conservative": {
+                "harvest_clicks": 15, "harvest_orders": 4, "harvest_sales": 200.0, "harvest_roas": 90,
+                "alpha_exact": 0.15, "alpha_broad": 0.12, "max_change": 0.15, "target_roas": 2.5,
+                "neg_clicks": 15, "neg_spend": 15.0,
+                "min_clicks_exact": 8, "min_clicks_pt": 8, "min_clicks_broad": 12, "min_clicks_auto": 12
+            },
+            "Balanced": {
+                "harvest_clicks": 10, "harvest_orders": 3, "harvest_sales": 150.0, "harvest_roas": 80,
+                "alpha_exact": 0.20, "alpha_broad": 0.16, "max_change": 0.20, "target_roas": 2.5,
+                "neg_clicks": 10, "neg_spend": 10.0,
+                "min_clicks_exact": 5, "min_clicks_pt": 5, "min_clicks_broad": 10, "min_clicks_auto": 10
+            },
+            "Aggressive": {
+                "harvest_clicks": 8, "harvest_orders": 2, "harvest_sales": 100.0, "harvest_roas": 70,
+                "alpha_exact": 0.25, "alpha_broad": 0.20, "max_change": 0.25, "target_roas": 2.5,
+                "neg_clicks": 8, "neg_spend": 8.0,
+                "min_clicks_exact": 3, "min_clicks_pt": 3, "min_clicks_broad": 8, "min_clicks_auto": 8
+            }
+        }
+        
+        # Apply preset to config if changed
+        if st.session_state.get("last_preset") != preset:
+            st.session_state["last_preset"] = preset
+            config = preset_configs[preset]
+            opt.config["HARVEST_CLICKS"] = config["harvest_clicks"]
+            opt.config["HARVEST_ORDERS"] = config["harvest_orders"]
+            opt.config["HARVEST_SALES"] = config["harvest_sales"]
+            opt.config["HARVEST_ROAS_MULT"] = config["harvest_roas"] / 100
+            opt.config["ALPHA_EXACT"] = config["alpha_exact"]
+            opt.config["ALPHA_BROAD"] = config["alpha_broad"]
+            opt.config["MAX_BID_CHANGE"] = config["max_change"]
+            opt.config["TARGET_ROAS"] = config["target_roas"]
+            opt.config["NEGATIVE_CLICKS_THRESHOLD"] = config["neg_clicks"]
+            opt.config["NEGATIVE_SPEND_THRESHOLD"] = config["neg_spend"]
+            opt.config["MIN_CLICKS_EXACT"] = config["min_clicks_exact"]
+            opt.config["MIN_CLICKS_PT"] = config["min_clicks_pt"]
+            opt.config["MIN_CLICKS_BROAD"] = config["min_clicks_broad"]
+            opt.config["MIN_CLICKS_AUTO"] = config["min_clicks_auto"]
+        
+        st.caption("*Conservative = slower, safer changes • Aggressive = faster, bigger changes*")
+        
+        st.markdown("<br>", unsafe_allow_html=True)
+        
         # Simulation toggle ABOVE button for state initialization
         run_sim = st.checkbox("Include Simulation & Forecasting", value=True, key="run_simulation_main")
         
@@ -433,6 +493,7 @@ def run_consolidated_optimizer():
         if st.button("Run optimization with recommended settings", type="primary", use_container_width=True):
             st.session_state["optimizer_config"] = opt.config.copy()
             st.session_state["run_optimizer"] = True
+            st.session_state["should_log_actions"] = True  # Only log on explicit button click
             # Read current checkbox state
             st.session_state["run_simulation"] = st.session_state.get("run_simulation_main", True)
             st.rerun()
@@ -619,7 +680,10 @@ def run_consolidated_optimizer():
         action_log_date = datetime.now().strftime('%Y-%m-%d')
     
     # Toast removed per user request
-    logged_count = _log_optimization_events(r, active_client, action_log_date)
+    # Only log actions on EXPLICIT button click, not on every rerender
+    if st.session_state.get("should_log_actions", False):
+        logged_count = _log_optimization_events(r, active_client, action_log_date)
+        st.session_state["should_log_actions"] = False  # Clear flag to prevent re-logging
 
     # === POST-OPTIMIZATION INSIGHT LAYER ===
     @st.fragment
@@ -757,6 +821,13 @@ def run_consolidated_optimizer():
 def main():
     setup_page()
     
+    # === CONFIRMATION DIALOG CHECK ===
+    # If confirmation is needed, show popup dialog (overlays on current page)
+    if st.session_state.get('_show_action_confirmation'):
+        from ui.action_confirmation import render_action_confirmation_modal
+        render_action_confirmation_modal()
+        # Dialog shows as popup - continue rendering the page underneath
+    
     # === AUTHENTICATION GATE ===
     # Shows login page if not authenticated, blocks access to main app
     user = require_authentication()
@@ -769,6 +840,25 @@ def main():
     # === TOP-RIGHT HEADER (Profile, Account, Logout) ===
     # This renders a fixed-position header component
     render_user_menu()
+    
+    # Helper: Safe navigation (checks for pending actions when leaving optimizer)
+    def safe_navigate(target_module):
+        current = st.session_state.get('current_module', 'home')
+        
+        # Check if leaving optimizer with pending actions that haven't been accepted
+        if current == 'optimizer' and target_module != 'optimizer':
+            pending = st.session_state.get('pending_actions')
+            accepted = st.session_state.get('optimizer_actions_accepted', False)
+            
+            if pending and not accepted:
+                # Store the target and show confirmation
+                st.session_state['_pending_navigation_target'] = target_module
+                st.session_state['_show_action_confirmation'] = True
+                st.rerun()
+                return
+        
+        st.session_state['current_module'] = target_module
+        st.rerun()
     
     # Simplified V4 Sidebar
     with st.sidebar:
@@ -922,8 +1012,7 @@ def main():
                 st.markdown(f'<div style="margin-top: 5px; margin-left: 5px; opacity: {"1.0" if is_active else "0.6"};">{icon_html}</div>', unsafe_allow_html=True)
             with col2:
                 if st.button(label, use_container_width=True, key=f"nav_btn_v6_{key}"):
-                    st.session_state['current_module'] = key
-                    st.rerun()
+                    safe_navigate(key)
             st.markdown('</div>', unsafe_allow_html=True)
 
         nav_button_chiclet("Home", home_icon, "home")
@@ -944,6 +1033,10 @@ def main():
         nav_button_chiclet("Data Setup", storage_icon, "data_hub")
         nav_button_chiclet("Account Settings", settings_icon, "account_settings")
         nav_button_chiclet("Help", help_icon, "readme")
+        
+        # Show undo toast if available
+        from ui.action_confirmation import show_undo_toast
+        show_undo_toast()
         
         # Theme Toggle (logout moved to top header)
         st.divider()

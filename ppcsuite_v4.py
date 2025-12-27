@@ -558,9 +558,34 @@ def run_consolidated_optimizer():
 def main():
     setup_page()
     
+    # === CONFIRMATION DIALOG CHECK ===
+    # If confirmation is needed, show popup dialog (overlays on current page)
+    if st.session_state.get('_show_action_confirmation'):
+        from ui.action_confirmation import render_action_confirmation_modal
+        render_action_confirmation_modal()
+        # Dialog shows as popup - continue rendering page underneath
+    
     # === AUTHENTICATION GATE ===
     # Shows login page if not authenticated, blocks access to main app
     user = require_authentication()
+    
+    # Helper: Safe navigation (checks for pending actions when leaving optimizer)
+    def safe_navigate(target_module):
+        current = st.session_state.get('current_module', 'home')
+        
+        # Check if leaving optimizer with pending actions that haven't been accepted
+        if current == 'optimizer' and target_module != 'optimizer':
+            pending = st.session_state.get('pending_actions')
+            accepted = st.session_state.get('optimizer_actions_accepted', False)
+            
+            if pending and not accepted:
+                # Store the target and show confirmation
+                st.session_state['_pending_navigation_target'] = target_module
+                st.session_state['_show_action_confirmation'] = True
+                st.rerun()
+                return
+        
+        st.session_state['current_module'] = target_module
     
     # Simplified V4 Sidebar - Remove Feature Breakdown since they are tabs now
     with st.sidebar:
@@ -591,34 +616,38 @@ def main():
         render_user_menu()
         
         if st.button("Home", use_container_width=True):
-            st.session_state['current_module'] = 'home'
+            safe_navigate('home')
         if st.button("Account Overview", use_container_width=True):
-            st.session_state['current_module'] = 'performance'
+            safe_navigate('performance')
         if st.button("Report Card", use_container_width=True):
-            st.session_state['current_module'] = 'report_card'
+            safe_navigate('report_card')
         
         st.markdown("##### SYSTEM")
         if st.button("Data Hub", use_container_width=True):
-            st.session_state['current_module'] = 'data_hub'
+            safe_navigate('data_hub')
         
         st.markdown("##### ANALYZE")
         if st.button("Impact Analyzer", use_container_width=True):
-            st.session_state['current_module'] = 'impact'
+            safe_navigate('impact')
         if st.button("Optimization Hub", use_container_width=True):
-            st.session_state['current_module'] = 'optimizer'
+            safe_navigate('optimizer')
         if st.button("Simulator", use_container_width=True):
-            st.session_state['current_module'] = 'simulator'
+            safe_navigate('simulator')
         
         
         st.markdown("##### ACTIONS")
         if st.button("Campaign Launcher", use_container_width=True):
-             st.session_state['current_module'] = 'creator'
+             safe_navigate('creator')
         if st.button("Ask Zenny", use_container_width=True):
-             st.session_state['current_module'] = 'assistant'
+             safe_navigate('assistant')
         
         st.divider()
         if st.button("Help", use_container_width=True):
-            st.session_state['current_module'] = 'readme'
+            safe_navigate('readme')
+        
+        # Show undo toast if available
+        from ui.action_confirmation import show_undo_toast
+        show_undo_toast()
         
         # Theme Toggle at BOTTOM
         st.divider()
