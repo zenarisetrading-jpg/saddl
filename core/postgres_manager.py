@@ -1283,8 +1283,14 @@ class PostgresManager:
             r_before = b_sales / b_spend if b_spend > 0 else 0
             r_after = a_sales / a_spend if a_spend > 0 else 0
             
-            # Get bid direction
+            # Get bid direction - use before_cpc as fallback when old_value is missing
             bid_direction = parse_bid_direction(df.loc[idx])
+            if bid_direction == 'UNKNOWN' and before_cpc > 0 and suggested_bid > 0:
+                # Fallback: compare suggested bid to before_cpc
+                if suggested_bid > before_cpc * 1.05:  # >5% higher than before_cpc = UP
+                    bid_direction = 'UP'
+                elif suggested_bid < before_cpc * 0.95:  # <5% lower than before_cpc = DOWN
+                    bid_direction = 'DOWN'
             
             # Calculate CPC change percentage
             cpc_change_pct = (after_cpc - before_cpc) / before_cpc if before_cpc > 0 else 0
