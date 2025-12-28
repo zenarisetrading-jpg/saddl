@@ -990,11 +990,17 @@ class PostgresManager:
                 -- Group daily actions into weekly buckets (starting Tuesdays to match target_stats)
                 SELECT 
                     LOWER(target_text) as target_lower,
+                    -- Normalized target for CST matching: strip 'asin="' and '"' for PT negatives
+                    CASE 
+                        WHEN LOWER(target_text) LIKE 'asin=%%' THEN 
+                            LOWER(REPLACE(REPLACE(target_text, 'asin="', ''), '"', ''))
+                        ELSE LOWER(target_text)
+                    END as normalized_target_lower,
                     LOWER(campaign_name) as campaign_lower,
                     LOWER(ad_group_name) as ad_group_lower,
                     target_text, campaign_name, ad_group_name, match_type, action_type,
                     -- Snap to Tuesday (matching the 2025-12-16, 2025-12-09 pattern)
-                    DATE(action_date - ((EXTRACT(DOW FROM action_date)::int - 2 + 7) %% 7) * INTERVAL '1 day') as week_start,
+                    DATE(action_date - (MOD((EXTRACT(DOW FROM action_date)::int - 2 + 7), 7)) * INTERVAL '1 day') as week_start,
                     MAX(action_date) as action_date,
                     -- Keep first old_value and last new_value in the week group
                     (ARRAY_AGG(old_value ORDER BY action_date ASC))[1] as old_value,
@@ -1003,10 +1009,11 @@ class PostgresManager:
                 FROM actions_log
                 WHERE client_id = %(client_id)s
                   AND LOWER(action_type) NOT IN ('hold', 'monitor', 'flagged')
-                GROUP BY 1, 2, 3, 4, 5, 6, 7, 8, 9
+                GROUP BY 1, 2, 3, 4, 5, 6, 7, 8, 9, 10
             ),
             before_stats AS (
-                -- Aggregate performance in BEFORE window (e.g., Dec 3-9)
+                -- Aggregate performance in BEFORE window by target_text (for BID_CHANGE)
+                -- BID_CHANGE actions match on the keyword/targeting being bid on
                 SELECT 
                     LOWER(target_text) as target_lower, 
                     LOWER(campaign_name) as campaign_lower,
@@ -1022,7 +1029,7 @@ class PostgresManager:
                 GROUP BY LOWER(target_text), LOWER(campaign_name)
             ),
             after_stats AS (
-                -- Aggregate performance in AFTER window (e.g., Dec 10-16)
+                -- Aggregate performance in AFTER window by target_text (for BID_CHANGE)
                 SELECT 
                     LOWER(target_text) as target_lower, 
                     LOWER(campaign_name) as campaign_lower,
@@ -1036,6 +1043,41 @@ class PostgresManager:
                   AND t.start_date >= dr.after_start 
                   AND t.start_date <= dr.latest_date
                 GROUP BY LOWER(target_text), LOWER(campaign_name)
+            ),
+            before_cst_stats AS (
+                -- Aggregate performance in BEFORE window by customer_search_term (for NEGATIVE/HARVEST)
+                -- NEGATIVE/HARVEST actions match on the search term being blocked/harvested
+                SELECT 
+                    LOWER(customer_search_term) as cst_lower, 
+                    LOWER(campaign_name) as campaign_lower,
+                    SUM(spend) as spend, 
+                    SUM(sales) as sales,
+                    SUM(clicks) as clicks,
+                    SUM(impressions) as impressions
+                FROM target_stats t
+                CROSS JOIN date_range dr
+                WHERE t.client_id = %(client_id)s 
+                  AND t.start_date >= dr.before_start 
+                  AND t.start_date <= dr.before_end
+                  AND customer_search_term IS NOT NULL
+                GROUP BY LOWER(customer_search_term), LOWER(campaign_name)
+            ),
+            after_cst_stats AS (
+                -- Aggregate performance in AFTER window by customer_search_term (for NEGATIVE/HARVEST)
+                SELECT 
+                    LOWER(customer_search_term) as cst_lower, 
+                    LOWER(campaign_name) as campaign_lower,
+                    SUM(spend) as spend, 
+                    SUM(sales) as sales,
+                    SUM(clicks) as clicks,
+                    SUM(impressions) as impressions
+                FROM target_stats t
+                CROSS JOIN date_range dr
+                WHERE t.client_id = %(client_id)s 
+                  AND t.start_date >= dr.after_start 
+                  AND t.start_date <= dr.latest_date
+                  AND customer_search_term IS NOT NULL
+                GROUP BY LOWER(customer_search_term), LOWER(campaign_name)
             ),
             before_campaign AS (
                 -- Fallback: Campaign-level BEFORE stats
@@ -1064,7 +1106,7 @@ class PostgresManager:
                 GROUP BY LOWER(campaign_name)
             ),
             rolling_30d_stats AS (
-                -- 30-day rolling average for stable SPC baseline
+                -- 30-day rolling stats by target_text (for baseline comparison)
                 SELECT 
                     LOWER(target_text) as target_lower, 
                     LOWER(campaign_name) as campaign_lower,
@@ -1094,24 +1136,64 @@ class PostgresManager:
                 dr.latest_date as after_end_date,
                 dr.actual_before_days,
                 dr.actual_after_days,
-                COALESCE(bs.spend, bc.spend, 0) as before_spend,
-                COALESCE(bs.sales, bc.sales, 0) as before_sales,
-                COALESCE(bs.clicks, 0) as before_clicks,
-                COALESCE(bs.impressions, 0) as before_impressions,
-                COALESCE(afs.spend, ac.spend, 0) as observed_after_spend,
-                COALESCE(afs.sales, ac.sales, 0) as observed_after_sales,
-                COALESCE(afs.clicks, 0) as after_clicks,
-                COALESCE(afs.impressions, 0) as after_impressions,
-                CASE WHEN bs.spend IS NOT NULL THEN 'target' ELSE 'campaign' END as match_level,
+                -- Action-type dependent stats:
+                -- BID_CHANGE: use target_text match (bs/afs)
+                -- NEGATIVE/HARVEST: use customer_search_term match (bcs/afcs)
+                CASE 
+                    WHEN a.action_type = 'BID_CHANGE' THEN COALESCE(bs.spend, bc.spend, 0)
+                    ELSE COALESCE(bcs.spend, bc.spend, 0)
+                END as before_spend,
+                CASE 
+                    WHEN a.action_type = 'BID_CHANGE' THEN COALESCE(bs.sales, bc.sales, 0)
+                    ELSE COALESCE(bcs.sales, bc.sales, 0)
+                END as before_sales,
+                CASE 
+                    WHEN a.action_type = 'BID_CHANGE' THEN COALESCE(bs.clicks, 0)
+                    ELSE COALESCE(bcs.clicks, 0)
+                END as before_clicks,
+                CASE 
+                    WHEN a.action_type = 'BID_CHANGE' THEN COALESCE(bs.impressions, 0)
+                    ELSE COALESCE(bcs.impressions, 0)
+                END as before_impressions,
+                CASE 
+                    WHEN a.action_type = 'BID_CHANGE' THEN COALESCE(afs.spend, ac.spend, 0)
+                    ELSE COALESCE(afcs.spend, ac.spend, 0)
+                END as observed_after_spend,
+                CASE 
+                    WHEN a.action_type = 'BID_CHANGE' THEN COALESCE(afs.sales, ac.sales, 0)
+                    ELSE COALESCE(afcs.sales, ac.sales, 0)
+                END as observed_after_sales,
+                CASE 
+                    WHEN a.action_type = 'BID_CHANGE' THEN COALESCE(afs.clicks, 0)
+                    ELSE COALESCE(afcs.clicks, 0)
+                END as after_clicks,
+                CASE 
+                    WHEN a.action_type = 'BID_CHANGE' THEN COALESCE(afs.impressions, 0)
+                    ELSE COALESCE(afcs.impressions, 0)
+                END as after_impressions,
+                CASE 
+                    WHEN a.action_type = 'BID_CHANGE' AND bs.spend IS NOT NULL THEN 'target'
+                    WHEN a.action_type != 'BID_CHANGE' AND bcs.spend IS NOT NULL THEN 'cst'
+                    ELSE 'campaign' 
+                END as match_level,
                 r30.rolling_spc as rolling_30d_spc
             FROM aggregated_actions a
             CROSS JOIN date_range dr
+            -- BID_CHANGE: Join on target_text (the keyword/targeting)
             LEFT JOIN before_stats bs 
                 ON a.target_lower = bs.target_lower 
                 AND a.campaign_lower = bs.campaign_lower
             LEFT JOIN after_stats afs 
                 ON a.target_lower = afs.target_lower 
                 AND a.campaign_lower = afs.campaign_lower
+            -- NEGATIVE/HARVEST: Join on customer_search_term using normalized target (handles ASIN format)
+            LEFT JOIN before_cst_stats bcs 
+                ON a.normalized_target_lower = bcs.cst_lower 
+                AND a.campaign_lower = bcs.campaign_lower
+            LEFT JOIN after_cst_stats afcs 
+                ON a.normalized_target_lower = afcs.cst_lower 
+                AND a.campaign_lower = afcs.campaign_lower
+            -- Campaign-level fallback
             LEFT JOIN before_campaign bc 
                 ON a.campaign_lower = bc.campaign_lower
             LEFT JOIN after_campaign ac 
