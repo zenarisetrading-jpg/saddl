@@ -441,12 +441,14 @@ Validation distinguishes **action-driven impact** from **market-wide shifts**. A
 #### 4.5.2 Validation Status Definitions
 
 | Status | Meaning | Toggle Included? |
-|--------|---------|-----------------|
+|--------|---------|-----------------| 
 | **✓ Confirmed blocked** | Negative keyword → Spend dropped to $0 | ✅ Yes |
 | **✓ Normalized match** | Negative keyword → Spend dropped significantly MORE than account baseline | ✅ Yes |
-| **✓ CPC Validated** | Bid change → After CPC within ±20% of suggested bid | ✅ Yes |
+| **✓ CPC Validated** | Bid change → After CPC within ±15% of suggested bid | ✅ Yes |
 | **✓ CPC Match** | Bid change → After CPC closely matches recommendation | ✅ Yes |
 | **✓ Directional match** | Bid change → CPC moved in expected direction (bid up→CPC up, bid down→CPC down) by >5% | ✅ Yes |
+| **✓ Volume Validated** | Bid change → Impressions changed significantly (+20%/-15%) in expected direction | ✅ Yes |
+| **✓ Directional + Volume** | Bid change → Weak CPC signal + moderate impressions signal combined | ✅ Yes |
 | **✓ Harvested to exact** | Harvest action → Source auto/broad has $0 spend (traffic moved to exact) | ✅ Yes |
 | **◐ Unverified** | Target has no performance data in after window | ❌ No |
 | **⚠️ Source still active** | Harvest action → Source campaign still has spend (not fully migrated) | ❌ No |

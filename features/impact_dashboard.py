@@ -348,7 +348,7 @@ def render_impact_dashboard():
     # DATA PREPARATION: MATURE + VALIDATED
     # ==========================================
     # Step 1: Filter by validation toggle
-    v_mask = impact_df['validation_status'].str.contains('✓|CPC Validated|CPC Match|Directional|Confirmed|Normalized', na=False, regex=True)
+    v_mask = impact_df['validation_status'].str.contains('✓|CPC Validated|CPC Match|Directional|Confirmed|Normalized|Volume', na=False, regex=True)
     display_df = impact_df[v_mask].copy() if show_validated_only else impact_df.copy()
     
     # Step 2: MATURITY GATE - Split mature vs pending attribution
