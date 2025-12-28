@@ -18,6 +18,18 @@ import time
 import functools
 
 # ==========================================
+# BID VALIDATION CONFIGURATION
+# ==========================================
+BID_VALIDATION_CONFIG = {
+    "cpc_match_threshold": 0.15,              # 15% tolerance (tightened from 20%)
+    "cpc_directional_threshold": 0.05,        # >5% CPC movement
+    "impressions_increase_threshold": 0.20,   # +20% for bid ups
+    "impressions_decrease_threshold": 0.15,   # -15% for bid downs
+    "combined_impressions_threshold": 0.10,   # +10% for combined signal
+    "min_impressions_before": 50,             # Minimum baseline impressions
+}
+
+# ==========================================
 # PERFORMANCE: Simple TTL Cache
 # ==========================================
 class TTLCache:
@@ -979,7 +991,8 @@ class PostgresManager:
                     LOWER(campaign_name) as campaign_lower,
                     SUM(spend) as spend, 
                     SUM(sales) as sales,
-                    SUM(clicks) as clicks
+                    SUM(clicks) as clicks,
+                    SUM(impressions) as impressions
                 FROM target_stats t
                 CROSS JOIN date_range dr
                 WHERE t.client_id = %(client_id)s 
@@ -994,7 +1007,8 @@ class PostgresManager:
                     LOWER(campaign_name) as campaign_lower,
                     SUM(spend) as spend, 
                     SUM(sales) as sales,
-                    SUM(clicks) as clicks
+                    SUM(clicks) as clicks,
+                    SUM(impressions) as impressions
                 FROM target_stats t
                 CROSS JOIN date_range dr
                 WHERE t.client_id = %(client_id)s 
@@ -1246,9 +1260,16 @@ class PostgresManager:
             b_clicks = df.at[idx, 'before_clicks'] if 'before_clicks' in df.columns else 0
             a_clicks = df.at[idx, 'after_clicks'] if 'after_clicks' in df.columns else 0
             
+            # Extract impressions for new validation layers
+            b_impressions = df.at[idx, 'before_impressions'] if 'before_impressions' in df.columns else 0
+            a_impressions = df.at[idx, 'after_impressions'] if 'after_impressions' in df.columns else 0
+            
             # Calculate actual CPCs
             before_cpc = b_spend / b_clicks if b_clicks > 0 else 0
             after_cpc = a_spend / a_clicks if a_clicks > 0 else 0
+            
+            # Calculate impressions change
+            imp_change_pct = (a_impressions - b_impressions) / b_impressions if b_impressions > 0 else 0
             
             # Get suggested bid from new_value
             new_value_str = str(df.at[idx, 'new_value']).strip()
@@ -1260,32 +1281,62 @@ class PostgresManager:
             r_before = b_sales / b_spend if b_spend > 0 else 0
             r_after = a_sales / a_spend if a_spend > 0 else 0
             
-            # LAYER 1: CPC-based validation (primary check)
-            # Check if actual after_cpc matches suggested bid within tolerance (±20%)
+            # Get bid direction
+            bid_direction = parse_bid_direction(df.loc[idx])
+            
+            # Calculate CPC change percentage
+            cpc_change_pct = (after_cpc - before_cpc) / before_cpc if before_cpc > 0 else 0
+            
+            # LAYER 1: CPC Match (tightened to 15%)
             cpc_validated = False
-            cpc_tolerance = 0.20  # 20% tolerance
+            cpc_tolerance = BID_VALIDATION_CONFIG['cpc_match_threshold']  # 0.15
             
             if suggested_bid > 0 and after_cpc > 0:
                 cpc_match_ratio = after_cpc / suggested_bid
                 if 1 - cpc_tolerance <= cpc_match_ratio <= 1 + cpc_tolerance:
                     cpc_validated = True
             
-            # LAYER 2: Fallback - directional check (using CPC change direction)
-            bid_direction = parse_bid_direction(df.loc[idx])
+            # LAYER 2: CPC Directional (>5% CPC change in expected direction)
+            cpc_dir_threshold = BID_VALIDATION_CONFIG['cpc_directional_threshold']  # 0.05
+            directional_match = None
+            
             if before_cpc > 0 and after_cpc > 0:
-                cpc_change_pct = (after_cpc - before_cpc) / before_cpc
-                if bid_direction == 'DOWN' and cpc_change_pct < -0.05:  # CPC dropped by >5%
+                if bid_direction == 'DOWN' and cpc_change_pct < -cpc_dir_threshold:
                     directional_match = True
-                elif bid_direction == 'UP' and cpc_change_pct > 0.05:  # CPC increased by >5%
+                elif bid_direction == 'UP' and cpc_change_pct > cpc_dir_threshold:
                     directional_match = True
                 elif bid_direction == 'UNKNOWN':
                     directional_match = None
                 else:
                     directional_match = False
-            else:
-                directional_match = None
             
-            # LAYER 3: Normalized winner (beat account baseline)
+            # LAYER 3: Volume Validated (NEW) - Impressions changed significantly
+            volume_validated = False
+            min_imp = BID_VALIDATION_CONFIG['min_impressions_before']  # 50
+            imp_up_threshold = BID_VALIDATION_CONFIG['impressions_increase_threshold']  # 0.20
+            imp_down_threshold = BID_VALIDATION_CONFIG['impressions_decrease_threshold']  # 0.15
+            
+            if b_impressions >= min_imp:
+                if bid_direction == 'UP' and imp_change_pct >= imp_up_threshold:
+                    volume_validated = True
+                elif bid_direction == 'DOWN' and imp_change_pct <= -imp_down_threshold:
+                    volume_validated = True
+            
+            # LAYER 4: Directional + Volume (NEW) - Weak signals combined
+            combined_validated = False
+            combined_imp_threshold = BID_VALIDATION_CONFIG['combined_impressions_threshold']  # 0.10
+            
+            if b_impressions >= min_imp and not cpc_validated and directional_match is not True and not volume_validated:
+                if bid_direction == 'UP':
+                    # Any CPC increase + moderate impressions increase
+                    if cpc_change_pct > 0 and imp_change_pct > combined_imp_threshold:
+                        combined_validated = True
+                elif bid_direction == 'DOWN':
+                    # Any CPC decrease + moderate impressions decrease
+                    if cpc_change_pct < 0 and imp_change_pct < -combined_imp_threshold:
+                        combined_validated = True
+            
+            # LAYER 5: Normalized winner (beat account baseline)
             target_roas_change = (r_after / r_before - 1) if r_before > 0 else 0
             beat_baseline = target_roas_change > baseline_roas_change
             
@@ -1293,11 +1344,13 @@ class PostgresManager:
             delta_sales = a_sales - b_sales
             
             # Require minimum clicks for reliable ROAS-based impact calculation
-            # Low clicks = unreliable CPC/ROAS, use delta_sales instead
             min_clicks_for_roas = 5
             has_enough_data = (b_clicks >= min_clicks_for_roas and a_clicks >= min_clicks_for_roas)
             
-            if (cpc_validated or directional_match is True) and has_enough_data:
+            # Include volume_validated and combined_validated in impact calculation
+            is_validated = (cpc_validated or directional_match is True or volume_validated or combined_validated)
+            
+            if is_validated and has_enough_data:
                 # Validated with sufficient data: Use ROAS-based impact, capped
                 roas_impact = b_spend * (r_after - r_before)
                 # Cap at 2x the actual delta_sales to prevent inflation
@@ -1308,7 +1361,7 @@ class PostgresManager:
                 # Not validated OR insufficient data: Use actual delta_sales (conservative)
                 df.at[idx, 'impact_score'] = delta_sales
             
-            # Set validation status based on layers
+            # Set validation status based on layers (order matters - first match wins)
             if a_clicks == 0 or a_spend == 0:
                 df.at[idx, 'validation_status'] = '◐ No after data'
             elif cpc_validated and beat_baseline:
@@ -1319,6 +1372,10 @@ class PostgresManager:
                 df.at[idx, 'validation_status'] = '✓ Directional + Baseline'
             elif directional_match is True:
                 df.at[idx, 'validation_status'] = '✓ Directional match'
+            elif volume_validated:
+                df.at[idx, 'validation_status'] = '✓ Volume Validated'
+            elif combined_validated:
+                df.at[idx, 'validation_status'] = '✓ Directional + Volume'
             elif beat_baseline:
                 df.at[idx, 'validation_status'] = '◐ Beat baseline only'
             else:
@@ -1554,7 +1611,7 @@ class PostgresManager:
         # ==========================================
         status = df['validation_status'].fillna('')
         not_implemented = status.str.contains('NOT IMPLEMENTED|Source still active|Still has spend|Not validated', na=False, regex=True)
-        confirmed = status.str.contains('✓|CPC Validated|CPC Match|Directional|Normalized|Confirmed', na=False, regex=True)
+        confirmed = status.str.contains('✓|CPC Validated|CPC Match|Directional|Normalized|Confirmed|Volume', na=False, regex=True)
         pending = status.str.contains('Unverified|Preventative|Beat baseline only|No after data', na=False, regex=True)
         
         conf_count = int(confirmed.sum())
@@ -1623,7 +1680,7 @@ class PostgresManager:
         
         # Summary 2: VALIDATED ACTIONS ONLY
         # Pattern matches: ✓, CPC Validated, CPC Match, Directional, Confirmed, Normalized
-        validated_mask = impact_df['validation_status'].str.contains('✓|CPC Validated|CPC Match|Directional|Confirmed|Normalized', na=False, regex=True)
+        validated_mask = impact_df['validation_status'].str.contains('✓|CPC Validated|CPC Match|Directional|Confirmed|Normalized|Volume', na=False, regex=True)
         validated_df = impact_df[validated_mask].copy()
         summary_validated = self._calculate_metrics_from_df(validated_df, window_days, label="VALIDATED ONLY")
         
