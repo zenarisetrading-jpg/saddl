@@ -575,10 +575,14 @@ is_mature(horizon) = (action_date + horizon_days + 3) ≤ latest_data_date
 | Nov 25 | ✅ | ✅ (Dec 28) | ❌ (Jan 27) |
 | Oct 1 | ✅ | ✅ | ✅ |
 
-#### 4.8.5 Dashboard Display
-- User selects horizon (14D/30D/60D radio toggle)
-- Only horizon-mature actions shown in aggregates
-- Pending actions shown with days until maturity
+#### 4.8.5 Dashboard Behavior
+- User selects horizon via radio toggle (14D / 30D / 60D)
+- **Aggregates** (ROAS change, revenue impact, win rate) include ONLY actions mature for selected horizon
+- **Pending actions** excluded from aggregates, shown separately with expected maturity date
+- Action counts will decrease at longer horizons (fewer actions are old enough)
+
+> **Why not 7 days?**  
+> Most PPC tools measure at 7 days. This captures only ~75% of attributed conversions and measures bid changes before they stabilize. We choose accuracy over speed.
 
 ---
 
