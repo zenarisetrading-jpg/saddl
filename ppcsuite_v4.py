@@ -337,7 +337,7 @@ def run_consolidated_optimizer():
                 "Min Orders", value=opt.config["HARVEST_ORDERS"], min_value=1, key="main_h_orders"
             )
             opt.config["HARVEST_SALES"] = st.number_input(
-                "Min Sales ($)", value=opt.config["HARVEST_SALES"], min_value=0.0, step=10.0, key="main_h_sales"
+                "Min Sales", value=opt.config["HARVEST_SALES"], min_value=0.0, step=10.0, key="main_h_sales"
             )
         
         with col2:
