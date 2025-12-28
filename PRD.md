@@ -114,6 +114,60 @@ Data is aggregated at the **Campaign + Ad Group + Target + Week** level:
 | impressions | INTEGER | Total impressions for period |
 | orders | INTEGER | Total orders for period |
 
+### 1.6 Target Grouping and Identification (CANONICAL REFERENCE)
+
+> **CRITICAL**: This section defines the grouping and identification logic used throughout the entire codebase. Reference this whenever implementing action logging, impact calculation, or optimization logic.
+
+#### 1.6.1 Universal Grouping Key
+
+**All actions and performance data are grouped by:**
+```
+Campaign Name + Ad Group Name + Target (Keyword/PT/ASIN/Auto Type)
+```
+
+This applies to:
+- Action logging
+- Impact measurement
+- Bid optimization
+- Performance aggregation
+
+#### 1.6.2 Target Type Identification
+
+| Target Type | Identification Pattern | Example |
+|-------------|------------------------|---------|
+| **Category** | `category="..."` | `category="brahmi" price>149` |
+| **Product Targeting (PT)** | `asin="B0XXXXXXX"` or `asin-expanded="B0XXXXXXX"` | `asin="B08TT9LR1W"` |
+| **Auto** | `close-match`, `loose-match`, `complements`, `substitutes` | `close-match` |
+| **Keyword (Exact)** | match_type = `exact` | `moss stick` (exact) |
+| **Keyword (Phrase)** | match_type = `phrase` | `moss stick` (phrase) |
+| **Keyword (Broad)** | match_type = `broad` | `moss stick` (broad) |
+
+#### 1.6.3 Customer Search Term (CST) Usage
+
+**CST is ONLY used for:**
+- Identifying harvest candidates (search terms to graduate to Exact match)
+- Identifying negative candidates (search terms to block)
+
+**CST is NOT used for:**
+- Grouping keys
+- Impact calculation joins
+- Bid optimization grouping
+
+#### 1.6.4 Impact Calculation Joins
+
+When matching actions to performance data in `target_stats`:
+
+```sql
+-- Correct: Join on Campaign + Ad Group
+ON LOWER(action.campaign_name) = LOWER(stats.campaign_name)
+AND LOWER(action.ad_group_name) = LOWER(stats.ad_group_name)
+
+-- Wrong: Join on target_text (only 10% match rate)
+ON LOWER(action.target_text) = LOWER(stats.target_text)
+```
+
+**Performance data is aggregated at the Ad Group level** to capture all search term activity affected by the action.
+
 ---
 
 ## 2. Performance Reporting Model
