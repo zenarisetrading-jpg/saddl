@@ -1084,7 +1084,9 @@ class PostgresManager:
                 SELECT 
                     LOWER(campaign_name) as campaign_lower, 
                     SUM(spend) as spend, 
-                    SUM(sales) as sales
+                    SUM(sales) as sales,
+                    SUM(clicks) as clicks,
+                    SUM(impressions) as impressions
                 FROM target_stats t
                 CROSS JOIN date_range dr
                 WHERE t.client_id = %(client_id)s 
@@ -1097,7 +1099,9 @@ class PostgresManager:
                 SELECT 
                     LOWER(campaign_name) as campaign_lower, 
                     SUM(spend) as spend, 
-                    SUM(sales) as sales
+                    SUM(sales) as sales,
+                    SUM(clicks) as clicks,
+                    SUM(impressions) as impressions
                 FROM target_stats t
                 CROSS JOIN date_range dr
                 WHERE t.client_id = %(client_id)s 
@@ -1148,12 +1152,12 @@ class PostgresManager:
                     ELSE COALESCE(bcs.sales, bc.sales, 0)
                 END as before_sales,
                 CASE 
-                    WHEN a.action_type = 'BID_CHANGE' THEN COALESCE(bs.clicks, 0)
-                    ELSE COALESCE(bcs.clicks, 0)
+                    WHEN a.action_type = 'BID_CHANGE' THEN COALESCE(bs.clicks, bc.clicks, 0)
+                    ELSE COALESCE(bcs.clicks, bc.clicks, 0)
                 END as before_clicks,
                 CASE 
-                    WHEN a.action_type = 'BID_CHANGE' THEN COALESCE(bs.impressions, 0)
-                    ELSE COALESCE(bcs.impressions, 0)
+                    WHEN a.action_type = 'BID_CHANGE' THEN COALESCE(bs.impressions, bc.impressions, 0)
+                    ELSE COALESCE(bcs.impressions, bc.impressions, 0)
                 END as before_impressions,
                 CASE 
                     WHEN a.action_type = 'BID_CHANGE' THEN COALESCE(afs.spend, ac.spend, 0)
@@ -1164,12 +1168,12 @@ class PostgresManager:
                     ELSE COALESCE(afcs.sales, ac.sales, 0)
                 END as observed_after_sales,
                 CASE 
-                    WHEN a.action_type = 'BID_CHANGE' THEN COALESCE(afs.clicks, 0)
-                    ELSE COALESCE(afcs.clicks, 0)
+                    WHEN a.action_type = 'BID_CHANGE' THEN COALESCE(afs.clicks, ac.clicks, 0)
+                    ELSE COALESCE(afcs.clicks, ac.clicks, 0)
                 END as after_clicks,
                 CASE 
-                    WHEN a.action_type = 'BID_CHANGE' THEN COALESCE(afs.impressions, 0)
-                    ELSE COALESCE(afcs.impressions, 0)
+                    WHEN a.action_type = 'BID_CHANGE' THEN COALESCE(afs.impressions, ac.impressions, 0)
+                    ELSE COALESCE(afcs.impressions, ac.impressions, 0)
                 END as after_impressions,
                 CASE 
                     WHEN a.action_type = 'BID_CHANGE' AND bs.spend IS NOT NULL THEN 'target'
