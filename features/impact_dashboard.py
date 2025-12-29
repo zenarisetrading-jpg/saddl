@@ -416,6 +416,10 @@ def render_impact_dashboard():
     # DEBUG: Action counts at each filter step
     # ==========================================
     with st.expander("🔬 DEBUG: Action Count Pipeline", expanded=False):
+        # Show dates being used
+        period_info = full_summary.get('period_info', {})
+        ldd = period_info.get('after_end') or period_info.get('latest_date')
+        st.caption(f"**latest_data_date:** {ldd} | **action_date.max():** {impact_df['action_date'].max() if 'action_date' in impact_df.columns else 'N/A'}")
         col1, col2, col3 = st.columns(3)
         with col1:
             st.metric("Raw impact_df", len(impact_df))
