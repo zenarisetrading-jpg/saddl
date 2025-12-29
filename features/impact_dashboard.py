@@ -412,6 +412,39 @@ def render_impact_dashboard():
     # Use len(mature_df) and len(pending_attr_df) which respect the Validated Only toggle
     _render_hero_tiles(display_summary, len(active_df), len(dormant_df), len(mature_df), len(pending_attr_df))
     
+    # ==========================================
+    # DEBUG: Action counts at each filter step
+    # ==========================================
+    with st.expander("🔬 DEBUG: Action Count Pipeline", expanded=False):
+        col1, col2, col3 = st.columns(3)
+        with col1:
+            st.metric("Raw impact_df", len(impact_df))
+            st.caption("All actions from DB")
+        with col2:
+            v_count = len(impact_df[impact_df['validation_status'].str.contains('✓', na=False)])
+            st.metric("Validated (✓)", v_count)
+            st.caption("Has ✓ in status")
+        with col3:
+            st.metric("display_df", len(display_df))
+            st.caption(f"After v_mask filter (toggle={'ON' if show_validated_only else 'OFF'})")
+        
+        col4, col5, col6 = st.columns(3)
+        with col4:
+            st.metric("Mature (measured)", len(mature_df))
+            st.caption("display_df + is_mature=True")
+        with col5:
+            st.metric("Pending attribution", len(pending_attr_df))
+            st.caption("display_df + is_mature=False")
+        with col6:
+            st.metric("Active (has spend)", len(active_df))
+            st.caption("mature_df + spend > 0")
+        
+        st.markdown("**Measured by Action Type:**")
+        if not mature_df.empty:
+            st.dataframe(mature_df['action_type'].value_counts().reset_index())
+        else:
+            st.info("No mature actions")
+    
     st.divider()
 
     with st.expander("🔍 View supporting evidence", expanded=True):
