@@ -233,8 +233,9 @@ def run_consolidated_optimizer():
     
     include_db = False
     if client_id and db_manager:
-        with st.expander("🛠️ Data Controls", expanded=False):
-            include_db = st.checkbox("Include Historical Data (from Database)", value=False, help="Extend analysis window by pulling previous records from the database.")
+        with st.expander("🛠️ Data Controls", expanded=True):
+            # Default to TRUE so users see full history (e.g. for Visibility Boost)
+            include_db = st.checkbox("Include Historical Data (from Database)", value=True, help="Extend analysis window by pulling previous records from the database.")
             if include_db:
                 with st.spinner("Fetching historical data..."):
                     db_df = db_manager.get_target_stats_df(client_id)
