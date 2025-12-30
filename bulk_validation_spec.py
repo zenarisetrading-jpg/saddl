@@ -1586,6 +1586,7 @@ class RecommendationType(Enum):
     # Bid adjustments
     BID_INCREASE = "bid_increase"
     BID_DECREASE = "bid_decrease"
+    VISIBILITY_BOOST = "visibility_boost"          # Low visibility boost (+30%)
     
     # Keyword promotion
     KEYWORD_HARVEST = "keyword_harvest"            # Promote to own campaign

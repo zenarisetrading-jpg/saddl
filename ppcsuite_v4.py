@@ -336,9 +336,7 @@ def run_consolidated_optimizer():
             opt.config["HARVEST_ORDERS"] = st.number_input(
                 "Min Orders", value=opt.config["HARVEST_ORDERS"], min_value=1, key="main_h_orders"
             )
-            opt.config["HARVEST_SALES"] = st.number_input(
-                "Min Sales", value=opt.config["HARVEST_SALES"], min_value=0.0, step=10.0, key="main_h_sales"
-            )
+            # HARVEST_SALES removed - currency threshold doesn't work across geos
         
         with col2:
             st.markdown("**Bid Optimization**")

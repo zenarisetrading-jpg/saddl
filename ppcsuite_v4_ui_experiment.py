@@ -441,24 +441,24 @@ def run_consolidated_optimizer():
             key="opt_preset_main"
         )
         
-        # Define preset values
+        # Define preset values (no currency thresholds)
         preset_configs = {
             "Conservative": {
-                "harvest_clicks": 15, "harvest_orders": 4, "harvest_sales": 200.0, "harvest_roas": 90,
+                "harvest_clicks": 15, "harvest_orders": 4, "harvest_roas": 90,
                 "alpha_exact": 0.15, "alpha_broad": 0.12, "max_change": 0.15, "target_roas": 2.5,
-                "neg_clicks": 15, "neg_spend": 15.0,
+                "neg_clicks": 15,
                 "min_clicks_exact": 8, "min_clicks_pt": 8, "min_clicks_broad": 12, "min_clicks_auto": 12
             },
             "Balanced": {
-                "harvest_clicks": 10, "harvest_orders": 3, "harvest_sales": 150.0, "harvest_roas": 80,
+                "harvest_clicks": 10, "harvest_orders": 3, "harvest_roas": 80,
                 "alpha_exact": 0.20, "alpha_broad": 0.16, "max_change": 0.20, "target_roas": 2.5,
-                "neg_clicks": 10, "neg_spend": 10.0,
+                "neg_clicks": 10,
                 "min_clicks_exact": 5, "min_clicks_pt": 5, "min_clicks_broad": 10, "min_clicks_auto": 10
             },
             "Aggressive": {
-                "harvest_clicks": 8, "harvest_orders": 2, "harvest_sales": 100.0, "harvest_roas": 70,
+                "harvest_clicks": 8, "harvest_orders": 2, "harvest_roas": 70,
                 "alpha_exact": 0.25, "alpha_broad": 0.20, "max_change": 0.25, "target_roas": 2.5,
-                "neg_clicks": 8, "neg_spend": 8.0,
+                "neg_clicks": 8,
                 "min_clicks_exact": 3, "min_clicks_pt": 3, "min_clicks_broad": 8, "min_clicks_auto": 8
             }
         }
@@ -469,14 +469,12 @@ def run_consolidated_optimizer():
             config = preset_configs[preset]
             opt.config["HARVEST_CLICKS"] = config["harvest_clicks"]
             opt.config["HARVEST_ORDERS"] = config["harvest_orders"]
-            opt.config["HARVEST_SALES"] = config["harvest_sales"]
             opt.config["HARVEST_ROAS_MULT"] = config["harvest_roas"] / 100
             opt.config["ALPHA_EXACT"] = config["alpha_exact"]
             opt.config["ALPHA_BROAD"] = config["alpha_broad"]
             opt.config["MAX_BID_CHANGE"] = config["max_change"]
             opt.config["TARGET_ROAS"] = config["target_roas"]
             opt.config["NEGATIVE_CLICKS_THRESHOLD"] = config["neg_clicks"]
-            opt.config["NEGATIVE_SPEND_THRESHOLD"] = config["neg_spend"]
             opt.config["MIN_CLICKS_EXACT"] = config["min_clicks_exact"]
             opt.config["MIN_CLICKS_PT"] = config["min_clicks_pt"]
             opt.config["MIN_CLICKS_BROAD"] = config["min_clicks_broad"]
@@ -534,9 +532,7 @@ def run_consolidated_optimizer():
                 opt.config["HARVEST_ORDERS"] = st.number_input(
                     "Min Orders", value=opt.config["HARVEST_ORDERS"], min_value=1, key="main_h_orders"
                 )
-                opt.config["HARVEST_SALES"] = st.number_input(
-                    "Min Sales ($)", value=opt.config["HARVEST_SALES"], min_value=0.0, step=10.0, key="main_h_sales"
-                )
+                # HARVEST_SALES removed - currency threshold doesn't work across geos
             
             with col2:
                 st.markdown("**Bid Optimization**")
