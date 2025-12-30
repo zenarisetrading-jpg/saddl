@@ -619,8 +619,10 @@ def run_consolidated_optimizer():
                        str(row.get("Term", "")).strip().lower())
                 negative_terms_set.add(key)
         
+        data_days = date_info.get("days", 7)
         bids_exact, bids_pt, bids_agg, bids_auto = calculate_bid_optimizations(
-            df_prep, opt.config, corrected_term_set, negative_terms_set, universal_median
+            df_prep, opt.config, corrected_term_set, negative_terms_set, universal_median,
+            data_days=data_days
         )
         # Combine for backward compatibility with simulation/heatmap
         direct_bids = pd.concat([bids_exact, bids_pt], ignore_index=True)
