@@ -246,8 +246,17 @@ def run_consolidated_optimizer():
             # Default to TRUE so users see full history (e.g. for Visibility Boost)
             include_db = st.checkbox("Include Historical Data (from Database)", value=True, help="Extend analysis window by pulling previous records from the database.")
             if include_db:
+                # DEBUG: Show what client_id we're using
+                st.write(f"🔍 DEBUG: Fetching data for client_id = '{client_id}'")
+                
                 with st.spinner("Fetching historical data..."):
                     db_df = db_manager.get_target_stats_df(client_id)
+                    
+                    # DEBUG: Show DB fetch results
+                    st.write(f"🔍 DEBUG: DB returned {len(db_df)} rows")
+                    if not db_df.empty:
+                        st.write(f"🔍 DEBUG: DB date range: {db_df['Date'].min()} to {db_df['Date'].max()}")
+                    
                     if not db_df.empty:
                         # Rename columns for consistency if needed (DB already returns standard names)
                         # Fix column names to match STR upload headers
@@ -261,7 +270,9 @@ def run_consolidated_optimizer():
                         
                         # Merge current upload with DB data
                         # We use Date, Campaign, Ad Group, and Targeting as keys to avoid duplicates
+                        st.write(f"🔍 DEBUG: Upload df has {len(df)} rows")
                         combined = pd.concat([df, db_df], ignore_index=True)
+                        st.write(f"🔍 DEBUG: After concat: {len(combined)} rows")
                         
                         # Fix types for deduplication
                         combined['Date'] = pd.to_datetime(combined['Date'])
@@ -276,6 +287,7 @@ def run_consolidated_optimizer():
                         
                         # Drop duplicates (keep newest/session data which might have more recent metrics)
                         df = combined.drop_duplicates(subset=['Date', 'Campaign Name', 'Ad Group Name', 'Targeting'], keep='first')
+                        st.write(f"🔍 DEBUG: After deduplication: {len(df)} rows")
                         
                         # DEBUG: Final merged range
                         st.info(f"✅ Merged history. Data now spans {df['Date'].min().date()} to {df['Date'].max().date()} ({len(df)} rows)")
