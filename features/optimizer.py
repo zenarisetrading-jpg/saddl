@@ -1956,7 +1956,7 @@ class OptimizerModule(BaseFeature):
             self._display_results()
         else:
             self._display_summary(df)
-            st.info("👈 Click **Run Optimization** to start")
+            st.info("👈 Click **Run Optimizer** to start")
     
     def _render_sidebar(self):
         """Render sidebar configuration panels."""
@@ -2083,11 +2083,11 @@ class OptimizerModule(BaseFeature):
             
             # Primary CTA
             if st.button(
-                "Run optimization with recommended settings",
+                "Run Optimizer",
                 type="primary",
                 use_container_width=True,
                 key="opt_run_primary",
-                help="Balanced mode with standard thresholds"
+                help="Run optimization with current settings"
             ):
                 st.session_state["run_optimizer"] = True
                 st.rerun()
