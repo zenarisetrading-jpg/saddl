@@ -1002,7 +1002,8 @@ PLATFORM METHODOLOGY & ENGINE LOGIC (UPDATED DEC 30, 2025)
    TRIGGER CONDITIONS:
    - Data window >= 14 days
    - Impressions < 100 (not winning auctions)
-   - Impressions > 0 (not paused/inactive)
+   - Includes 0 impressions (bid SO low it can't even enter auctions)
+   - Note: Paused targets are identified by state='paused', not impressions
    
    ELIGIBLE MATCH TYPES (only these get boosted):
    - Exact, Phrase, Broad keywords (advertiser explicitly chose these)

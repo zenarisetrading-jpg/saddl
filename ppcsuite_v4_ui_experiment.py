@@ -554,9 +554,8 @@ def run_consolidated_optimizer():
                 opt.config["NEGATIVE_CLICKS_THRESHOLD"] = st.number_input(
                     "Min Clicks (0 Sales)", value=opt.config["NEGATIVE_CLICKS_THRESHOLD"], min_value=5, key="main_neg_clicks"
                 )
-                opt.config["NEGATIVE_SPEND_THRESHOLD"] = st.number_input(
-                    "Min Spend (0 Sales)", value=opt.config["NEGATIVE_SPEND_THRESHOLD"], min_value=1.0, key="main_neg_spend"
-                )
+                # NEGATIVE_SPEND_THRESHOLD removed for currency-neutrality
+                # All negative logic is now clicks-based
             
             st.divider()
             st.markdown("**Min Clicks per Bucket**")
