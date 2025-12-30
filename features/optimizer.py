@@ -77,15 +77,15 @@ DEFAULT_CONFIG = {
     # Harvest thresholds (Tier 2)
     "HARVEST_CLICKS": 10,
     "HARVEST_ORDERS": 3,           # Will be dynamic based on CVR
-    "HARVEST_SALES": 150.0,
+    # HARVEST_SALES removed - currency threshold doesn't work across geos
     "HARVEST_ROAS_MULT": 0.8,      # vs BUCKET median (80% = less strict)
     "MAX_BID_CHANGE": 0.20,      # Max % change per run
     "DEDUPE_SIMILARITY": 0.85,    # ExactMatcher threshold
     "TARGET_ROAS": 2.5,
     
-    # Negative thresholds (now CVR-based)
+    # Negative thresholds (now CVR-based, no currency dependency)
     "NEGATIVE_CLICKS_THRESHOLD": 10,  # Baseline for legacy compatibility
-    "NEGATIVE_SPEND_THRESHOLD": 10.0,
+    # NEGATIVE_SPEND_THRESHOLD removed - currency threshold doesn't work across geos
     
     # Bid optimization
     "ALPHA_EXACT": 0.25,
@@ -819,13 +819,11 @@ def identify_negative_candidates(
         ).agg({**agg_cols, **meta_cols})
         bleeder_agg = bleeder_agg.rename(columns={"_term_norm_group": "Customer Search Term"})
         
-        # Apply CVR-based thresholds (Sales == 0 AND Clicks/Spend > threshold)
+        # Apply CVR-based thresholds (Sales == 0 AND Clicks > threshold)
+        # Currency threshold removed - only using clicks-based logic
         bleeder_mask = (
             (bleeder_agg["Sales"] == 0) &
-            (
-                (bleeder_agg["Clicks"] >= soft_threshold) |
-                (bleeder_agg["Spend"] >= config["NEGATIVE_SPEND_THRESHOLD"])
-            )
+            (bleeder_agg["Clicks"] >= soft_threshold)
         )
         
         for _, row in bleeder_agg[bleeder_mask].iterrows():
@@ -1919,14 +1917,14 @@ class OptimizerModule(BaseFeature):
         widget_defaults = {
             "opt_harvest_clicks": config_source.get("HARVEST_CLICKS", 10),
             "opt_harvest_orders": config_source.get("HARVEST_ORDERS", 3),
-            "opt_harvest_sales": config_source.get("HARVEST_SALES", 150.0),
+            # opt_harvest_sales removed - no currency thresholds
             "opt_harvest_roas_mult": int(config_source.get("HARVEST_ROAS_MULT", 0.8) * 100),
             "opt_alpha_exact": int(config_source.get("ALPHA_EXACT", 0.15) * 100),
             "opt_alpha_broad": int(config_source.get("ALPHA_BROAD", 0.10) * 100),
             "opt_max_bid_change": int(config_source.get("MAX_BID_CHANGE", 0.20) * 100),
             "opt_target_roas": config_source.get("TARGET_ROAS", 2.5),
             "opt_neg_clicks_threshold": config_source.get("NEGATIVE_CLICKS_THRESHOLD", 10),
-            "opt_neg_spend_threshold": config_source.get("NEGATIVE_SPEND_THRESHOLD", 25.0),
+            # opt_neg_spend_threshold removed - no currency thresholds
             "opt_min_clicks_exact": config_source.get("MIN_CLICKS_EXACT", 5),
             "opt_min_clicks_pt": config_source.get("MIN_CLICKS_PT", 5),
             "opt_min_clicks_broad": config_source.get("MIN_CLICKS_BROAD", 10),
@@ -1987,24 +1985,24 @@ class OptimizerModule(BaseFeature):
                 key="opt_preset"
             )
             
-            # Define preset values
+            # Define preset values (no currency thresholds - only clicks-based)
             preset_configs = {
                 "Conservative": {
-                    "harvest_clicks": 15, "harvest_orders": 4, "harvest_sales": 200.0, "harvest_roas": 90,
+                    "harvest_clicks": 15, "harvest_orders": 4, "harvest_roas": 90,
                     "alpha_exact": 15, "alpha_broad": 12, "max_change": 15, "target_roas": 2.5,
-                    "neg_clicks": 15, "neg_spend": 15.0,
+                    "neg_clicks": 15,
                     "min_clicks_exact": 8, "min_clicks_pt": 8, "min_clicks_broad": 12, "min_clicks_auto": 12
                 },
                 "Balanced": {
-                    "harvest_clicks": 10, "harvest_orders": 3, "harvest_sales": 150.0, "harvest_roas": 80,
+                    "harvest_clicks": 10, "harvest_orders": 3, "harvest_roas": 80,
                     "alpha_exact": 20, "alpha_broad": 16, "max_change": 20, "target_roas": 2.5,
-                    "neg_clicks": 10, "neg_spend": 10.0,
+                    "neg_clicks": 10,
                     "min_clicks_exact": 5, "min_clicks_pt": 5, "min_clicks_broad": 10, "min_clicks_auto": 10
                 },
                 "Aggressive": {
-                    "harvest_clicks": 8, "harvest_orders": 2, "harvest_sales": 100.0, "harvest_roas": 70,
+                    "harvest_clicks": 8, "harvest_orders": 2, "harvest_roas": 70,
                     "alpha_exact": 25, "alpha_broad": 20, "max_change": 25, "target_roas": 2.5,
-                    "neg_clicks": 8, "neg_spend": 8.0,
+                    "neg_clicks": 8,
                     "min_clicks_exact": 3, "min_clicks_pt": 3, "min_clicks_broad": 8, "min_clicks_auto": 8
                 }
             }
@@ -2015,14 +2013,12 @@ class OptimizerModule(BaseFeature):
                 config = preset_configs[preset]
                 st.session_state["opt_harvest_clicks"] = config["harvest_clicks"]
                 st.session_state["opt_harvest_orders"] = config["harvest_orders"]
-                st.session_state["opt_harvest_sales"] = config["harvest_sales"]
                 st.session_state["opt_harvest_roas_mult"] = config["harvest_roas"]
                 st.session_state["opt_alpha_exact"] = config["alpha_exact"]
                 st.session_state["opt_alpha_broad"] = config["alpha_broad"]
                 st.session_state["opt_max_bid_change"] = config["max_change"]
                 st.session_state["opt_target_roas"] = config["target_roas"]
                 st.session_state["opt_neg_clicks_threshold"] = config["neg_clicks"]
-                st.session_state["opt_neg_spend_threshold"] = config["neg_spend"]
                 st.session_state["opt_min_clicks_exact"] = config["min_clicks_exact"]
                 st.session_state["opt_min_clicks_pt"] = config["min_clicks_pt"]
                 st.session_state["opt_min_clicks_broad"] = config["min_clicks_broad"]
