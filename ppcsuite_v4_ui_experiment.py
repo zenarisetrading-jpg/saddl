@@ -271,26 +271,40 @@ def run_consolidated_optimizer():
                         # Merge current upload with DB data
                         # We use Date, Campaign, Ad Group, and Targeting as keys to avoid duplicates
                         st.write(f"🔍 DEBUG: Upload df has {len(df)} rows")
-                        combined = pd.concat([df, db_df], ignore_index=True)
-                        st.write(f"🔍 DEBUG: After concat: {len(combined)} rows")
+                        st.write(f"🔍 DEBUG: Upload date range: {df[date_col].min()} to {df[date_col].max()}")
                         
-                        # Fix types for deduplication
-                        combined['Date'] = pd.to_datetime(combined['Date'])
+                        # SMART MERGE LOGIC:
+                        # If upload file is entirely within DB date range, it's likely already in DB
+                        # In this case, just use DB data (don't merge, avoid 91% data loss from deduplication)
+                        upload_min = df[date_col].min()
+                        upload_max = df[date_col].max()
+                        db_min = db_df['Date'].min()
+                        db_max = db_df['Date'].max()
                         
-                        # DEBUG: Check DB data range
-                        # st.write(f"DEBUG: DB Data Range: {db_df['Date'].min()} to {db_df['Date'].max()} ({len(db_df)} rows)")
-                        # st.write(f"DEBUG: Combined Min Date: {combined['Date'].min()}")
-
-                        combined['Campaign Name'] = combined['Campaign Name'].astype(str).str.strip()
-                        combined['Ad Group Name'] = combined['Ad Group Name'].astype(str).str.strip()
-                        combined['Targeting'] = combined['Targeting'].astype(str).str.strip()
+                        upload_is_subset = (upload_min >= db_min) and (upload_max <= db_max)
                         
-                        # Drop duplicates (keep newest/session data which might have more recent metrics)
-                        df = combined.drop_duplicates(subset=['Date', 'Campaign Name', 'Ad Group Name', 'Targeting'], keep='first')
-                        st.write(f"🔍 DEBUG: After deduplication: {len(df)} rows")
-                        
-                        # DEBUG: Final merged range
-                        st.info(f"✅ Merged history. Data now spans {df['Date'].min().date()} to {df['Date'].max().date()} ({len(df)} rows)")
+                        if upload_is_subset:
+                            # Upload is redundant - use DB data which is complete
+                            st.info(f"✅ Upload file ({upload_min.date()} to {upload_max.date()}) is already in database. Using complete DB data ({len(db_df)} rows).")
+                            df = db_df.copy()
+                        else:
+                            # Upload has new data - proceed with merge
+                            combined = pd.concat([df, db_df], ignore_index=True)
+                            st.write(f"🔍 DEBUG: After concat: {len(combined)} rows")
+                            
+                            # Fix types for deduplication
+                            combined['Date'] = pd.to_datetime(combined['Date'])
+                            
+                            combined['Campaign Name'] = combined['Campaign Name'].astype(str).str.strip()
+                            combined['Ad Group Name'] = combined['Ad Group Name'].astype(str).str.strip()
+                            combined['Targeting'] = combined['Targeting'].astype(str).str.strip()
+                            
+                            # Drop duplicates (keep newest/session data which might have more recent metrics)
+                            df = combined.drop_duplicates(subset=['Date', 'Campaign Name', 'Ad Group Name', 'Targeting'], keep='first')
+                            st.write(f"🔍 DEBUG: After deduplication: {len(df)} rows")
+                            
+                            # DEBUG: Final merged range
+                            st.info(f"✅ Merged history. Data now spans {df['Date'].min().date()} to {df['Date'].max().date()} ({len(df)} rows)")
     
     # =====================================================
     # DATE RANGE FILTER: Default to last 30 days
