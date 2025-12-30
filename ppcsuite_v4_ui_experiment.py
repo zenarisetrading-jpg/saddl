@@ -231,6 +231,11 @@ def run_consolidated_optimizer():
     client_id = st.session_state.get('active_account', {}).get('account_id')
     db_manager = st.session_state.get('db_manager')
     
+    # DEBUG: Check why DB merge is skipped
+    if not client_id:
+        st.warning(f"⚠️ No Client ID detected. Session Active Account: {st.session_state.get('active_account')}")
+    # End Debug
+    
     include_db = False
     if client_id and db_manager:
         with st.expander("🛠️ Data Controls", expanded=True):
