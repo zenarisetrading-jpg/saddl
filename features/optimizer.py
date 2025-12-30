@@ -946,7 +946,8 @@ def calculate_bid_optimizations(
     config: dict, 
     harvested_terms: Set[str] = None,
     negative_terms: Set[Tuple[str, str, str]] = None,
-    universal_median_roas: float = None
+    universal_median_roas: float = None,
+    data_days: int = 7  # Number of days in dataset for visibility boost detection
 ) -> Tuple[pd.DataFrame, pd.DataFrame, pd.DataFrame, pd.DataFrame]:
     """
     Calculate optimal bid adjustments using vNext Bucketed Logic.
@@ -1085,27 +1086,32 @@ def calculate_bid_optimizations(
     bids_exact = _process_bucket(df_clean[mask_exact], config, 
                                   min_clicks=config.get("MIN_CLICKS_EXACT", 5), 
                                   bucket_name="Exact",
-                                  universal_median_roas=universal_median_roas)
+                                  universal_median_roas=universal_median_roas,
+                                  data_days=data_days)
     
     bids_pt = _process_bucket(df_clean[mask_pt], config, 
                                min_clicks=config.get("MIN_CLICKS_PT", 5), 
                                bucket_name="Product Targeting",
-                               universal_median_roas=universal_median_roas)
+                               universal_median_roas=universal_median_roas,
+                               data_days=data_days)
     
     bids_agg = _process_bucket(df_clean[mask_broad_phrase], config, 
                                 min_clicks=config.get("MIN_CLICKS_BROAD", 10), 
                                 bucket_name="Broad/Phrase",
-                                universal_median_roas=universal_median_roas)
+                                universal_median_roas=universal_median_roas,
+                                data_days=data_days)
     
     bids_auto = _process_bucket(df_clean[mask_auto], config, 
                                  min_clicks=config.get("MIN_CLICKS_AUTO", 10), 
                                  bucket_name="Auto",
-                                 universal_median_roas=universal_median_roas)
+                                 universal_median_roas=universal_median_roas,
+                                 data_days=data_days)
     
     bids_category = _process_bucket(df_clean[mask_category], config, 
                                      min_clicks=config.get("MIN_CLICKS_CATEGORY", 10), 
                                      bucket_name="Category",
-                                     universal_median_roas=universal_median_roas)
+                                     universal_median_roas=universal_median_roas,
+                                     data_days=data_days)
     
     # Combine auto and category for backwards compatibility (displayed as "Auto/Category")
     bids_auto_combined = pd.concat([bids_auto, bids_category], ignore_index=True) if not bids_category.empty else bids_auto
@@ -1120,7 +1126,7 @@ def calculate_bid_optimizations(
 
     return bids_exact, bids_pt, bids_agg, bids_auto_combined
 
-def _process_bucket(segment_df: pd.DataFrame, config: dict, min_clicks: int, bucket_name: str, universal_median_roas: float) -> pd.DataFrame:
+def _process_bucket(segment_df: pd.DataFrame, config: dict, min_clicks: int, bucket_name: str, universal_median_roas: float, data_days: int = 7) -> pd.DataFrame:
     """Unified bucket processor with Bucket Median ROAS classification."""
     if segment_df.empty:
         return pd.DataFrame()
@@ -1220,8 +1226,14 @@ def _process_bucket(segment_df: pd.DataFrame, config: dict, min_clicks: int, buc
     if "Broad" in bucket_name or "Auto" in bucket_name:
         alpha = config.get("ALPHA_BROAD", alpha * 0.8)
     
+    # VISIBILITY BOOST CONFIG
+    VISIBILITY_BOOST_MIN_DAYS = 14  # Need at least 2 weeks of data
+    VISIBILITY_BOOST_MAX_CLICKS = 10  # Below this = low visibility
+    VISIBILITY_BOOST_PCT = 0.30  # 30% boost
+    
     def apply_optimization(r):
         clicks = r["Clicks"]
+        impressions = r.get("Impressions", 0)
         roas = r["ROAS"]
         # Priority: Bid (from bulk) → Ad Group Default Bid (from bulk) → CPC (from STR)
         base_bid = float(
@@ -1232,6 +1244,12 @@ def _process_bucket(segment_df: pd.DataFrame, config: dict, min_clicks: int, buc
         
         if base_bid <= 0:
             return 0.0, "Hold: No Bid/CPC Data", "Hold (No Data)"
+        
+        # VISIBILITY BOOST: 2+ weeks data, <10 clicks, impressions > 0
+        # These targets are running but not competitive - need a boost
+        if data_days >= VISIBILITY_BOOST_MIN_DAYS and clicks < VISIBILITY_BOOST_MAX_CLICKS and impressions > 0:
+            new_bid = round(base_bid * (1 + VISIBILITY_BOOST_PCT), 2)
+            return new_bid, f"Visibility Boost: {clicks} clicks in {data_days} days", "Visibility Boost (+30%)"
         
         if clicks >= min_clicks and roas > 0:
             return _classify_and_bid(roas, baseline_roas, base_bid, alpha, f"targeting|{bucket_name}", config)
@@ -2450,7 +2468,8 @@ class OptimizerModule(BaseFeature):
         neg_kw, neg_pt, your_products = identify_negative_candidates(df, self.config, harvest, benchmarks)
         
         neg_set = set(zip(neg_kw["Campaign Name"], neg_kw["Ad Group Name"], neg_kw["Term"].str.lower()))
-        bids_ex, bids_pt, bids_agg, bids_auto = calculate_bid_optimizations(df, self.config, set(harvest["Customer Search Term"].str.lower()), neg_set, universal_median)
+        data_days = date_info.get("days", 7) if date_info else 7
+        bids_ex, bids_pt, bids_agg, bids_auto = calculate_bid_optimizations(df, self.config, set(harvest["Customer Search Term"].str.lower()), neg_set, universal_median, data_days=data_days)
         
         heatmap = create_heatmap(df, self.config, harvest, neg_kw, neg_pt, pd.concat([bids_ex, bids_pt]), pd.concat([bids_agg, bids_auto]))
         
