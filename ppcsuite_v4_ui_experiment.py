@@ -1010,8 +1010,16 @@ def main():
             
             # Use a transparent button over the chiclet for interactivity
             if st.button(label, key=f"nav_{module_key}", use_container_width=True):
-                st.session_state['current_module'] = module_key
-                st.rerun()
+                # Check if leaving optimizer with pending actions
+                if st.session_state.get('current_module') == 'optimize' and st.session_state.get('pending_actions'):
+                    # Trigger confirmation dialog instead of navigating
+                    st.session_state['_show_action_confirmation'] = True
+                    st.session_state['_pending_navigation_target'] = module_key
+                    st.rerun()
+                else:
+                    # Navigate directly
+                    st.session_state['current_module'] = module_key
+                    st.rerun()
 
         # Re-using the nav_button logic but with the chiclet feel properly integrated
         # We'll use Streamlit's native buttons but style them to look like the chiclets
@@ -1131,6 +1139,10 @@ def main():
             
     # Routing
     current = st.session_state.get('current_module', 'home')
+    
+    # Check for pending actions confirmation dialog
+    from ui.action_confirmation import render_action_confirmation_modal
+    render_action_confirmation_modal()
     
     # Show test mode warning banner
     if st.session_state.get('test_mode', False):
