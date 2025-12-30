@@ -271,17 +271,23 @@ def run_consolidated_optimizer():
                         # Merge current upload with DB data
                         # We use Date, Campaign, Ad Group, and Targeting as keys to avoid duplicates
                         st.write(f"🔍 DEBUG: Upload df has {len(df)} rows")
-                        st.write(f"🔍 DEBUG: Upload date range: {df[date_col].min()} to {df[date_col].max()}")
+                        
+                        # Detect date column for comparison
+                        upload_date_col = next((c for c in ['Date', 'Start Date', 'date'] if c in df.columns), None)
+                        if upload_date_col:
+                            df[upload_date_col] = pd.to_datetime(df[upload_date_col], errors='coerce')
+                            st.write(f"🔍 DEBUG: Upload date range: {df[upload_date_col].min()} to {df[upload_date_col].max()}")
                         
                         # SMART MERGE LOGIC:
                         # If upload file is entirely within DB date range, it's likely already in DB
                         # In this case, just use DB data (don't merge, avoid 91% data loss from deduplication)
-                        upload_min = df[date_col].min()
-                        upload_max = df[date_col].max()
-                        db_min = db_df['Date'].min()
-                        db_max = db_df['Date'].max()
-                        
-                        upload_is_subset = (upload_min >= db_min) and (upload_max <= db_max)
+                        if upload_date_col:
+                            upload_min = df[upload_date_col].min()
+                            upload_max = df[upload_date_col].max()
+                            db_min = db_df['Date'].min()
+                            db_max = db_df['Date'].max()
+                            
+                            upload_is_subset = (upload_min >= db_min) and (upload_max <= db_max)
                         
                         if upload_is_subset:
                             # Upload is redundant - use DB data which is complete
