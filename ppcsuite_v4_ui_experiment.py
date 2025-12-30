@@ -319,8 +319,19 @@ def run_consolidated_optimizer():
                                           key="opt_date_end")
         
         # Filter data to selected range
-        mask = (df[date_col].dt.date >= start_date) & (df[date_col].dt.date <= end_date)
-        df = df[mask].copy()
+        if date_col:
+            # DEBUG: Check date range application
+            st.write(f"DEBUG: Filtering on {date_col} from {start_date} to {end_date}")
+            st.write(f"DEBUG: Before filter: {len(df)} rows. Min: {df[date_col].min()}, Max: {df[date_col].max()}")
+            
+            mask = (df[date_col].dt.date >= start_date) & (df[date_col].dt.date <= end_date)
+            df = df[mask].copy()
+            
+            st.write(f"DEBUG: After filter: {len(df)} rows")
+        else:
+            st.error("❌ Could not identify Date column for filtering.")
+            st.write("Columns found:", df.columns.tolist())
+            
         days_selected = (end_date - start_date).days + 1
         
         # Baseline metrics calculation

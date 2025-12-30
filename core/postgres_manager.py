@@ -546,6 +546,7 @@ class PostgresManager:
             df = pd.read_sql(query, conn, params=(client_id,))
             if not df.empty and 'Date' in df.columns:
                 df['Date'] = pd.to_datetime(df['Date'])
+                print(f"DEBUG: DB fetch for {client_id}: {len(df)} rows. Range: {df['Date'].min()} to {df['Date'].max()}")
         
         _query_cache.set(cache_key, df)
         return df
