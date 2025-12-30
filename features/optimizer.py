@@ -1910,24 +1910,19 @@ def _log_optimization_events(results: dict, client_id: str, report_date: str):
     if not actions_to_log:
         return 0
     
-    # SIMPLIFIED FLOW: Always save directly to DB with undo capability
-    db = get_db_manager(st.session_state.get('test_mode', False))
-    try:
-        db.log_action_batch(actions_to_log, client_id, batch_id, report_date)
-        
-        # Set up undo capability
-        st.session_state['_last_saved_batch_id'] = batch_id
-        st.session_state['_last_saved_client_id'] = client_id
-        st.session_state['_undo_window_start'] = time.time()
-        
-        # Mark as accepted for future runs
-        st.session_state['optimizer_actions_accepted'] = True
-        
-        st.toast(f"✅ {len(actions_to_log)} actions saved to history", icon="💾")
-        return len(actions_to_log)
-    except Exception as e:
-        st.error(f"Failed to log actions: {str(e)}")
-        return 0
+    # PENDING ACTIONS WORKFLOW: Store actions in session state for confirmation on tab exit
+    # This allows user to run multiple scenarios before committing to actions_log table
+    st.session_state['pending_actions'] = {
+        'actions': actions_to_log,
+        'client_id': client_id,
+        'batch_id': batch_id,
+        'report_date': report_date
+    }
+    
+    # Show user feedback that actions are ready (not saved yet)
+    st.info(f"📋 {len(actions_to_log)} actions ready. Will prompt to save when you leave this tab.", icon="📋")
+    
+    return len(actions_to_log)
 
 
 # ==========================================
