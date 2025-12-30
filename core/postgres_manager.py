@@ -614,7 +614,44 @@ class PostgresManager:
                         SUM(sales) as total_sales
                     FROM weekly_stats
                 """)
-                return dict(cursor.fetchone())
+                rows = cursor.fetchall() # Fetch all results
+                
+                # Convert to DataFrame
+                df = pd.DataFrame(rows)
+                
+                # Standardize columns to match UI expectations (snake_case -> Title Case)
+                rename_map = {
+                    'date': 'Date',
+                    'campaign_name': 'Campaign Name',
+                    'ad_group_name': 'Ad Group Name', 
+                    'targeting': 'Targeting',
+                    'match_type': 'Match Type',
+                    'impressions': 'Impressions',
+                    'clicks': 'Clicks',
+                    'spend': 'Spend',
+                    'sales': 'Sales',
+                    'orders': 'Orders',
+                    'units': 'Units',
+                    'ctr': 'CTR',
+                    'cpc': 'CPC',
+                    'cvr': 'CVR', 
+                    'roas': 'ROAS',
+                    'acos': 'ACoS',
+                    'customer_search_term': 'Customer Search Term'
+                }
+                df = df.rename(columns=rename_map)
+                
+                # Ensure numerical types
+                num_cols = ['Impressions', 'Clicks', 'Spend', 'Sales', 'Orders', 'Units']
+                for col in num_cols:
+                    if col in df.columns:
+                        df[col] = pd.to_numeric(df[col], errors='coerce').fillna(0)
+                        
+                # Ensure date type
+                if 'Date' in df.columns:
+                    df['Date'] = pd.to_datetime(df['Date'])
+                
+                return df
 
     def save_category_mapping(self, df: pd.DataFrame, client_id: str):
         if df is None or df.empty: return 0
