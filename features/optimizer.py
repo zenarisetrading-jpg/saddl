@@ -1256,6 +1256,8 @@ def _process_bucket(segment_df: pd.DataFrame, config: dict, min_clicks: int, buc
         # VISIBILITY BOOST: 2+ weeks data, <100 impressions = bid not competitive
         # Only for keywords (exact/phrase/broad) and close-match auto
         # Exclude: loose-match, substitutes, complements, ASIN targeting, category targeting
+        # Note: 0 impressions = bid SO low it can't even enter auctions (needs boost even more)
+        # Paused targets can be identified by state='paused', not by impressions=0
         is_eligible_for_boost = (
             match_type in VISIBILITY_BOOST_ELIGIBLE_TYPES or
             targeting in VISIBILITY_BOOST_ELIGIBLE_TYPES
@@ -1263,8 +1265,7 @@ def _process_bucket(segment_df: pd.DataFrame, config: dict, min_clicks: int, buc
         
         if (is_eligible_for_boost and 
             data_days >= VISIBILITY_BOOST_MIN_DAYS and 
-            impressions < VISIBILITY_BOOST_MAX_IMPRESSIONS and 
-            impressions > 0):
+            impressions < VISIBILITY_BOOST_MAX_IMPRESSIONS):
             new_bid = round(base_bid * (1 + VISIBILITY_BOOST_PCT), 2)
             return new_bid, f"Visibility Boost: Only {impressions} impressions in {data_days} days", "Visibility Boost (+30%)"
         

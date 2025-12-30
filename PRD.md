@@ -362,7 +362,8 @@ For targets that are **not winning auctions** despite running for 2+ weeks.
 |-----------|-----------|
 | Data window | ≥ 14 days |
 | Impressions | < 100 (not winning auctions) |
-| Impressions | > 0 (not paused) |
+
+> **Note:** 0 impressions = bid SO low it can't even enter auctions. Paused targets are identified by `state='paused'`, not impressions.
 
 **Eligible Match Types:**
 - ✅ Exact, Phrase, Broad (explicit keyword choices)

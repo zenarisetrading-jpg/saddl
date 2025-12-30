@@ -58,8 +58,8 @@ Targets with **low impressions over 2+ weeks** are not competitive in auctions -
 **Trigger Conditions:**
 - Data window ≥ 14 days (sufficient time to judge)
 - Impressions < 100 (not winning auctions)
-- Impressions > 0 (not paused)
-- Match Type = **Exact, Phrase, Broad, or Close-match** only
+- Includes 0 impressions (bid SO low it can't even enter auctions)
+- Note: Paused targets are identified by `state='paused'`, not impressions
 
 **NOT eligible (Amazon decides relevance):**
 - loose-match, substitutes, complements
