@@ -5,7 +5,8 @@ Run this with: streamlit run check_impact.py
 """
 import streamlit as st
 import sys
-sys.path.insert(0, '.')
+from pathlib import Path
+sys.path.append(str(Path(__file__).parent.parent))
 
 st.title("Impact Diagnostic for demo_client")
 

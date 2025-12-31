@@ -4,7 +4,9 @@ import sys
 import pandas as pd
 
 # Add the parent directory to the path so we can import core modules
-sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), '.')))
+# Add the parent directory to the path so we can import core modules
+from pathlib import Path
+sys.path.append(str(Path(__file__).parent.parent))
 
 from core.db_manager import get_db_manager
 

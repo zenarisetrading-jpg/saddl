@@ -1,4 +1,8 @@
 
+import sys
+from pathlib import Path
+sys.path.append(str(Path(__file__).parent.parent))
+
 import pandas as pd
 import re
 from core.data_loader import safe_numeric, SmartMapper
