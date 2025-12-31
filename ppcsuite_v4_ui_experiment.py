@@ -531,6 +531,8 @@ def run_consolidated_optimizer():
         if st.session_state.get("last_preset") != preset:
             st.session_state["last_preset"] = preset
             config = preset_configs[preset]
+            
+            # Update opt.config
             opt.config["HARVEST_CLICKS"] = config["harvest_clicks"]
             opt.config["HARVEST_ORDERS"] = config["harvest_orders"]
             opt.config["HARVEST_ROAS_MULT"] = config["harvest_roas"] / 100
@@ -543,6 +545,19 @@ def run_consolidated_optimizer():
             opt.config["MIN_CLICKS_PT"] = config["min_clicks_pt"]
             opt.config["MIN_CLICKS_BROAD"] = config["min_clicks_broad"]
             opt.config["MIN_CLICKS_AUTO"] = config["min_clicks_auto"]
+            
+            # CRITICAL: Also update session state so widgets pick up preset values on next rerun
+            # This prevents widgets from resetting to default values
+            st.session_state["main_h_clicks"] = config["harvest_clicks"]
+            st.session_state["main_h_orders"] = config["harvest_orders"]
+            st.session_state["main_alpha_exact"] = config["alpha_exact"]
+            st.session_state["main_max_bid"] = config["max_change"]
+            st.session_state["main_target_roas"] = config["target_roas"]
+            st.session_state["main_neg_clicks"] = config["neg_clicks"]
+            st.session_state["min_clicks_exact"] = config["min_clicks_exact"]
+            st.session_state["min_clicks_pt"] = config["min_clicks_pt"]
+            st.session_state["min_clicks_broad"] = config["min_clicks_broad"]
+            st.session_state["min_clicks_auto"] = config["min_clicks_auto"]
         
         st.caption("*Conservative = slower, safer changes • Aggressive = faster, bigger changes*")
         
