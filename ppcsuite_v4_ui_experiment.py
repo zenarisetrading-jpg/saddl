@@ -989,7 +989,7 @@ def main():
             # Use a transparent button over the chiclet for interactivity
             if st.button(label, key=f"nav_{module_key}", use_container_width=True):
                 # Check if leaving optimizer with pending actions
-                if st.session_state.get('current_module') == 'optimize' and st.session_state.get('pending_actions'):
+                if st.session_state.get('current_module') == 'optimizer' and st.session_state.get('pending_actions'):
                     # Trigger confirmation dialog instead of navigating
                     st.session_state['_show_action_confirmation'] = True
                     st.session_state['_pending_navigation_target'] = module_key
