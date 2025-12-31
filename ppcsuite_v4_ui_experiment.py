@@ -450,8 +450,12 @@ def run_consolidated_optimizer():
         # === QUICK PRESETS ===
         st.markdown("**Quick Presets**")
         preset_options = ["Conservative", "Balanced", "Aggressive"]
-        active_preset = st.session_state.get("last_preset", "Balanced")
-        preset_idx = preset_options.index(active_preset) if active_preset in preset_options else 1
+        
+        # Initialize preset in session state if not set
+        if "opt_preset_main" not in st.session_state:
+            st.session_state["opt_preset_main"] = "Balanced"
+        
+        preset_idx = preset_options.index(st.session_state["opt_preset_main"])
         
         preset = st.radio(
             "Choose optimization style",
@@ -485,8 +489,9 @@ def run_consolidated_optimizer():
         }
         
         # Apply preset to config if changed
-        if st.session_state.get("last_preset") != preset:
-            st.session_state["last_preset"] = preset
+        # Use a separate tracker to detect actual changes (not just reloads)
+        if st.session_state.get("_last_applied_preset") != preset:
+            st.session_state["_last_applied_preset"] = preset
             config = preset_configs[preset]
             
             # Update opt.config
