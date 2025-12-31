@@ -803,7 +803,24 @@ class PostgresManager:
             date_str = datetime.now().isoformat()
             
         data = []
+        # Track unique constraint keys to prevent duplicates in same batch
+        seen_keys = set()
+        
         for action in actions:
+            # Unique key matches ON CONFLICT constraint
+            unique_key = (
+                client_id,
+                date_str[:10],  # action_date
+                action.get('target_text', ''),
+                action.get('action_type', 'UNKNOWN'),
+                action.get('campaign_name', '')
+            )
+            
+            # Skip if we've already seen this combination
+            if unique_key in seen_keys:
+                continue
+            seen_keys.add(unique_key)
+            
             data.append((
                 date_str,
                 client_id,
@@ -817,11 +834,14 @@ class PostgresManager:
                 action.get('ad_group_name', ''),
                 action.get('target_text', ''),
                 action.get('match_type', ''),
-                action.get('winner_source_campaign'),  # NEW FIELD
-                action.get('new_campaign_name'),  # NEW FIELD
-                action.get('before_match_type'),  # NEW FIELD
-                action.get('after_match_type')  # NEW FIELD
+                action.get('winner_source_campaign'),
+                action.get('new_campaign_name'),
+                action.get('before_match_type'),
+                action.get('after_match_type')
             ))
+        
+        if not data:
+            return 0
             
         with self._get_connection() as conn:
             with conn.cursor(cursor_factory=RealDictCursor) as cursor:
@@ -845,7 +865,7 @@ class PostgresManager:
                         before_match_type = EXCLUDED.before_match_type,
                         after_match_type = EXCLUDED.after_match_type
                 """, data)
-        return len(actions)
+        return len(data)
 
     def delete_action_batch(self, client_id: str, batch_id: str) -> int:
         """Delete a specific action batch (for undo functionality)."""
