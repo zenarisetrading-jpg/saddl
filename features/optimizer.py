@@ -1667,11 +1667,22 @@ def _forecast_scenario(
             new_bid = float(row.get("New Bid", base_cpc * launch_mult) or base_cpc * launch_mult)
             base_cvr = base_orders / base_clicks if base_clicks > 0 else 0
             base_aov = base_sales / base_orders if base_orders > 0 else 0
+            base_roas = base_sales / base_spend if base_spend > 0 else 0
             
-            # Harvest: same traffic, better efficiency
+            # FIXED HARVEST LOGIC:
+            # Harvest moves proven performers to exact match
+            # They already convert well - we're just isolating them for better control
+            # 
+            # Key insight: Harvest terms are ABOVE-AVERAGE performers
+            # Moving them to exact match gives:
+            # 1. Same/similar traffic (they're proven keywords)
+            # 2. Slightly LOWER CPC (exact match is more efficient than broad)
+            # 3. HIGHER CVR (focused traffic, no irrelevant queries)
+            
+            # Model: Same clicks, 10% lower CPC, 15%+ better CVR
             fore_clicks = base_clicks
-            fore_cpc = new_bid * 0.95
-            fore_cvr = base_cvr * efficiency
+            fore_cpc = base_cpc * 0.90  # Exact match is typically more efficient
+            fore_cvr = base_cvr * efficiency  # 1.15x CVR improvement (default)
             
             fore_orders = fore_clicks * fore_cvr
             fore_sales = fore_orders * base_aov
@@ -1679,8 +1690,8 @@ def _forecast_scenario(
             
             forecasted_changes.append({
                 "delta_clicks": fore_clicks - base_clicks,
-                "delta_spend": fore_spend - base_spend,
-                "delta_sales": fore_sales - base_sales,
+                "delta_spend": fore_spend - base_spend,  # Should be NEGATIVE (savings!)
+                "delta_sales": fore_sales - base_sales,  # Should be POSITIVE (better CVR!)
                 "delta_orders": fore_orders - base_orders
             })
     
