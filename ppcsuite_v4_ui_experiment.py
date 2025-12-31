@@ -907,13 +907,6 @@ def run_consolidated_optimizer():
 def main():
     setup_page()
     
-    # === CONFIRMATION DIALOG CHECK ===
-    # If confirmation is needed, show popup dialog (overlays on current page)
-    if st.session_state.get('_show_action_confirmation'):
-        from ui.action_confirmation import render_action_confirmation_modal
-        render_action_confirmation_modal()
-        # Dialog shows as popup - continue rendering the page underneath
-    
     # === AUTHENTICATION GATE ===
     # Shows login page if not authenticated, blocks access to main app
     user = require_authentication()
