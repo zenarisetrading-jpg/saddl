@@ -707,9 +707,14 @@ def run_consolidated_optimizer():
             for _, row in df.iterrows():
                 actions_list.append({
                     'action_type': 'BID_CHANGE',
-                    'source': df_name,
-                    'campaign': row.get('Campaign Name', ''),
-                    'targeting': row.get('Targeting', row.get('Customer Search Term', ''))
+                    'entity_name': df_name,
+                    'campaign_name': row.get('Campaign Name', ''),
+                    'ad_group_name': row.get('Ad Group Name', ''),
+                    'target_text': row.get('Targeting', row.get('Customer Search Term', '')),
+                    'match_type': row.get('Match Type', ''),
+                    'old_value': str(row.get('CPC', row.get('Cost Per Click (CPC)', ''))),
+                    'new_value': str(row.get('New Bid', '')),
+                    'reason': row.get('Reason', '')
                 })
     
     # Collect negatives
@@ -719,9 +724,14 @@ def run_consolidated_optimizer():
             for _, row in df.iterrows():
                 actions_list.append({
                     'action_type': 'NEGATIVE',
-                    'source': df_name,
-                    'campaign': row.get('Campaign Name', ''),
-                    'targeting': row.get('Targeting', row.get('Customer Search Term', ''))
+                    'entity_name': df_name,
+                    'campaign_name': row.get('Campaign Name', ''),
+                    'ad_group_name': row.get('Ad Group Name', ''),
+                    'target_text': row.get('Term', row.get('Targeting', row.get('Customer Search Term', ''))),
+                    'match_type': row.get('Match Type', ''),
+                    'old_value': '',
+                    'new_value': 'ADD_NEGATIVE',
+                    'reason': row.get('Reason', '')
                 })
     
     # Collect harvests
@@ -730,8 +740,17 @@ def run_consolidated_optimizer():
         for _, row in harvest_df.iterrows():
             actions_list.append({
                 'action_type': 'HARVEST',
-                'campaign': row.get('Campaign Name', ''),
-                'targeting': row.get('Harvest_Term', row.get('Customer Search Term', ''))
+                'entity_name': 'harvest',
+                'campaign_name': row.get('Campaign Name', ''),
+                'ad_group_name': row.get('Ad Group Name', ''),
+                'target_text': row.get('Harvest_Term', row.get('Customer Search Term', '')),
+                'match_type': row.get('Match Type', 'EXACT'),
+                'old_value': str(row.get('CPC', '')),
+                'new_value': str(row.get('New Bid', '')),
+                'reason': 'Promote to exact match campaign',
+                'winner_source_campaign': row.get('Campaign Name', ''),
+                'before_match_type': row.get('Match Type', ''),
+                'after_match_type': 'EXACT'
             })
     
     # Store in session state for confirmation dialog
