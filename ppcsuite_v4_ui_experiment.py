@@ -711,6 +711,58 @@ def run_consolidated_optimizer():
         st.session_state['latest_optimizer_run'] = r
     
     # ==========================================
+    # STORE PENDING ACTIONS FOR CONFIRMATION DIALOG
+    # ==========================================
+    # Build list of all pending actions from optimizer results
+    # This enables the "Save/Discard" dialog when leaving optimizer tab
+    actions_list = []
+    
+    # Collect all bid changes
+    for df_name in ['bids_exact', 'bids_pt', 'bids_agg', 'bids_auto']:
+        df = r.get(df_name)
+        if df is not None and not df.empty:
+            for _, row in df.iterrows():
+                actions_list.append({
+                    'action_type': 'BID_CHANGE',
+                    'source': df_name,
+                    'campaign': row.get('Campaign Name', ''),
+                    'targeting': row.get('Targeting', row.get('Customer Search Term', ''))
+                })
+    
+    # Collect negatives
+    for df_name in ['neg_kw', 'neg_pt']:
+        df = r.get(df_name)
+        if df is not None and not df.empty:
+            for _, row in df.iterrows():
+                actions_list.append({
+                    'action_type': 'NEGATIVE',
+                    'source': df_name,
+                    'campaign': row.get('Campaign Name', ''),
+                    'targeting': row.get('Targeting', row.get('Customer Search Term', ''))
+                })
+    
+    # Collect harvests
+    harvest_df = r.get('harvest')
+    if harvest_df is not None and not harvest_df.empty:
+        for _, row in harvest_df.iterrows():
+            actions_list.append({
+                'action_type': 'HARVEST',
+                'campaign': row.get('Campaign Name', ''),
+                'targeting': row.get('Harvest_Term', row.get('Customer Search Term', ''))
+            })
+    
+    # Store in session state for confirmation dialog
+    if actions_list:
+        st.session_state['pending_actions'] = {
+            'actions': actions_list,
+            'client_id': st.session_state.get('active_account_id', 'unknown'),
+            'count': len(actions_list)
+        }
+        print(f"[PENDING_ACTIONS] Stored {len(actions_list)} pending actions")
+    else:
+        st.session_state['pending_actions'] = None
+    
+    # ==========================================
     # LOG ACTIONS FOR IMPACT ANALYSIS
     # ==========================================
     from features.optimizer import _log_optimization_events
