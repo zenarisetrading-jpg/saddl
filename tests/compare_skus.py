@@ -4,7 +4,8 @@ Run this to see why category matching is failing.
 """
 
 import sys
-sys.path.insert(0, '/Users/zayaanyousuf/Documents/Amazon PPC/saddle/saddle')
+from pathlib import Path
+sys.path.append(str(Path(__file__).parent.parent))
 
 from core.db_manager import get_db_manager
 

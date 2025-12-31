@@ -3,7 +3,8 @@ import sys
 import os
 import pandas as pd
 import numpy as np
-sys.path.append(os.getcwd())
+from pathlib import Path
+sys.path.append(str(Path(__file__).parent.parent))
 
 from core.postgres_manager import PostgresManager
 

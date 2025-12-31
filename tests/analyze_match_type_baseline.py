@@ -7,8 +7,8 @@ to see how many targets would be reclassified.
 Run: python analyze_match_type_baseline.py
 """
 
-import sys
-sys.path.insert(0, '.')
+from pathlib import Path
+sys.path.append(str(Path(__file__).parent.parent))
 
 from core.db_manager import get_db_manager
 import pandas as pd
