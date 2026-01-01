@@ -827,7 +827,12 @@ def _render_validation_rate_chart(impact_df: pd.DataFrame):
     """Render the Validation Rate chart (Vertical Bar)."""
     import plotly.graph_objects as go
     
-    st.markdown("#### 🛡️ Validation Rate")
+    st.markdown("""
+    <div style="display: flex; align-items: center; gap: 8px; font-size: 1.1rem; font-weight: 600; color: #E9EAF0; margin-bottom: 4px;">
+        <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="#8F8CA3" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"></path></svg>
+        Validation Rate
+    </div>
+    """, unsafe_allow_html=True)
     st.caption("Proportion of decisions by status")
     
     if impact_df.empty:
@@ -926,7 +931,12 @@ def _render_cumulative_impact_chart(impact_df: pd.DataFrame, currency: str):
     """Render Cumulative Impact Over Time (Line Chart with Area)."""
     import plotly.graph_objects as go
     
-    st.markdown("#### 📈 Cumulative Verified Impact")
+    st.markdown("""
+    <div style="display: flex; align-items: center; gap: 8px; font-size: 1.1rem; font-weight: 600; color: #E9EAF0; margin-bottom: 4px;">
+        <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="#8F8CA3" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="23 6 13.5 15.5 8.5 10.5 1 18"></polyline><polyline points="17 6 23 6 23 12"></polyline></svg>
+        Cumulative Verified Impact
+    </div>
+    """, unsafe_allow_html=True)
     st.caption("Impact accumulation over the analysis period")
     
     if impact_df.empty:
@@ -1234,7 +1244,12 @@ def _render_new_impact_analytics(summary: Dict[str, Any], impact_df: pd.DataFram
         _render_decision_quality_distribution(summary)
         
     with r2c2:
-        st.markdown("#### ⚡ Impact by Action Type")
+        st.markdown("""
+        <div style="display: flex; align-items: center; gap: 8px; font-size: 1.1rem; font-weight: 600; color: #E9EAF0; margin-bottom: 4px;">
+            <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="#8F8CA3" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polygon points="13 2 3 14 12 14 11 22 21 10 12 10 13 2"></polygon></svg>
+            Impact by Action Type
+        </div>
+        """, unsafe_allow_html=True)
         st.caption("Revenue preserved by type")
         if not impact_df.empty:
             type_impact = impact_df.groupby('action_type')['decision_impact'].sum().sort_values(ascending=False)
@@ -1265,7 +1280,12 @@ def _render_decision_outcome_matrix(impact_df: pd.DataFrame, summary: Dict[str, 
     import plotly.graph_objects as go
     import numpy as np
     
-    st.markdown("#### 🎯 Decision Outcome Matrix")
+    st.markdown("""
+    <div style="display: flex; align-items: center; gap: 8px; font-size: 1.1rem; font-weight: 600; color: #E9EAF0; margin-bottom: 4px;">
+        <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="#8F8CA3" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"></circle><circle cx="12" cy="12" r="6"></circle><circle cx="12" cy="12" r="2"></circle></svg>
+        Decision Outcome Matrix
+    </div>
+    """, unsafe_allow_html=True)
     st.caption("Were decisions correct given market conditions?")
     
     if impact_df.empty:
@@ -1378,7 +1398,12 @@ def _render_decision_quality_distribution(summary: Dict[str, Any]):
     
     import plotly.graph_objects as go
     
-    st.markdown("#### 📊 Decision Quality Distribution")
+    st.markdown("""
+    <div style="display: flex; align-items: center; gap: 8px; font-size: 1.1rem; font-weight: 600; color: #E9EAF0; margin-bottom: 4px;">
+        <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="#8F8CA3" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21.21 15.89A10 10 0 1 1 8 2.83"></path><path d="M22 12A10 10 0 0 0 12 2v10z"></path></svg>
+        Decision Quality Distribution
+    </div>
+    """, unsafe_allow_html=True)
     
     pct_good = summary.get('pct_good', 0)
     pct_neutral = summary.get('pct_neutral', 0)
