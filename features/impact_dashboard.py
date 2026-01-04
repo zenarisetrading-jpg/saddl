@@ -607,14 +607,15 @@ def render_impact_dashboard():
             (active_df['validation_status'].str.contains('✓', na=False).astype(float) * 0.2)  # 0.2 if validated
         ).clip(0, 1)
         
-        # market_tag: detect market downshift
-        def get_market_tag(row):
+        # market_quality_tag: detect market downshift (DIFFERENT from quadrant market_tag)
+        # This is for confidence calculation, NOT for quadrant aggregation
+        def get_market_quality_tag(row):
             if row.get('before_clicks', 0) == 0:
                 return "Low Data"
             if row.get('market_downshift', False) == True:
                 return "Market Downshift"
             return "Normal"
-        active_df['market_tag'] = active_df.apply(get_market_tag, axis=1)
+        active_df['market_quality_tag'] = active_df.apply(get_market_quality_tag, axis=1)
         
         # is_validated: already used for filtering
         active_df['is_validated'] = True  # All in active_df are validated if toggle is on
