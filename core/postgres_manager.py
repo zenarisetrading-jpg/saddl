@@ -1873,9 +1873,22 @@ class PostgresManager:
             low_sample_mask = bid_df['before_clicks'] < MIN_CLICKS_FOR_RELIABLE
             bid_df.loc[low_sample_mask, 'decision_impact'] = 0
             
-            # Aggregate Decision Impact metrics (now excludes low-sample)
-            # NOTE: No Market Drag exclusion - sum ALL impacts for consistency with pre-refactor
-            valid_impacts = bid_df['decision_impact'].dropna()
+            # ==========================================
+            # MARKET DRAG EXCLUSION (Consistency with Dashboard)
+            # ==========================================
+            # Use pre-calculated market_tag if available, otherwise calculate
+            if 'market_tag' in bid_df.columns:
+                # Exclude Market Drag for attributed impact (same as Dashboard Hero)
+                non_drag_df = bid_df[bid_df['market_tag'] != 'Market Drag']
+            else:
+                # Fallback: Calculate market_tag if not present
+                bid_df['expected_trend_pct'] = ((bid_df['expected_sales'] - bid_df['before_sales']) / bid_df['before_sales'] * 100).fillna(0)
+                bid_df['actual_change_pct'] = ((bid_df['observed_after_sales'] - bid_df['before_sales']) / bid_df['before_sales'] * 100).fillna(0)
+                bid_df['decision_value_pct'] = bid_df['actual_change_pct'] - bid_df['expected_trend_pct']
+                non_drag_df = bid_df[~((bid_df['expected_trend_pct'] < 0) & (bid_df['decision_value_pct'] < 0))]
+            
+            # Aggregate Decision Impact metrics (now excludes low-sample AND Market Drag)
+            valid_impacts = non_drag_df['decision_impact'].dropna()
             total_decision_impact = valid_impacts.sum() if len(valid_impacts) > 0 else 0
             total_spend_avoided = bid_df['spend_avoided'].sum()
             market_downshift_count = int(bid_df['market_downshift'].sum())
