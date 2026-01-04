@@ -790,6 +790,8 @@ def _render_hero_banner(impact_df: pd.DataFrame, currency: str, horizon_label: s
     """
     Render the Hero Section: "Did your optimizations make money?"
     Human-centered design with YES/NO/BREAK EVEN prefix.
+    
+    Uses the ORIGINAL simple calculation: sum of all decision_impact.
     """
     import numpy as np
     
@@ -801,8 +803,13 @@ def _render_hero_banner(impact_df: pd.DataFrame, currency: str, horizon_label: s
     df = _ensure_impact_columns(impact_df)
     
     # ==========================================
-    # QUADRANT AGGREGATION
+    # SIMPLE CALCULATION (Original Behavior)
     # ==========================================
+    # Sum ALL decision_impact - no Market Drag exclusion
+    # This matches the pre-refactor behavior (~8.5K)
+    attributed_impact = df['decision_impact'].sum()
+    
+    # Calculate quadrant breakdowns for "What Worked" / "What Didn't" display ONLY
     offensive_wins = df[df['market_tag'] == 'Offensive Win']
     offensive_val = offensive_wins['decision_impact'].sum()
     
@@ -813,18 +820,18 @@ def _render_hero_banner(impact_df: pd.DataFrame, currency: str, horizon_label: s
     gap_val = gaps['decision_impact'].sum()
     
     drag = df[df['market_tag'] == 'Market Drag']
+    drag_val = drag['decision_impact'].sum()
     drag_count = len(drag)
     
-    # Attributed Impact excludes Market Drag (ambiguous attribution)
-    attributed_impact = offensive_val + defensive_val + gap_val
     total_wins = offensive_val + defensive_val
     
     # Store metrics in session for other sections to consume
     st.session_state['_impact_metrics'] = {
-        'attributed_impact': attributed_impact,
+        'attributed_impact': attributed_impact,  # Now total without exclusion
         'offensive_val': offensive_val,
         'defensive_val': defensive_val,
         'gap_val': gap_val,
+        'drag_val': drag_val,
         'total_wins': total_wins,
         'drag_count': drag_count,
         'offensive_count': len(offensive_wins),
