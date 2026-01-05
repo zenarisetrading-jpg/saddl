@@ -861,9 +861,20 @@ def _render_hero_banner(impact_df: pd.DataFrame, currency: str, horizon_label: s
     impact_sign = '+' if attributed_impact >= 0 else ''
     impact_display = f"{impact_sign}{currency}{attributed_impact:,.0f}"
     
+    # Calculate incremental lift percentage
+    # incremental_pct = decision_impact / (observed_sales - decision_impact) * 100
+    # This represents "Your revenue was X% higher because of optimizations"
+    non_drag_mask = df['market_tag'] != 'Market Drag'
+    total_observed_sales = df.loc[non_drag_mask, 'observed_after_sales'].sum()
+    baseline_sales = total_observed_sales - attributed_impact
+    incremental_pct = (attributed_impact / baseline_sales * 100) if baseline_sales > 0 else 0
+    incremental_sign = '+' if incremental_pct >= 0 else ''
+    incremental_badge = f"{incremental_sign}{incremental_pct:.1f}% incremental" if abs(incremental_pct) > 0.1 else ""
+    
     # SVG Icons
     checkmark_icon = '<svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"><polyline points="20 6 9 17 4 12"></polyline></svg>'
     info_icon = '<svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="#94a3b8" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="vertical-align: middle; cursor: help;"><circle cx="12" cy="12" r="10"></circle><line x1="12" y1="16" x2="12" y2="12"></line><line x1="12" y1="8" x2="12.01" y2="8"></line></svg>'
+    arrow_up_icon = '<svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="12" y1="19" x2="12" y2="5"></line><polyline points="5 12 12 5 19 12"></polyline></svg>'
     
     # Progress bar calculation (wins vs total excluding drag)
     total_counted = len(offensive_wins) + len(defensive_wins) + len(gaps)
@@ -873,6 +884,12 @@ def _render_hero_banner(impact_df: pd.DataFrame, currency: str, horizon_label: s
     # Methodology tooltip
     methodology_tooltip = "We compare what actually happened to what would have happened if you changed nothing. We only count results we can clearly trace back to your decisions — not market ups and downs."
     
+    # Build incremental badge HTML
+    badge_html = ""
+    if incremental_badge:
+        badge_color = "#10B981" if incremental_pct >= 0 else "#EF4444"
+        badge_html = f'<span style="display: inline-flex; align-items: center; gap: 4px; background: rgba(16, 185, 129, 0.15); color: {badge_color}; padding: 4px 12px; border-radius: 20px; font-size: 1rem; font-weight: 600; margin-left: 16px; vertical-align: middle;">{arrow_up_icon} {incremental_badge}</span>'
+    
     st.markdown(f"""
     <div style="background: linear-gradient(135deg, rgba(91, 86, 112, 0.25) 0%, rgba(91, 86, 112, 0.08) 100%); border: 1px solid rgba(91, 86, 112, 0.3); border-radius: 16px; padding: 32px 40px; margin-bottom: 24px;">
         <div style="display: flex; align-items: center; gap: 8px; margin-bottom: 24px;">
@@ -880,7 +897,7 @@ def _render_hero_banner(impact_df: pd.DataFrame, currency: str, horizon_label: s
             <span style="font-size: 1.1rem; font-weight: 600; color: #E9EAF0;">Did your optimizations make money?</span>
             <span style="margin-left: auto; font-size: 0.85rem; color: #94a3b8; opacity: 0.7;">({horizon_label})</span>
         </div>
-        <div style="font-size: 2.8rem; font-weight: 800; color: {answer_color}; margin-bottom: 8px;">{answer_prefix} — {impact_display}</div>
+        <div style="font-size: 2.8rem; font-weight: 800; color: {answer_color}; margin-bottom: 8px;">{answer_prefix} — {impact_display}{badge_html}</div>
         <div style="background: rgba(255,255,255,0.1); border-radius: 8px; height: 12px; margin: 16px 0; overflow: hidden;">
             <div style="background: linear-gradient(90deg, #10B981 0%, #059669 100%); height: 100%; width: {win_pct}%; border-radius: 8px;"></div>
         </div>
