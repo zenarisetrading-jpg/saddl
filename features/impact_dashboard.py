@@ -930,12 +930,13 @@ def _render_hero_banner(impact_df: pd.DataFrame, currency: str, horizon_label: s
             
             # Convert z-score to confidence percentage using CDF
             # P(Z < z) gives one-tailed probability; we want two-tailed confidence
+            # Cap at 99% - never claim 100% certainty
             if z_score > 0:
                 # Positive impact: confidence that true impact > 0
-                confidence_pct = stats.norm.cdf(z_score) * 100
+                confidence_pct = min(99, stats.norm.cdf(z_score) * 100)
             else:
                 # Negative impact: confidence that true impact < 0
-                confidence_pct = (1 - stats.norm.cdf(z_score)) * 100
+                confidence_pct = min(99, (1 - stats.norm.cdf(z_score)) * 100)
             
             # Calculate 90% confidence interval
             z_90 = 1.645
