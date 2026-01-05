@@ -907,24 +907,66 @@ def _render_hero_banner(impact_df: pd.DataFrame, currency: str, horizon_label: s
     
     # Methodology expander (works better than HTML tooltip)
     with st.expander("ℹ️ How we know this", expanded=False):
-        # Calculate statistical confidence based on sample size and consistency
-        n_decisions = total_counted
-        win_rate = win_pct / 100 if win_pct else 0
+        # ==========================================
+        # PROPER Z-SCORE BASED STATISTICAL CONFIDENCE
+        # ==========================================
+        import numpy as np
+        from scipy import stats
         
-        # Simple confidence heuristic based on sample size and win consistency
-        # More decisions + consistent direction = higher confidence
-        if n_decisions >= 100 and win_rate >= 0.6:
-            confidence_label = "High"
-            confidence_color = "#10B981"
-            confidence_pct = 90
-        elif n_decisions >= 50 and win_rate >= 0.5:
-            confidence_label = "Moderate"
-            confidence_color = "#F59E0B"
-            confidence_pct = 75
+        n_decisions = total_counted
+        
+        # Get impact values for statistical analysis (excluding Market Drag)
+        impact_values = df.loc[non_drag_mask, impact_col].dropna()
+        
+        if len(impact_values) >= 2:
+            # Calculate z-score: how many standard errors is the mean from zero?
+            mean_impact = impact_values.mean()
+            std_impact = impact_values.std(ddof=1)  # Sample std
+            n = len(impact_values)
+            standard_error = std_impact / np.sqrt(n) if std_impact > 0 else 0
+            
+            # Z-score = mean / standard error
+            z_score = mean_impact / standard_error if standard_error > 0 else 0
+            
+            # Convert z-score to confidence percentage using CDF
+            # P(Z < z) gives one-tailed probability; we want two-tailed confidence
+            if z_score > 0:
+                # Positive impact: confidence that true impact > 0
+                confidence_pct = stats.norm.cdf(z_score) * 100
+            else:
+                # Negative impact: confidence that true impact < 0
+                confidence_pct = (1 - stats.norm.cdf(z_score)) * 100
+            
+            # Calculate 90% confidence interval
+            z_90 = 1.645
+            ci_lower = mean_impact - z_90 * standard_error
+            ci_upper = mean_impact + z_90 * standard_error
+            
+            # Determine label based on z-score thresholds
+            # z > 2.58 → 99% confident
+            # z > 1.96 → 95% confident  
+            # z > 1.645 → 90% confident
+            abs_z = abs(z_score)
+            if abs_z >= 2.58:
+                confidence_label = "Very High"
+                confidence_color = "#10B981"
+            elif abs_z >= 1.96:
+                confidence_label = "High"
+                confidence_color = "#10B981"
+            elif abs_z >= 1.645:
+                confidence_label = "Moderate"
+                confidence_color = "#F59E0B"
+            else:
+                confidence_label = "Directional"
+                confidence_color = "#94a3b8"
         else:
-            confidence_label = "Directional"
+            # Not enough data for statistical analysis
+            confidence_label = "Insufficient Data"
             confidence_color = "#94a3b8"
-            confidence_pct = 60
+            confidence_pct = 0
+            z_score = 0
+            ci_lower = 0
+            ci_upper = 0
         
         st.markdown(f"""
         We compare what **actually happened** to what **would have happened** if you changed nothing.
@@ -937,7 +979,7 @@ def _render_hero_banner(impact_df: pd.DataFrame, currency: str, horizon_label: s
         
         Based on **{n_decisions:,} validated decisions** with a **{win_pct:.0f}% win rate**.
         
-        <small style="color: #64748b;">We're {confidence_pct}%+ confident this impact is real and not random noise.</small>
+        <small style="color: #64748b;">We're {confidence_pct:.0f}% confident this impact is real and not random noise.</small>
         """, unsafe_allow_html=True)
 
 
