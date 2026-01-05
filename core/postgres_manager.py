@@ -1078,13 +1078,14 @@ class PostgresManager:
                 a.before_end as before_end_date,
                 a.after_start as after_date,
                 LEAST(a.after_end, ld.latest_date) as after_end_date,
-                -- Count actual data days in windows
-                (SELECT COUNT(DISTINCT start_date) FROM target_stats 
-                 WHERE client_id = %(client_id)s 
-                   AND start_date >= a.before_start AND start_date <= a.before_end) as actual_before_days,
-                (SELECT COUNT(DISTINCT start_date) FROM target_stats 
-                 WHERE client_id = %(client_id)s 
-                   AND start_date >= a.after_start AND start_date <= LEAST(a.after_end, ld.latest_date)) as actual_after_days,
+                -- Count actual CALENDAR DAYS in windows (not report count)
+                -- before_days = days spanned by data in before window + 7 (one week's data coverage)
+                COALESCE((SELECT (MAX(start_date)::date - MIN(start_date)::date) + 7
+                          FROM target_stats 
+                          WHERE client_id = %(client_id)s 
+                            AND start_date >= a.before_start AND start_date <= a.before_end), 0) as actual_before_days,
+                -- after_days = calendar days from action_date to latest available data
+                (ld.latest_date::date - a.after_start::date + 1) as actual_after_days,
                 -- BEFORE stats via LATERAL (per-action window)
                 COALESCE(bs.spend, bcs.spend, bc.spend, 0) as before_spend,
                 COALESCE(bs.sales, bcs.sales, bc.sales, 0) as before_sales,
@@ -1193,6 +1194,11 @@ class PostgresManager:
                 df.at[idx, 'before_sales'] *= ratio
                 df.at[idx, 'before_clicks'] *= ratio
         
+        # Calculate maturity status (used for aggregation filtering)
+        # Action is 'mature' if we have full data for the requested horizon
+        # Use calculate actual days vs requested days
+        df['is_mature'] = df['actual_after_days'] >= after_days
+
         # Normalize action types
         df['action_type'] = df['action_type'].str.upper()
         
@@ -1709,6 +1715,34 @@ class PostgresManager:
             df['cpc_after'] <= 0.75 * df['cpc_before']
         )
         
+        
+        # ==========================================
+        # REFACTOR ENHANCEMENT 1: Soft Confidence Weight (Additive)
+        # ==========================================
+        # Reduce over-representation of marginally valid rows (5-14 clicks)
+        # Scale weight linearly from 5/15 (0.33) to 15/15 (1.0)
+        # Rows with <5 clicks are already 0 impact, so weight doesn't matter there
+        df['confidence_weight'] = (df['before_clicks'] / 15.0).clip(upper=1.0)
+        
+        # Final Impact = Raw Impact * Confidence Weight
+        # Does not override existing exclusions (0 * weight = 0)
+        df['final_decision_impact'] = df['decision_impact'] * df['confidence_weight']
+        
+        # ==========================================
+        # REFACTOR ENHANCEMENT 2: Impact Tier Classification (Non-Destructive)
+        # ==========================================
+        # 1) "Excluded": decision_impact == 0 (due to any previous guardrail)
+        # 2) "Directional": impact != 0 AND before_clicks < 15
+        # 3) "Validated": impact != 0 AND before_clicks >= 15
+        
+        tier_conditions = [
+            (df['decision_impact'] == 0),
+            (df['decision_impact'] != 0) & (df['before_clicks'] < 15),
+            (df['decision_impact'] != 0) & (df['before_clicks'] >= 15)
+        ]
+        tier_choices = ['Excluded', 'Directional', 'Validated']
+        df['impact_tier'] = np.select(tier_conditions, tier_choices, default='Excluded')
+
         _query_cache.set(cache_key, df)
         return df
 
@@ -1887,11 +1921,42 @@ class PostgresManager:
                 bid_df['decision_value_pct'] = bid_df['actual_change_pct'] - bid_df['expected_trend_pct']
                 non_drag_df = bid_df[~((bid_df['expected_trend_pct'] < 0) & (bid_df['decision_value_pct'] < 0))]
             
-            # Aggregate Decision Impact metrics (now excludes low-sample AND Market Drag)
-            valid_impacts = non_drag_df['decision_impact'].dropna()
+            # Aggregate Decision Impact metrics (now excludes low-sample)
+            # NOTE: No Market Drag exclusion - sum ALL impacts for consistency with pre-refactor
+            # USE FINAL IMPACT (Weighted) if available
+            impact_col = 'final_decision_impact' if 'final_decision_impact' in bid_df.columns else 'decision_impact'
+            valid_impacts = bid_df[impact_col].dropna()
             total_decision_impact = valid_impacts.sum() if len(valid_impacts) > 0 else 0
             total_spend_avoided = bid_df['spend_avoided'].sum()
             market_downshift_count = int(bid_df['market_downshift'].sum())
+            
+            # ==========================================
+            # UNIVERSAL ATTRIBUTED IMPACT (New Standard)
+            # ==========================================
+            # Matches Dashboard Hero logic exactly:
+            # 1. Scope: ALL Action Types (Bid, Harvest, Negative) - from full df, not bid_df
+            # 2. Maturity: MATURE actions only (exclude pending)
+            # 3. Market Drag: EXCLUDED (Counterfactual Logic)
+            attributed_impact_universal = 0
+            
+            # STALE CACHE GUARDRAIL: Backfill is_mature if missing
+            if 'is_mature' not in df.columns and 'actual_after_days' in df.columns:
+                 # Use window_days as proxy for requested after_days
+                 df['is_mature'] = df['actual_after_days'] >= window_days
+            
+            if not df.empty and 'decision_impact' in df.columns and 'is_mature' in df.columns:
+                # 1. Mature Only
+                mature_df = df[df['is_mature'] == True].copy()
+                
+                # Use Weighted Impact
+                univ_impact_col = 'final_decision_impact' if 'final_decision_impact' in mature_df.columns else 'decision_impact'
+                
+                # 2. Exclude Market Drag
+                if 'market_tag' in mature_df.columns:
+                    mature_no_drag = mature_df[mature_df['market_tag'] != 'Market Drag']
+                    attributed_impact_universal = mature_no_drag[univ_impact_col].sum()
+                else:
+                    attributed_impact_universal = mature_df[univ_impact_col].sum() # Fallback
             
             # Outcome percentages
             outcome_counts = bid_df['outcome'].value_counts()
@@ -1938,38 +2003,47 @@ class PostgresManager:
         # 3. ACTION TYPE BREAKDOWN
         # ==========================================
         by_type = {}
+        # Identify impact column once for breakdown
+        breakdown_col = 'final_decision_impact' if 'final_decision_impact' in df.columns else 'impact_score'
+        
         for action_type in df['action_type'].unique():
             type_data = df[df['action_type'] == action_type]
             by_type[action_type] = {
                 'count': len(type_data),
-                'net_sales': type_data['impact_score'].fillna(0).sum(),
+                'net_sales': type_data[breakdown_col].fillna(0).sum(),
                 'net_spend': type_data['delta_spend'].fillna(0).sum()
             }
         
         return {
             'total_actions': total_actions,
+            # Core ROAS metrics
             'roas_before': round(roas_before, 2),
             'roas_after': round(roas_after, 2),
             'roas_lift_pct': round(roas_lift_pct, 1),
             'incremental_revenue': round(incremental_revenue, 2),
+            # Statistical Significance
             'p_value': round(p_value, 4),
             'is_significant': is_significant,
             'confidence_pct': round(confidence_pct, 1),
+            # Implementation & Validation
             'implementation_rate': round(impl_rate, 1),
             'confirmed_impact': conf_count,
             'pending': int(pending.sum()),
             'not_implemented': int(not_implemented.sum()),
+            # Decision Impact (Bid-Specific + Universal)
+            'decision_impact': round(total_decision_impact, 2),  # Legacy (Bids Only)
+            'attributed_impact_universal': round(attributed_impact_universal, 2), # New (All Mature)
+            'spend_avoided': round(total_spend_avoided, 2),
+            # Outcomes
             'win_rate': round(win_rate, 1),
             'winners': winners,
             'losers': total_actions - winners,
-            'by_action_type': by_type,
-            # NEW: Decision Impact metrics
-            'decision_impact': round(total_decision_impact, 2),
-            'spend_avoided': round(total_spend_avoided, 2),
             'pct_good': round(pct_good, 1),
             'pct_neutral': round(pct_neutral, 1),
             'pct_bad': round(pct_bad, 1),
             'market_downshift_count': market_downshift_count,
+            # Grouping
+            'by_action_type': by_type,
             'period_info': {
                 'before_start': df['before_date'].min() if 'before_date' in df.columns else None,
                 'before_end': df['before_end_date'].max() if 'before_end_date' in df.columns else None,

@@ -13,6 +13,7 @@ import streamlit as st
 import pandas as pd
 import plotly.graph_objects as go
 import plotly.express as px
+import numpy as np
 from typing import Dict, Any, Optional, Tuple
 from datetime import datetime, timedelta
 from core.db_manager import get_db_manager
@@ -331,7 +332,7 @@ def get_maturity_status(action_date, latest_data_date, horizon: str = "14D") -> 
     }
 
 @st.cache_data(ttl=3600, show_spinner=False)  # Restored production TTL
-def _fetch_impact_data(client_id: str, test_mode: bool, before_days: int = 14, after_days: int = 14, cache_version: str = "v6_data_filter") -> Tuple[pd.DataFrame, Dict[str, Any]]:
+def _fetch_impact_data(client_id: str, test_mode: bool, before_days: int = 14, after_days: int = 14, cache_version: str = "v14_impact_tiers") -> Tuple[pd.DataFrame, Dict[str, Any]]:
 
     """
     Cached data fetcher for impact analysis.
@@ -446,7 +447,10 @@ def render_impact_dashboard():
         # Use cached fetcher
         test_mode = st.session_state.get('test_mode', False)
         # Force cache bust with version + timestamp
-        cache_version = "v13_indexed_lateral_" + str(st.session_state.get('data_upload_timestamp', 'init'))
+        # Force cache bust with version + timestamp
+        # CRITICAL: Clear st.cache_data to ensure new logic is applied
+        _fetch_impact_data.clear()
+        cache_version = "v15_dampening_" + str(st.session_state.get('data_upload_timestamp', 'init'))
         
         # Get horizon config
         horizon_config = IMPACT_WINDOWS["horizons"].get(horizon, IMPACT_WINDOWS["horizons"]["14D"])
@@ -598,14 +602,11 @@ def render_impact_dashboard():
     # Add required columns for confidence calculation
     import numpy as np
     
-    # confidence_weight: based on data quality (clicks, spend, validation)
-    if not active_df.empty:
-        active_df['confidence_weight'] = (
-            np.clip(np.log1p(active_df['before_clicks'].fillna(0)) / 5, 0, 0.3) +  # Max 0.3 from clicks
-            np.clip(np.log1p(active_df['before_spend'].fillna(0)) / 10, 0, 0.3) +  # Max 0.3 from spend
-            np.clip(np.log1p(active_df['after_clicks'].fillna(0)) / 5, 0, 0.2) +   # Max 0.2 from after data
-            (active_df['validation_status'].str.contains('✓', na=False).astype(float) * 0.2)  # 0.2 if validated
-        ).clip(0, 1)
+    # confidence_weight: NOW COMES FROM DATABASE (postgres_manager.get_action_impact)
+    # Only calculate if missing for backwards compatibility with old cached data
+    if not active_df.empty and 'confidence_weight' not in active_df.columns:
+        # Legacy fallback formula - should rarely be used now
+        active_df['confidence_weight'] = (active_df['before_clicks'].fillna(0) / 15.0).clip(upper=1.0)
         
         # market_quality_tag: detect market downshift (DIFFERENT from quadrant market_tag)
         # This is for confidence calculation, NOT for quadrant aggregation
@@ -649,8 +650,9 @@ def render_impact_dashboard():
     # Update summary to reflect the filtered visual counts in cards
     display_summary['total_actions'] = measured_count
 
-    # Pass the summary's decision_impact directly to ensure matches the card
-    total_verified_impact = display_summary.get('decision_impact', 0)
+    # Pass the summary's WEIGHTED impact (attributed_impact_universal uses final_decision_impact)
+    # Fallback to legacy decision_impact for compatibility
+    total_verified_impact = display_summary.get('attributed_impact_universal', display_summary.get('decision_impact', 0))
 
     # ==========================================
     # CONSOLIDATED PREMIUM HEADER
@@ -803,14 +805,17 @@ def _render_hero_banner(impact_df: pd.DataFrame, currency: str, horizon_label: s
     # ==========================================
     # QUADRANT AGGREGATION
     # ==========================================
+    # Use WEIGHTED impact (final_decision_impact) if available, else fallback
+    impact_col = 'final_decision_impact' if 'final_decision_impact' in df.columns else 'decision_impact'
+    
     offensive_wins = df[df['market_tag'] == 'Offensive Win']
-    offensive_val = offensive_wins['decision_impact'].sum()
+    offensive_val = offensive_wins[impact_col].sum()
     
     defensive_wins = df[df['market_tag'] == 'Defensive Win']
-    defensive_val = defensive_wins['decision_impact'].sum()
+    defensive_val = defensive_wins[impact_col].sum()
     
     gaps = df[df['market_tag'] == 'Gap']
-    gap_val = gaps['decision_impact'].sum()
+    gap_val = gaps[impact_col].sum()
     
     drag = df[df['market_tag'] == 'Market Drag']
     drag_count = len(drag)
@@ -1091,13 +1096,14 @@ def _render_value_breakdown_section(impact_df: pd.DataFrame, currency: str):
     # Bolt icon
     bolt_icon = '<svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="#8F8CA3" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polygon points="13 2 3 14 12 14 11 22 21 10 12 10 13 2"></polygon></svg>'
     
-    st.markdown(f"""
-    <div style="min-height: 180px;">
-    <div style="display: flex; align-items: center; gap: 8px; margin-bottom: 12px;">
-        {bolt_icon}
-        <span style="font-size: 1.1rem; font-weight: 600; color: #E9EAF0;">Where did the value come from?</span>
-    </div>
-    """, unsafe_allow_html=True)
+    # Initialize HTML with Header
+    html_content = f"""
+<div style="min-height: 180px;">
+<div style="display: flex; align-items: center; gap: 8px; margin-bottom: 12px;">
+    {bolt_icon}
+    <span style="font-size: 1.1rem; font-weight: 600; color: #E9EAF0;">Where did the value come from?</span>
+</div>
+"""
     
     # Ensure required columns exist (handles old cached data)
     df = _ensure_impact_columns(impact_df)
@@ -1106,34 +1112,42 @@ def _render_value_breakdown_section(impact_df: pd.DataFrame, currency: str):
     df = df[df['market_tag'] != 'Market Drag']
     
     # Group by action type using pre-calculated decision_impact
-    type_impact = df.groupby('action_type')['decision_impact'].sum().sort_values(ascending=False)
+    if 'final_decision_impact' not in df.columns:
+        df['final_decision_impact'] = df['decision_impact']
+        
+    type_impact = df.groupby('action_type')['final_decision_impact'].sum().sort_values(ascending=False)
     
     if type_impact.empty:
-        st.info("No action type data")
+        html_content += """<div style="color: #94a3b8; font-style: italic;">No action type data available</div></div>"""
+        st.markdown(html_content, unsafe_allow_html=True)
         return
     
     max_val = type_impact.abs().max()
     
+    # Append bars to HTML
     for atype, val in type_impact.head(5).items():
         clean_type = str(atype).replace('_', ' ').title()
         bar_width = min(100, abs(val) / max_val * 100) if max_val > 0 else 0
         val_color = "#10B981" if val >= 0 else "#EF4444"
         sign = '+' if val >= 0 else ''
         
-        st.markdown(f"""
-        <div style="margin-bottom: 10px;">
-            <div style="display: flex; justify-content: space-between; font-size: 0.85rem; color: #94a3b8; margin-bottom: 4px;">
-                <span>{clean_type}</span>
-                <span style="color: {val_color}; font-weight: 600;">{sign}{currency}{val:,.0f}</span>
-            </div>
-            <div style="width: 100%; background: rgba(255,255,255,0.05); height: 12px; border-radius: 6px;">
-                <div style="width: {bar_width}%; background: {val_color}; height: 100%; border-radius: 6px;"></div>
-            </div>
-        </div>
-        """, unsafe_allow_html=True)
+        html_content += f"""
+<div style="margin-bottom: 10px;">
+    <div style="display: flex; justify-content: space-between; font-size: 0.85rem; color: #94a3b8; margin-bottom: 4px;">
+        <span>{clean_type}</span>
+        <span style="color: {val_color}; font-weight: 600;">{sign}{currency}{val:,.0f}</span>
+    </div>
+    <div style="width: 100%; background: rgba(255,255,255,0.05); height: 12px; border-radius: 6px;">
+        <div style="width: {bar_width}%; background: {val_color}; height: 100%; border-radius: 6px;"></div>
+    </div>
+</div>
+"""
 
     # Close the min-height container
-    st.markdown("</div>", unsafe_allow_html=True)
+    html_content += "</div>"
+    
+    # Render ONCE
+    st.markdown(html_content, unsafe_allow_html=True)
 
 
 def _render_details_table_collapsed(impact_df: pd.DataFrame, currency: str):
@@ -1145,7 +1159,10 @@ def _render_details_table_collapsed(impact_df: pd.DataFrame, currency: str):
     
     with st.expander(f"▶ Show all {total_count} decisions", expanded=False):
         # Prepare display dataframe - keep Impact as NUMERIC for sorting
-        display_df = impact_df[['target_text', 'action_type', 'decision_impact', 'validation_status', 'maturity_status']].copy()
+        # Fallback to raw if final not present
+        impact_col = 'final_decision_impact' if 'final_decision_impact' in impact_df.columns else 'decision_impact'
+        
+        display_df = impact_df[['target_text', 'action_type', impact_col, 'validation_status', 'maturity_status']].copy()
         display_df.columns = ['What', 'Action', 'Impact', 'Status', 'Maturity']
         
         # Format action type
@@ -1598,6 +1615,58 @@ def _render_new_impact_analytics(summary: Dict[str, Any], impact_df: pd.DataFram
     # SECTION 7: COLLAPSED DETAILS TABLE
     # ==========================================
     _render_details_table_collapsed(impact_df, currency)
+    _render_debug_console(impact_df)
+
+
+def _render_debug_console(impact_df: pd.DataFrame):
+    """Debug section for validating impact math."""
+    if impact_df.empty: return
+    
+    st.markdown("<div style='height: 24px;'></div>", unsafe_allow_html=True)
+    
+    with st.expander("🛠 Impact Calculation Debugger (Internal)", expanded=False):
+        st.caption("Inspect the raw numbers behind the Decision Impact calculation.")
+        
+        # Work on a copy to calculate ad-hoc metrics
+        df_debug = impact_df.copy()
+        
+        # Calculate SPC After on the fly if missing 
+        # (Observed Sales / Observed Clicks)
+        if 'after_clicks' in df_debug.columns and 'observed_after_sales' in df_debug.columns:
+            df_debug['spc_after'] = df_debug['observed_after_sales'] / df_debug['after_clicks'].replace(0, np.nan)
+        
+        # Select relevant columns if they exist
+        debug_cols = [
+            'target_text', 'action_type', 
+            'before_sales', 'expected_trend_pct', 'expected_sales', 
+            'observed_after_sales', 'decision_impact', 
+            'confidence_weight', 'final_decision_impact', 'impact_tier',
+            'cpc_before', 'cpc_after', 'spc_before', 'spc_after',
+            'market_tag', 'validation_status'
+        ]
+        
+        # Filter to existing columns
+        cols = [c for c in debug_cols if c in df_debug.columns]
+        
+        if not cols:
+            st.info("No debug columns found.")
+            return
+
+        st.dataframe(
+            df_debug[cols].sort_values('decision_impact', ascending=False),
+            use_container_width=True,
+            height=400,
+            column_config={
+                "cpc_before": st.column_config.NumberColumn("CPC Pre", format="%.3f"),
+                "cpc_after": st.column_config.NumberColumn("CPC Post", format="%.3f"),
+                "spc_before": st.column_config.NumberColumn("SPC Pre", format="%.3f"),
+                "spc_after": st.column_config.NumberColumn("SPC Post", format="%.3f"),
+                "expected_sales": st.column_config.NumberColumn("Exp Sales", format="%.2f"),
+                "decision_impact": st.column_config.NumberColumn("Raw Impact", format="%.2f"),
+                "final_decision_impact": st.column_config.NumberColumn("Final Impact", format="%.2f", help="Weighted by confidence"),
+                "confidence_weight": st.column_config.NumberColumn("Conf.", format="%.2f")
+            }
+        )
 
 
 def _render_decision_outcome_matrix(impact_df: pd.DataFrame, summary: Dict[str, Any]):
@@ -2597,12 +2666,10 @@ def get_recent_impact_summary() -> Optional[dict]:
     Helper for Home Page cockpit.
     Returns impact summary metrics from DB for the last 14 days (Decision Impact focus).
     Matches new 'Recent Impact' tile definition.
+    Uses cached _fetch_impact_data to avoid redundant DB queries.
     """
-    from core.db_manager import get_db_manager
-    
     # Check for test mode
     test_mode = st.session_state.get('test_mode', False)
-    db_manager = get_db_manager(test_mode)
     
     # Fallback chain for account ID (same as health score)
     selected_client = (
@@ -2611,12 +2678,18 @@ def get_recent_impact_summary() -> Optional[dict]:
         st.session_state.get('last_stats_save', {}).get('client_id')
     )
     
-    if not db_manager or not selected_client:
+    if not selected_client:
         return None
         
     try:
-        # Direct DB query - 14 DAY WINDOW for "Recent" impact
-        summary = db_manager.get_impact_summary(selected_client, after_days=14)
+        # Construct cache version to ensure data freshness on new uploads
+        # This matches the strategy in ImpactDashboardModule
+        ts_dict = st.session_state.get('unified_data', {}).get('upload_timestamps', {})
+        cache_version = f"v6_{hash(frozenset(ts_dict.items()))}"
+        
+        # Use existing CACHED data fetcher (14 Days)
+        # discard dataframe, keep summary
+        _, summary = _fetch_impact_data(selected_client, test_mode, before_days=14, after_days=14, cache_version=cache_version)
         
         if not summary:
             return None
@@ -2628,7 +2701,8 @@ def get_recent_impact_summary() -> Optional[dict]:
             return None
         
         # Extract key metrics - DECISION IMPACT FOCUS
-        decision_impact = active_summary.get('decision_impact', 0)
+        # Prioritize UNIVERSAL metric (Mature + All Types) to match Dashboard Hero
+        decision_impact = active_summary.get('attributed_impact_universal', active_summary.get('decision_impact', 0))
         win_rate = active_summary.get('win_rate', 0)
         
         # Get top action type
