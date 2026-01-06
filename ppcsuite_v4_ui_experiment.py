@@ -517,6 +517,7 @@ def run_consolidated_optimizer():
         if st.button("Start optimization", type="primary", use_container_width=True):
             st.session_state["optimizer_config"] = opt.config.copy()
             st.session_state["run_optimizer"] = True
+            st.session_state["force_rerun"] = True # Force fresh run explicitly
             st.session_state["should_log_actions"] = True  # Only log on explicit button click
             # Read current checkbox state
             st.session_state["run_simulation"] = st.session_state.get("run_simulation_main", True)
@@ -620,78 +621,118 @@ def run_consolidated_optimizer():
         st.info("⏸️ Optimization paused. Please complete the action confirmation dialog.")
         return
     
-    # 2. Main Logic Trigger
-    with st.spinner("Running Optimization Engine..."):
-        # A. Prepare Data & Run Core Logic
-        df_prep, date_info = prepare_data(df, opt.config)
+    # 2. Main Logic Trigger - SMART CACHING WRAPPER
+    # Check if we can reuse existing results
+    cached_result = st.session_state.get('latest_optimizer_run')
+    cached_config = st.session_state.get('optimizer_config_cache')
+    
+    # Check if config has changed
+    is_config_changed = cached_config != opt.config
+    
+    should_run = False
+    if not cached_result or is_config_changed:
+        should_run = True
+    elif st.session_state.get('force_rerun'):
+        should_run = True
+        st.session_state['force_rerun'] = False
         
-        # Consolidation Fix: Calculate benchmarks ONCE and pass them down
-        benchmarks = calculate_account_benchmarks(df_prep, opt.config)
-        universal_median = benchmarks.get('universal_median_roas', opt.config.get("TARGET_ROAS", 2.5))
-        
-        matcher = ExactMatcher(df_prep)
-        
-        harvest_df = identify_harvest_candidates(df_prep, opt.config, matcher, benchmarks)
-        # Build harvested terms set from BOTH Harvest_Term (Targeting-based) and Customer Search Term
-        corrected_term_set = set()
-        if not harvest_df.empty:
-            if "Harvest_Term" in harvest_df.columns:
-                corrected_term_set.update(harvest_df["Harvest_Term"].str.lower().tolist())
-            if "Customer Search Term" in harvest_df.columns:
-                corrected_term_set.update(harvest_df["Customer Search Term"].str.lower().tolist())
-        
-        neg_kw, neg_pt, your_products_review = identify_negative_candidates(df_prep, opt.config, harvest_df, benchmarks)
-        
-        # Build negative_terms set for exclusion from bid optimization
-        negative_terms_set = set()
-        if not neg_kw.empty:
-            for _, row in neg_kw.iterrows():
-                key = (str(row.get("Campaign Name", "")).strip(), 
-                       str(row.get("Ad Group Name", "")).strip(), 
-                       str(row.get("Term", "")).strip().lower())
-                negative_terms_set.add(key)
-        if not neg_pt.empty:
-            for _, row in neg_pt.iterrows():
-                key = (str(row.get("Campaign Name", "")).strip(), 
-                       str(row.get("Ad Group Name", "")).strip(), 
-                       str(row.get("Term", "")).strip().lower())
-                negative_terms_set.add(key)
-        
-        data_days = date_info.get("days", 7)
-        bids_exact, bids_pt, bids_agg, bids_auto = calculate_bid_optimizations(
-            df_prep, opt.config, corrected_term_set, negative_terms_set, universal_median,
-            data_days=data_days
-        )
-        # Combine for backward compatibility with simulation/heatmap
-        direct_bids = pd.concat([bids_exact, bids_pt], ignore_index=True)
-        agg_bids = pd.concat([bids_agg, bids_auto], ignore_index=True)
-        heatmap_df = create_heatmap(df_prep, opt.config, harvest_df, neg_kw, neg_pt, direct_bids, agg_bids)
-        
-        simulation = None
-        if st.session_state.get("run_simulation", True):
-            simulation = run_simulation(df_prep, direct_bids, agg_bids, harvest_df, opt.config, date_info)
-        
-        # Calculate health for Home Cockpit sync
-        health = opt._calculate_account_health(df_prep, {"direct_bids": direct_bids, "agg_bids": agg_bids, "harvest": harvest_df})
-        
-        # Persist results for AI Assistant and Home Cockpit sync
-        r = {
-            "bids_exact": bids_exact,
-            "bids_pt": bids_pt,
-            "bids_agg": bids_agg,
-            "bids_auto": bids_auto,
-            "direct_bids": direct_bids,
-            "agg_bids": agg_bids,
-            "harvest": harvest_df,
-            "neg_kw": neg_kw,
-            "neg_pt": neg_pt,
-            "heatmap": heatmap_df,
-            "simulation": simulation,
-            "date_info": date_info,
-            "df": df_prep,
-            "health": health  # ADDED for Home Cockpit sync
-        }
-        st.session_state['latest_optimizer_run'] = r
+    r = None
+    
+    if should_run:
+        with st.spinner("Running Optimization Engine..."):
+            # A. Prepare Data & Run Core Logic
+            df_prep, date_info = prepare_data(df, opt.config)
+            
+            # Consolidation Fix: Calculate benchmarks ONCE and pass them down
+            benchmarks = calculate_account_benchmarks(df_prep, opt.config)
+            universal_median = benchmarks.get('universal_median_roas', opt.config.get("TARGET_ROAS", 2.5))
+            
+            matcher = ExactMatcher(df_prep)
+            
+            harvest_df = identify_harvest_candidates(df_prep, opt.config, matcher, benchmarks)
+            # Build harvested terms set from BOTH Harvest_Term (Targeting-based) and Customer Search Term
+            corrected_term_set = set()
+            if not harvest_df.empty:
+                if "Harvest_Term" in harvest_df.columns:
+                    corrected_term_set.update(harvest_df["Harvest_Term"].str.lower().tolist())
+                if "Customer Search Term" in harvest_df.columns:
+                    corrected_term_set.update(harvest_df["Customer Search Term"].str.lower().tolist())
+            
+            neg_kw, neg_pt, your_products_review = identify_negative_candidates(df_prep, opt.config, harvest_df, benchmarks)
+            
+            # Build negative_terms set for exclusion from bid optimization
+            negative_terms_set = set()
+            if not neg_kw.empty:
+                for _, row in neg_kw.iterrows():
+                    key = (str(row.get("Campaign Name", "")).strip(), 
+                           str(row.get("Ad Group Name", "")).strip(), 
+                           str(row.get("Term", "")).strip().lower())
+                    negative_terms_set.add(key)
+            if not neg_pt.empty:
+                for _, row in neg_pt.iterrows():
+                    key = (str(row.get("Campaign Name", "")).strip(), 
+                           str(row.get("Ad Group Name", "")).strip(), 
+                           str(row.get("Term", "")).strip().lower())
+                    negative_terms_set.add(key)
+            
+            data_days = date_info.get("days", 7)
+            bids_exact, bids_pt, bids_agg, bids_auto = calculate_bid_optimizations(
+                df_prep, opt.config, corrected_term_set, negative_terms_set, universal_median,
+                data_days=data_days
+            )
+            # Combine for backward compatibility with simulation/heatmap
+            direct_bids = pd.concat([bids_exact, bids_pt], ignore_index=True)
+            agg_bids = pd.concat([bids_agg, bids_auto], ignore_index=True)
+            heatmap_df = create_heatmap(df_prep, opt.config, harvest_df, neg_kw, neg_pt, direct_bids, agg_bids)
+            
+            simulation = None
+            if st.session_state.get("run_simulation", True):
+                simulation = run_simulation(df_prep, direct_bids, agg_bids, harvest_df, opt.config, date_info)
+            
+            # Calculate health for Home Cockpit sync
+            health = opt._calculate_account_health(df_prep, {"direct_bids": direct_bids, "agg_bids": agg_bids, "harvest": harvest_df})
+            
+            # Persist results for AI Assistant and Home Cockpit sync
+            r = {
+                "bids_exact": bids_exact,
+                "bids_pt": bids_pt,
+                "bids_agg": bids_agg,
+                "bids_auto": bids_auto,
+                "direct_bids": direct_bids,
+                "agg_bids": agg_bids,
+                "harvest": harvest_df,
+                "neg_kw": neg_kw,
+                "neg_pt": neg_pt,
+                "heatmap": heatmap_df,
+                "simulation": simulation,
+                "date_info": date_info,
+                "df": df_prep,
+                "health": health  # ADDED for Home Cockpit sync
+            }
+            # SAVE ITERATION TO CACHE
+            st.session_state['latest_optimizer_run'] = r
+            st.session_state['optimizer_config_cache'] = opt.config.copy()
+            
+    # UNPACK RESULTS (From Cache or Fresh Run)
+    if 'latest_optimizer_run' in st.session_state:
+        r = st.session_state['latest_optimizer_run']
+        bids_exact = r["bids_exact"]
+        bids_pt = r["bids_pt"]
+        bids_agg = r["bids_agg"]
+        bids_auto = r["bids_auto"]
+        direct_bids = r["direct_bids"]
+        agg_bids = r["agg_bids"]
+        harvest_df = r["harvest"]
+        neg_kw = r["neg_kw"]
+        neg_pt = r["neg_pt"]
+        heatmap_df = r["heatmap"]
+        simulation = r["simulation"]
+        date_info = r["date_info"]
+        df_prep = r["df"]
+        health = r.get("health")
+    else:
+        st.error("❌ Failed to retrieve optimization results.")
+        return
     
     # ==========================================
     # STORE PENDING ACTIONS FOR CONFIRMATION DIALOG
@@ -800,14 +841,17 @@ def run_consolidated_optimizer():
         st.markdown("<br>", unsafe_allow_html=True)
         
         # 1. Metric Calculations
-        total_touched = len(set(
-            (bids_exact['Ad Group Name'].tolist() if not bids_exact.empty else []) +
-            (bids_pt['Ad Group Name'].tolist() if not bids_pt.empty else []) +
-            (bids_agg['Ad Group Name'].tolist() if not bids_agg.empty else []) +
-            (bids_auto['Ad Group Name'].tolist() if not bids_auto.empty else []) +
-            (pd.concat([neg_kw, neg_pt])['Ad Group Name'].tolist() if not pd.concat([neg_kw, neg_pt]).empty else []) +
-            (harvest_df['Ad Group Name'].tolist() if not harvest_df.empty else [])
-        ))
+        # Count unique Customer Search Terms analyzed (from STR data)
+        cst_column = 'Customer Search Term' if 'Customer Search Term' in df_prep.columns else 'customer_search_term'
+        if cst_column in df_prep.columns:
+            total_search_terms = df_prep[cst_column].nunique()
+        else:
+            # Fallback to counting unique search terms from outputs
+            total_search_terms = len(set(
+                (bids_exact['Customer Search Term'].tolist() if 'Customer Search Term' in bids_exact.columns and not bids_exact.empty else []) +
+                (neg_kw['Term'].tolist() if 'Term' in neg_kw.columns and not neg_kw.empty else []) +
+                (harvest_df['Customer Search Term'].tolist() if 'Customer Search Term' in harvest_df.columns and not harvest_df.empty else [])
+            ))
 
         total_bid_changes = len(bids_exact) + len(bids_pt) + len(bids_agg) + len(bids_auto)
         total_negatives = len(neg_kw) + len(neg_pt)
@@ -838,7 +882,7 @@ def run_consolidated_optimizer():
         label_style = "color: #8F8CA3; font-size: 0.75rem; text-transform: uppercase; font-weight: 600; letter-spacing: 0.7px; margin-bottom: 8px;"
         value_style = "color: #F5F5F7; font-size: 1.25rem; font-weight: 700;"
 
-        with c1: st.markdown(f'<div style="{tile_style}"><div style="{label_style}">{layers_icon}Touched</div><div style="{value_style}">{total_touched}</div></div>', unsafe_allow_html=True)
+        with c1: st.markdown(f'<div style="{tile_style}"><div style="{label_style}">{search_icon}Search Terms</div><div style="{value_style}">{total_search_terms:,}</div></div>', unsafe_allow_html=True)
         with c2: st.markdown(f'<div style="{tile_style}"><div style="{label_style}">{sliders_icon}Bids</div><div style="{value_style}">{total_bid_changes}</div></div>', unsafe_allow_html=True)
         with c3: st.markdown(f'<div style="{tile_style}"><div style="{label_style}">{shield_icon}Negatives</div><div style="{value_style}">{total_negatives}</div></div>', unsafe_allow_html=True)
         with c4: st.markdown(f'<div style="{tile_style}"><div style="{label_style}">{leaf_icon}Harvest</div><div style="{value_style}">{total_harvests}</div></div>', unsafe_allow_html=True)
