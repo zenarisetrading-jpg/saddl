@@ -19,6 +19,159 @@ from features.constants import classify_match_type
 from core.data_hub import DataHub
 from core.data_loader import SmartMapper, safe_numeric
 from utils.metrics import calculate_ppc_metrics, ensure_numeric_columns
+from core.db_manager import get_db_manager
+
+# CACHED DATA LOADER
+@st.cache_data(ttl=600, show_spinner="Loading snapshot data...")
+def _load_and_enrich_data(client_id, test_mode, _adv_report, _bulk_map, _cat_map, cache_key):
+    """
+    Cached function to load DB stats and enriched with session file maps.
+    Arguments with underscore (_) are excluded from hashing.
+    cache_key ensures invalidation when files change.
+    """
+    db = get_db_manager(test_mode)
+    
+    # Fetch persistent data for this account
+    data = db.get_target_stats_df(client_id)
+    
+    if data.empty:
+        return data
+        
+    # ===== MERGE SKU INFO - PREFER DATABASE =====
+    sku_merge_success = False
+    
+    # STEP 1: Try DB advertised product cache FIRST (most reliable)
+    try:
+        adv_cache = db.get_advertised_product_map(client_id)
+        sku_col = next((c for c in adv_cache.columns if c.lower() == 'sku'), None) if adv_cache is not None else None
+        
+        if adv_cache is not None and not adv_cache.empty and sku_col:
+            # Normalize for merge
+            data['Camp_Norm'] = data['Campaign Name'].astype(str).str.strip().str.lower()
+            data['AG_Norm'] = data['Ad Group Name'].astype(str).str.strip().str.lower()
+            adv_cache['Camp_Norm'] = adv_cache['Campaign Name'].astype(str).str.strip().str.lower()
+            adv_cache['AG_Norm'] = adv_cache['Ad Group Name'].astype(str).str.strip().str.lower()
+            
+            sku_lookup = adv_cache.groupby(['Camp_Norm', 'AG_Norm'])[sku_col].apply(
+                lambda x: ', '.join(str(s) for s in x.dropna().unique() if str(s).strip())
+            ).reset_index()
+            sku_lookup.columns = ['Camp_Norm', 'AG_Norm', 'SKU_advertised']
+            
+            data = data.merge(sku_lookup, on=['Camp_Norm', 'AG_Norm'], how='left')
+            data.drop(columns=['Camp_Norm', 'AG_Norm'], inplace=True, errors='ignore')
+            
+            if 'SKU_advertised' in data.columns and data['SKU_advertised'].notna().mean() > 0.05:
+                sku_merge_success = True
+    except Exception:
+        pass
+    
+    # STEP 2: Fallback to session state (passed as _adv_report)
+    if not sku_merge_success and _adv_report is not None:
+        sku_col = next((c for c in _adv_report.columns if c.lower() == 'sku'), None)
+        
+        if sku_col and 'Campaign Name' in _adv_report.columns and 'Ad Group Name' in _adv_report.columns:
+            data['Camp_Norm'] = data['Campaign Name'].astype(str).str.strip().str.lower()
+            data['AG_Norm'] = data['Ad Group Name'].astype(str).str.strip().str.lower()
+            
+            ar = _adv_report.copy()
+            ar['Camp_Norm'] = ar['Campaign Name'].astype(str).str.strip().str.lower()
+            ar['AG_Norm'] = ar['Ad Group Name'].astype(str).str.strip().str.lower()
+            
+            sku_lookup = ar.groupby(['Camp_Norm', 'AG_Norm'])[sku_col].apply(
+                lambda x: ', '.join(str(s) for s in x.dropna().unique() if str(s).strip())
+            ).reset_index()
+            sku_lookup.columns = ['Camp_Norm', 'AG_Norm', 'SKU_advertised']
+            
+            if 'SKU_advertised' in data.columns:
+                data.drop(columns=['SKU_advertised'], inplace=True)
+            
+            data = data.merge(sku_lookup, on=['Camp_Norm', 'AG_Norm'], how='left')
+            data.drop(columns=['Camp_Norm', 'AG_Norm'], inplace=True, errors='ignore')
+
+    # STEP 3: Bulk File Bridge
+    sku_exists = 'SKU_advertised' in data.columns
+    sku_coverage = data['SKU_advertised'].notna().mean() if sku_exists else 0
+    
+    if (not sku_exists or sku_coverage < 0.1) and _bulk_map is not None:
+         sku_candidates = [c for c in _bulk_map.columns if c.lower() in ['sku', 'msku', 'vendor sku', 'vendor_sku']]
+         if sku_candidates and 'Campaign Name' in _bulk_map.columns:
+               sku_col = sku_candidates[0]
+               _bulk_map['Camp_Norm'] = _bulk_map['Campaign Name'].astype(str).str.strip().str.lower()
+               bridge = _bulk_map.groupby('Camp_Norm')[sku_col].apply(
+                   lambda x: ', '.join(x.dropna().unique().astype(str))
+               ).reset_index()
+               bridge.columns = ['Camp_Norm', 'SKU_From_Bulk']
+               
+               data['Camp_Norm'] = data['Campaign Name'].astype(str).str.strip().str.lower()
+               data = data.merge(bridge, on='Camp_Norm', how='left')
+               
+               if 'SKU_advertised' not in data.columns:
+                   data['SKU_advertised'] = data['SKU_From_Bulk']
+               else:
+                   data['SKU_advertised'] = data['SKU_advertised'].fillna(data['SKU_From_Bulk'])
+               
+               data.drop(columns=['Camp_Norm', 'SKU_From_Bulk'], inplace=True, errors='ignore')
+
+    # Category Mapping
+    cat_map = None
+    try:
+        cat_map = db.get_category_mappings(client_id)
+    except Exception:
+        pass
+        
+    if (cat_map is None or cat_map.empty) and _cat_map is not None:
+        cat_map = _cat_map
+
+    if cat_map is not None and not cat_map.empty:
+        has_sku = 'SKU_advertised' in data.columns
+        has_asin = 'ASIN_advertised' in data.columns
+        
+        product_id_col = None
+        if has_sku and data['SKU_advertised'].notna().sum() > 0:
+            product_id_col = 'SKU_advertised'
+        elif has_asin and data['ASIN_advertised'].notna().sum() > 0:
+            product_id_col = 'ASIN_advertised'
+        
+        if product_id_col:
+            cat_id_candidates = [c for c in cat_map.columns if any(s in c.lower() for s in ['sku', 'asin', 'product'])]
+            cat_id_col = cat_id_candidates[0] if cat_id_candidates else None
+            
+            if cat_id_col:
+                data['ID_List'] = data[product_id_col].apply(
+                    lambda x: [s.strip() for s in str(x).split(',')] if pd.notna(x) and str(x).lower() != 'nan' else []
+                )
+                exploded = data.explode('ID_List')
+                exploded = exploded[exploded['ID_List'].notna() & (exploded['ID_List'] != '')]
+                
+                exploded['ID_Clean'] = (
+                    exploded['ID_List'].astype(str).str.strip().str.lower().str.replace(r'[^a-z0-9]', '', regex=True)
+                )
+                exploded = exploded[exploded['ID_Clean'] != 'nan']
+                exploded = exploded[exploded['ID_Clean'] != '']
+                
+                cat_map = cat_map.copy()
+                cat_map['ID_Clean'] = (
+                    cat_map[cat_id_col].astype(str).str.strip().str.lower().str.replace(r'[^a-z0-9]', '', regex=True)
+                )
+                
+                cat_col = next((c for c in cat_map.columns if c.lower() == 'category'), None)
+                subcat_col = next((c for c in cat_map.columns if c.lower() == 'sub-category'), None)
+                
+                cat_cols_to_merge = ['ID_Clean']
+                if cat_col: cat_cols_to_merge.append(cat_col)
+                if subcat_col: cat_cols_to_merge.append(subcat_col)
+                
+                merged = exploded.merge(cat_map[cat_cols_to_merge], on='ID_Clean', how='left')
+                first_match = merged.groupby(level=0).first()
+                
+                if cat_col and cat_col in first_match.columns:
+                    data['Category'] = first_match[cat_col]
+                if subcat_col and subcat_col in first_match.columns:
+                    data['Sub-Category'] = first_match[subcat_col]
+                
+                data.drop(columns=['ID_List'], inplace=True, errors='ignore')
+    
+    return data
 
 class PerformanceSnapshotModule(BaseFeature):
     """Performance Snapshot Dashboard."""
@@ -40,260 +193,30 @@ class PerformanceSnapshotModule(BaseFeature):
                 st.title("📊 Account Overview")
             st.error("⚠️ No account selected! Please select an account in the sidebar.")
             return
-        
-        # Fetch persistent data for this account
-        db_data = db.get_target_stats_df(client_id)
-        
-        if db_data.empty:
-            if not hide_header:
-                st.title("📊 Account Overview")
-            st.warning(f"⚠️ No data found for account '{st.session_state.get('active_account_name', client_id)}'. Please upload a Search Term Report in the Data Hub.")
-            return
 
-        # 2. Enrichment Logic
+        # 2. enrichment Logic
         hub = DataHub()
-        self.data = db_data
         
-        # ===== MERGE SKU INFO - PREFER DATABASE =====
-        # Session state may have stale/mismatched data, so try DB first
-        sku_merge_success = False
+        # Prepare inputs for cached function
+        adv_report = hub.get_data('advertised_product_report')
+        bulk_map = hub.get_data('bulk_id_mapping')
+        cat_map = hub.get_data('category_mapping')
+        test_mode = st.session_state.get('test_mode', False)
         
-        # STEP 1: Try DB advertised product cache FIRST (most reliable)
-        try:
-            adv_cache = db.get_advertised_product_map(client_id)
-            # Find SKU column case-insensitively (DB returns 'sku' lowercase)
-            sku_col = next((c for c in adv_cache.columns if c.lower() == 'sku'), None) if adv_cache is not None else None
-            
-            if adv_cache is not None and not adv_cache.empty and sku_col:
-                print(f"📦 Merging SKU from DB cache: {len(adv_cache)} rows, column '{sku_col}'")
-                
-                # Normalize for merge
-                self.data['Camp_Norm'] = self.data['Campaign Name'].astype(str).str.strip().str.lower()
-                self.data['AG_Norm'] = self.data['Ad Group Name'].astype(str).str.strip().str.lower()
-                adv_cache['Camp_Norm'] = adv_cache['Campaign Name'].astype(str).str.strip().str.lower()
-                adv_cache['AG_Norm'] = adv_cache['Ad Group Name'].astype(str).str.strip().str.lower()
-                
-                sku_lookup = adv_cache.groupby(['Camp_Norm', 'AG_Norm'])[sku_col].apply(
-                    lambda x: ', '.join(str(s) for s in x.dropna().unique() if str(s).strip())
-                ).reset_index()
-                sku_lookup.columns = ['Camp_Norm', 'AG_Norm', 'SKU_advertised']
-                
-                # Debug: Check overlap
-                data_camps = set(self.data['Camp_Norm'].unique())
-                adv_camps = set(sku_lookup['Camp_Norm'].unique())
-                overlap = len(data_camps & adv_camps)
-                print(f"📦 Campaign overlap: {overlap}/{len(data_camps)} data campaigns match adv cache")
-                
-                self.data = self.data.merge(sku_lookup, on=['Camp_Norm', 'AG_Norm'], how='left')
-                self.data.drop(columns=['Camp_Norm', 'AG_Norm'], inplace=True, errors='ignore')
-                
-                # Check success
-                if 'SKU_advertised' in self.data.columns:
-                    coverage = self.data['SKU_advertised'].notna().mean()
-                    print(f"📦 SKU coverage after DB merge: {coverage:.1%}")
-                    if coverage > 0.05:
-                        sku_merge_success = True
-        except Exception as e:
-            print(f"⚠️ DB advertised product merge failed: {e}")
+        # Create cache key based on file timestamps to invalidate on update
+        ts_dict = st.session_state.get('unified_data', {}).get('upload_timestamps', {}).copy()
+        # Make hashable
+        cache_key = frozenset(ts_dict.items())
         
-        # STEP 2: Fallback to session state only if DB failed
-        if not sku_merge_success:
-            if hub.is_loaded('advertised_product_report'):
-                adv_report = hub.get_data('advertised_product_report')
-                if adv_report is not None:
-                    # Case-insensitive SKU column lookup
-                    sku_col = next((c for c in adv_report.columns if c.lower() == 'sku'), None)
-                    
-                    if sku_col and 'Campaign Name' in adv_report.columns and 'Ad Group Name' in adv_report.columns:
-                        print(f"📦 Fallback: Merging SKU from session state: {len(adv_report)} rows")
-                        
-                        self.data['Camp_Norm'] = self.data['Campaign Name'].astype(str).str.strip().str.lower()
-                        self.data['AG_Norm'] = self.data['Ad Group Name'].astype(str).str.strip().str.lower()
-                        
-                        adv_report = adv_report.copy()
-                        adv_report['Camp_Norm'] = adv_report['Campaign Name'].astype(str).str.strip().str.lower()
-                        adv_report['AG_Norm'] = adv_report['Ad Group Name'].astype(str).str.strip().str.lower()
-                        
-                        sku_lookup = adv_report.groupby(['Camp_Norm', 'AG_Norm'])[sku_col].apply(
-                            lambda x: ', '.join(str(s) for s in x.dropna().unique() if str(s).strip())
-                        ).reset_index()
-                        sku_lookup.columns = ['Camp_Norm', 'AG_Norm', 'SKU_advertised']
-                        
-                        # If SKU_advertised column already exists but empty, drop it first
-                        if 'SKU_advertised' in self.data.columns:
-                            self.data.drop(columns=['SKU_advertised'], inplace=True)
-                        
-                        self.data = self.data.merge(sku_lookup, on=['Camp_Norm', 'AG_Norm'], how='left')
-                        self.data.drop(columns=['Camp_Norm', 'AG_Norm'], inplace=True, errors='ignore')
-
-        
-        # --- BRIDGE FALLBACK: Try Bulk File if SKU still missing ---
-        # If 'SKU_advertised' is missing or largely empty, try to link via Bulk File (Campaign -> SKU)
-        sku_exists = 'SKU_advertised' in self.data.columns
-        sku_coverage = self.data['SKU_advertised'].notna().mean() if sku_exists else 0
-        
-        if not sku_exists or sku_coverage < 0.1: # Less than 10% matched
-             bulk_map = hub.get_data('bulk_id_mapping')
-             if bulk_map is not None and 'Campaign Name' in bulk_map.columns:
-                  # Find SKU column
-                  sku_candidates = [c for c in bulk_map.columns if c.lower() in ['sku', 'msku', 'vendor sku', 'vendor_sku']]
-                  
-                  if sku_candidates:
-                       sku_col = sku_candidates[0]
-                       
-                       # Normalize & Aggregate SKUs by Campaign
-                       # We map Campaign -> comma-separated SKUs
-                       bulk_map['Camp_Norm'] = bulk_map['Campaign Name'].astype(str).str.strip().str.lower()
-                       bridge = bulk_map.groupby('Camp_Norm')[sku_col].apply(
-                           lambda x: ', '.join(x.dropna().unique().astype(str))
-                       ).reset_index()
-                       bridge.columns = ['Camp_Norm', 'SKU_From_Bulk']
-                       
-                       # Prepare Main Data
-                       self.data['Camp_Norm'] = self.data['Campaign Name'].astype(str).str.strip().str.lower()
-                       
-                       # Merge
-                       self.data = self.data.merge(bridge, on='Camp_Norm', how='left')
-                       
-                       # Apply to SKU_advertised
-                       if 'SKU_advertised' not in self.data.columns:
-                           self.data['SKU_advertised'] = self.data['SKU_From_Bulk']
-                       else:
-                           self.data['SKU_advertised'] = self.data['SKU_advertised'].fillna(self.data['SKU_From_Bulk'])
-                           
-                       # Cleanup
-                       self.data.drop(columns=['Camp_Norm', 'SKU_From_Bulk'], inplace=True, errors='ignore')
-        
-        
-        # Merge Category Mapping - ALWAYS prefer fresh DB data
-        # Session state can have stale data from previous uploads that doesn't match current account
-        cat_map = None
-        
-        # First try DB (most reliable, tied to current account)
-        try:
-            cat_map = db.get_category_mappings(client_id)
-            if cat_map is not None and not cat_map.empty:
-                print(f"🔍 Category Map loaded from DB: {len(cat_map)} rows for {client_id}")
-        except Exception as e:
-            print(f"⚠️ Failed to load category map from DB: {e}")
-        
-        # Fallback to session state only if DB failed
-        if cat_map is None or cat_map.empty:
-            cat_map = hub.get_data('category_mapping')
-            if cat_map is not None and not cat_map.empty:
-                print(f"🔍 Category Map loaded from session: {len(cat_map)} rows")
-        
-        if cat_map is not None and not cat_map.empty:
-
-            
-            # Check which product ID column we have
-            has_sku = 'SKU_advertised' in self.data.columns
-            has_asin = 'ASIN_advertised' in self.data.columns
-            
-            # Determine which column to use (prefer SKU, fallback to ASIN)
-            product_id_col = None
-            if has_sku and self.data['SKU_advertised'].notna().sum() > 0:
-                product_id_col = 'SKU_advertised'
-            elif has_asin and self.data['ASIN_advertised'].notna().sum() > 0:
-                product_id_col = 'ASIN_advertised'
-            
-            print(f"🔍 Using product ID column: {product_id_col}")
-            if product_id_col:
-                print(f"🔍 Sample values: {self.data[product_id_col].dropna().head(3).tolist()}")
-            
-            if cat_map is not None and product_id_col is not None:
-                # Find product ID column in category map - be more flexible
-                cat_id_candidates = [c for c in cat_map.columns if any(s in c.lower() for s in ['sku', 'asin', 'product'])]
-                cat_id_col = cat_id_candidates[0] if cat_id_candidates else None
-                
-                print(f"🔍 Found product ID column in category map: {cat_id_col}")
-                print(f"🔍 Category map columns: {list(cat_map.columns)}")
-                if cat_id_col:
-                    print(f"🔍 Category map sample values for '{cat_id_col}': {cat_map[cat_id_col].head(3).tolist()}")
-                
-                if cat_id_col:
-                    # Normalize the product ID column (SKU or ASIN)
-                    # Handle comma-separated IDs by creating multiple rows
-                    # IMPORTANT: Filter out NaN BEFORE converting to string to avoid 'nan' strings
-                    self.data['ID_List'] = self.data[product_id_col].apply(
-                        lambda x: [s.strip() for s in str(x).split(',')] if pd.notna(x) and str(x).lower() != 'nan' else []
-                    )
-                    
-                    # Explode to handle multi-ID rows (empty lists will create NaN rows)
-                    exploded = self.data.explode('ID_List')
-                    
-                    # Filter out empty/NaN rows from explosion
-                    exploded = exploded[exploded['ID_List'].notna() & (exploded['ID_List'] != '')]
-                    
-                    # AGGRESSIVE normalization for matching
-                    # Remove all non-alphanumeric characters, lowercase
-                    exploded['ID_Clean'] = (
-                        exploded['ID_List']
-                        .astype(str)
-                        .str.strip()
-                        .str.lower()
-                        .str.replace(r'[^a-z0-9]', '', regex=True)
-                    )
-                    
-                    # Filter out 'nan' strings that might have slipped through
-                    exploded = exploded[exploded['ID_Clean'] != 'nan']
-                    exploded = exploded[exploded['ID_Clean'] != '']
-                    
-                    # Normalize category map IDs with same aggressive normalization
-                    cat_map = cat_map.copy()
-                    cat_map['ID_Clean'] = (
-                        cat_map[cat_id_col]
-                        .astype(str)
-                        .str.strip()
-                        .str.lower()
-                        .str.replace(r'[^a-z0-9]', '', regex=True)
-                    )
-                    
-                    # DEBUG: Log sample IDs for troubleshooting
-                    sample_data_ids = exploded['ID_Clean'].dropna().head(5).tolist()
-                    sample_cat_ids = cat_map['ID_Clean'].dropna().head(5).tolist()
-                    print(f"🔍 Category Mapping - Sample Data IDs: {sample_data_ids}")
-                    print(f"🔍 Category Mapping - Sample Category Map IDs: {sample_cat_ids}")
-                    
-                    # Find category columns - CASE INSENSITIVE (DB returns lowercase)
-                    cat_cols_to_merge = ['ID_Clean']
-                    cat_col = next((c for c in cat_map.columns if c.lower() == 'category'), None)
-                    subcat_col = next((c for c in cat_map.columns if c.lower() == 'sub-category'), None)
-                    
-                    if cat_col:
-                        cat_cols_to_merge.append(cat_col)
-                    if subcat_col:
-                        cat_cols_to_merge.append(subcat_col)
-                    
-                    print(f"🔍 Category columns to merge: {cat_cols_to_merge}")
-
-                    
-                    # Merge
-                    merged = exploded.merge(
-                        cat_map[cat_cols_to_merge], 
-                        on='ID_Clean', 
-                        how='left'
-                    )
-                    
-                    # Check match rate - use actual column name (case-insensitive)
-                    if cat_col and cat_col in merged.columns:
-                        match_rate = merged[cat_col].notna().sum() / len(merged) if len(merged) > 0 else 0
-                        print(f"📊 Category Mapping Match Rate: {match_rate:.1%}")
-                    else:
-                        print(f"⚠️ Category column '{cat_col}' not found in merged data")
-                    
-                    # De-duplicate back (take first match per original row)
-                    # Group by original index and take first
-                    first_match = merged.groupby(level=0).first()
-                    
-                    # Update self.data with category info - use actual column names and normalize to standard names
-                    if cat_col and cat_col in first_match.columns:
-                        self.data['Category'] = first_match[cat_col]  # Store as standard 'Category'
-                    if subcat_col and subcat_col in first_match.columns:
-                        self.data['Sub-Category'] = first_match[subcat_col]  # Store as standard 'Sub-Category'
-                    
-                    # Cleanup
-                    self.data.drop(columns=['ID_List'], inplace=True, errors='ignore')
+        # CALL CACHED FUNCTION
+        self.data = _load_and_enrich_data(
+            client_id, 
+            test_mode,
+            adv_report, 
+            bulk_map, 
+            cat_map, 
+            cache_key
+        )
 
 
         # ---------------------

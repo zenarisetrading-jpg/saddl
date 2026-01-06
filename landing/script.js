@@ -172,3 +172,176 @@ pricingCards.forEach(card => {
 // Console easter egg
 console.log('%cSaddle AdPulse', 'font-size: 20px; font-weight: bold; color: #0891B2;');
 console.log('%cLooking for a career opportunity? Email us at careers@saddle.io', 'font-size: 12px; color: #5F6368;');
+
+// Pricing Toggle Functionality
+const pricingToggleButtons = document.querySelectorAll('.pricing-toggle-option');
+const sellerPricing = document.getElementById('seller-pricing');
+const agencyPricing = document.getElementById('agency-pricing');
+const pricingSwitchLink = document.querySelector('.pricing-switch-link');
+
+function switchPricingView(targetPlan) {
+    // Update toggle buttons
+    pricingToggleButtons.forEach(button => {
+        const isActive = button.dataset.plan === targetPlan;
+        button.classList.toggle('active', isActive);
+        button.setAttribute('aria-pressed', isActive);
+    });
+
+    // Show/hide pricing views
+    if (targetPlan === 'seller') {
+        sellerPricing.classList.remove('hidden');
+        agencyPricing.classList.add('hidden');
+    } else {
+        sellerPricing.classList.add('hidden');
+        agencyPricing.classList.remove('hidden');
+    }
+
+    // Smooth scroll to pricing section
+    const pricingSection = document.getElementById('pricing');
+    if (pricingSection) {
+        pricingSection.scrollIntoView({ behavior: 'smooth', block: 'start' });
+    }
+}
+
+// Toggle button click handlers
+pricingToggleButtons.forEach(button => {
+    button.addEventListener('click', function() {
+        const targetPlan = this.dataset.plan;
+        switchPricingView(targetPlan);
+    });
+
+    // Keyboard accessibility
+    button.addEventListener('keydown', function(e) {
+        if (e.key === 'Enter' || e.key === ' ') {
+            e.preventDefault();
+            const targetPlan = this.dataset.plan;
+            switchPricingView(targetPlan);
+        }
+    });
+});
+
+// Switch link handler (in seller view footer)
+if (pricingSwitchLink) {
+    pricingSwitchLink.addEventListener('click', function() {
+        const targetPlan = this.dataset.target;
+        switchPricingView(targetPlan);
+    });
+
+    // Keyboard accessibility
+    pricingSwitchLink.addEventListener('keydown', function(e) {
+        if (e.key === 'Enter' || e.key === ' ') {
+            e.preventDefault();
+            const targetPlan = this.dataset.target;
+            switchPricingView(targetPlan);
+        }
+    });
+}
+
+// ICP Card Interactions
+const icpCards = document.querySelectorAll('.icp-card');
+icpCards.forEach(card => {
+    const button = card.querySelector('.icp-cta');
+    if (button) {
+        button.addEventListener('click', function(e) {
+            e.stopPropagation();
+            const icpType = card.dataset.icp;
+            
+            // Scroll to solution section
+            const solutionSection = document.querySelector('.solution-section-v2');
+            if (solutionSection) {
+                solutionSection.scrollIntoView({ behavior: 'smooth', block: 'start' });
+            }
+        });
+    }
+});
+
+// Agency CTA Button
+const agencyCtaButton = document.querySelector('.agency-cta-box .primary-button');
+if (agencyCtaButton) {
+    agencyCtaButton.addEventListener('click', function() {
+        // Switch to agency pricing and scroll
+        switchPricingView('agency');
+    });
+}
+
+// All pricing switch links
+const allPricingSwitchLinks = document.querySelectorAll('.pricing-switch-link');
+allPricingSwitchLinks.forEach(link => {
+    link.addEventListener('click', function() {
+        const targetPlan = this.dataset.target;
+        switchPricingView(targetPlan);
+    });
+});
+
+// ========================================
+// AUDIT MODAL FUNCTIONALITY
+// ========================================
+
+const auditModal = document.getElementById('auditModal');
+const closeModalBtn = document.getElementById('closeModal');
+
+// Open modal when any audit trigger is clicked
+document.querySelectorAll('.audit-trigger').forEach(trigger => {
+    trigger.addEventListener('click', function(e) {
+        e.preventDefault();
+        openAuditModal();
+    });
+});
+
+function openAuditModal() {
+    auditModal.classList.add('active');
+    document.body.style.overflow = 'hidden'; // Prevent background scroll
+
+    // Initialize quiz if not already done
+    if (typeof initializeAuditQuiz === 'function') {
+        initializeAuditQuiz();
+    }
+
+    // Reset to quiz section
+    document.getElementById('quizSection').classList.remove('hidden');
+    document.getElementById('resultsSection').classList.add('hidden');
+    document.getElementById('uploadSection').classList.add('hidden');
+
+    // Scroll modal to top
+    const modalContainer = auditModal.querySelector('.modal-container');
+    if (modalContainer) {
+        modalContainer.scrollTop = 0;
+    }
+}
+
+function closeAuditModal() {
+    auditModal.classList.remove('active');
+    document.body.style.overflow = ''; // Restore background scroll
+}
+
+// Close button click
+closeModalBtn.addEventListener('click', closeAuditModal);
+
+// Click outside modal to close
+auditModal.addEventListener('click', function(e) {
+    if (e.target === auditModal) {
+        closeAuditModal();
+    }
+});
+
+// ESC key to close
+document.addEventListener('keydown', function(e) {
+    if (e.key === 'Escape' && auditModal.classList.contains('active')) {
+        closeAuditModal();
+    }
+});
+
+// Proceed to upload button (from results section)
+const proceedToUploadBtn = document.getElementById('proceedToUploadBtn');
+if (proceedToUploadBtn) {
+    proceedToUploadBtn.addEventListener('click', function() {
+        document.getElementById('resultsSection').classList.add('hidden');
+        document.getElementById('uploadSection').classList.remove('hidden');
+
+        // Scroll to top of modal
+        const modalContainer = auditModal.querySelector('.modal-container');
+        if (modalContainer) {
+            modalContainer.scrollTop = 0;
+        }
+    });
+}
