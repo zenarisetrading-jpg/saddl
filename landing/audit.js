@@ -79,6 +79,7 @@ const questions = [
 
 let quizAnswers = {};
 let selectedFile = null;
+let quizInitialized = false;
 
 // Initialize quiz
 function initQuiz() {
@@ -219,13 +220,13 @@ function showQuizResults() {
     const healthScoreEl = document.getElementById('healthScore');
     healthScoreEl.textContent = results.score;
 
-    // Add color class
+    // Add color class (using muted brand colors)
     if (results.score >= 80) {
-        healthScoreEl.style.color = '#10b981';
+        healthScoreEl.style.color = '#0891B2'; // Brand teal
     } else if (results.score >= 60) {
-        healthScoreEl.style.color = '#f59e0b';
+        healthScoreEl.style.color = '#D4A574'; // Muted amber
     } else {
-        healthScoreEl.style.color = '#ef4444';
+        healthScoreEl.style.color = '#C27563'; // Muted terracotta
     }
 
     // Update opportunity
@@ -244,13 +245,26 @@ function showQuizResults() {
     `).join('');
     document.getElementById('breakdownList').innerHTML = breakdownHTML;
 
-    window.scrollTo({ top: 0, behavior: 'smooth' });
+    // Scroll modal to top instead of window
+    const modalContainer = document.querySelector('.modal-container');
+    if (modalContainer) {
+        modalContainer.scrollTo({ top: 0, behavior: 'smooth' });
+    } else {
+        window.scrollTo({ top: 0, behavior: 'smooth' });
+    }
 }
 
 function showUploadSection() {
     document.getElementById('resultsSection').classList.add('hidden');
     document.getElementById('uploadSection').classList.remove('hidden');
-    window.scrollTo({ top: 0, behavior: 'smooth' });
+
+    // Scroll modal to top instead of window
+    const modalContainer = document.querySelector('.modal-container');
+    if (modalContainer) {
+        modalContainer.scrollTo({ top: 0, behavior: 'smooth' });
+    } else {
+        window.scrollTo({ top: 0, behavior: 'smooth' });
+    }
 }
 
 // File upload handlers
@@ -301,43 +315,41 @@ analyzeBtn.addEventListener('click', async () => {
 
     errorMessage.classList.add('hidden');
 
-    // Change this to your actual API URL when backend is deployed
-    const API_URL = 'http://localhost:8080'; // or 'https://your-api-domain.com'
-
     try {
-        // Hide upload section, show "analyzing" state
-        document.getElementById('uploadSection').style.display = 'none';
+        // Hide upload section
+        document.getElementById('uploadSection').classList.add('hidden');
 
         // Show processing message
         const processingDiv = document.createElement('section');
-        processingDiv.className = 'upload-section';
+        processingDiv.className = 'modal-section';
         processingDiv.id = 'processingSection';
         processingDiv.innerHTML = `
-            <div class="container">
-                <div class="upload-container" style="text-align: center;">
-                    <div style="width: 64px; height: 64px; border: 4px solid var(--bg-secondary); border-top: 4px solid var(--accent-primary); border-radius: 50%; margin: 0 auto 2rem; animation: spin 1s linear infinite;"></div>
-                    <h2 style="font-size: 2rem; margin-bottom: 1rem;">Analyzing Your Data...</h2>
-                    <p style="color: var(--text-secondary);">Computing waste patterns, harvest opportunities, and optimization potential</p>
-                </div>
+            <div style="text-align: center; padding: 4rem 2rem;">
+                <div style="width: 64px; height: 64px; border: 4px solid var(--bg-secondary); border-top: 4px solid var(--accent-primary); border-radius: 50%; margin: 0 auto 2rem; animation: spin 1s linear infinite;"></div>
+                <h2 style="font-size: 2rem; margin-bottom: 1rem;">Analyzing Your Data...</h2>
+                <p style="color: var(--text-secondary);">Computing waste patterns, harvest opportunities, and optimization potential</p>
             </div>
         `;
-        document.querySelector('body').appendChild(processingDiv);
 
-        const formData = new FormData();
-        formData.append('file', selectedFile);
+        // Insert after upload section
+        const uploadSection = document.getElementById('uploadSection');
+        uploadSection.parentNode.insertBefore(processingDiv, uploadSection.nextSibling);
 
-        const response = await fetch(`${API_URL}/api/analyze`, {
-            method: 'POST',
-            mode: 'cors',
-            body: formData
-        });
-
-        if (!response.ok) {
-            const errorData = await response.json().catch(() => ({ error: 'Analysis failed' }));
-            throw new Error(errorData.error || 'Analysis failed');
+        // Add spin animation if not exists
+        if (!document.getElementById('spinKeyframes')) {
+            const style = document.createElement('style');
+            style.id = 'spinKeyframes';
+            style.textContent = `
+                @keyframes spin {
+                    0% { transform: rotate(0deg); }
+                    100% { transform: rotate(360deg); }
+                }
+            `;
+            document.head.appendChild(style);
         }
 
-        const results = await response.json();
+        // Parse file (Excel or CSV)
+        const results = await analyzeSearchTermReport(selectedFile);
 
         // Remove processing section
         processingDiv.remove();
@@ -351,40 +363,298 @@ analyzeBtn.addEventListener('click', async () => {
         if (processingSection) processingSection.remove();
 
         // Show upload section again
-        document.getElementById('uploadSection').style.display = 'block';
+        document.getElementById('uploadSection').classList.remove('hidden');
 
-        let errorMsg = err.message;
-
-        // Provide helpful error messages
-        if (err.message.includes('Failed to fetch') || err.message.includes('NetworkError')) {
-            errorMsg = `
-                <strong>Cannot connect to analysis server</strong><br><br>
-                The file analysis feature requires a backend server. You have two options:<br><br>
-                <strong>Option 1: Set up the backend locally</strong><br>
-                1. Navigate to: <code>/Users/zayaanyousuf/Documents/Amazon PPC/microsite applet - audit site</code><br>
-                2. Run: <code>python run_audit.py</code><br>
-                3. Server will start on port 8080<br><br>
-                <strong>Option 2: Contact us for hosted analysis</strong><br>
-                Email your report to support@saddle.io for a free manual audit.
-            `;
-        }
-
-        errorText.innerHTML = errorMsg;
+        errorText.innerHTML = `<strong>Error:</strong> ${err.message}`;
         errorMessage.classList.remove('hidden');
-        window.scrollTo({ top: 0, behavior: 'smooth' });
+
+        const modalContainer = document.querySelector('.modal-container');
+        if (modalContainer) {
+            modalContainer.scrollTo({ top: 0, behavior: 'smooth' });
+        }
     }
 });
 
-// Function to show detailed results from backend
+// Client-side analysis function (handles Excel and CSV)
+async function analyzeSearchTermReport(file) {
+    let rows = [];
+    let header = [];
+
+    // Check file type
+    const isExcel = file.name.match(/\.(xlsx|xls)$/i);
+    const isCsv = file.name.match(/\.csv$/i);
+
+    if (!isExcel && !isCsv) {
+        throw new Error('Please upload a CSV or Excel file (.csv, .xlsx, .xls)');
+    }
+
+    if (isExcel) {
+        // Parse Excel file
+        const arrayBuffer = await file.arrayBuffer();
+        const workbook = XLSX.read(arrayBuffer, { type: 'array' });
+        const firstSheet = workbook.Sheets[workbook.SheetNames[0]];
+        const jsonData = XLSX.utils.sheet_to_json(firstSheet, { header: 1, defval: '' });
+
+        if (jsonData.length < 2) {
+            throw new Error('Excel file appears to be empty or has no data rows');
+        }
+
+        header = jsonData[0].map(h => String(h).trim());
+        rows = jsonData.slice(1);
+    } else {
+        // Parse CSV file
+        const csvContent = await file.text();
+        const lines = csvContent.split('\n');
+
+        if (lines.length < 2) {
+            throw new Error('CSV file appears to be empty or invalid');
+        }
+
+        header = lines[0].split(',').map(h => h.trim().replace(/"/g, ''));
+        rows = lines.slice(1).map(line => {
+            if (!line.trim()) return null;
+            return line.split(',').map(v => v.trim().replace(/"/g, ''));
+        }).filter(row => row !== null);
+    }
+
+    // Find column indices
+    const getColumnIndex = (possibleNames) => {
+        for (let name of possibleNames) {
+            const idx = header.findIndex(h => h.toLowerCase().includes(name.toLowerCase()));
+            if (idx !== -1) return idx;
+        }
+        return -1;
+    };
+
+    const indices = {
+        searchTerm: getColumnIndex(['Customer Search Term', 'search term', 'keyword']),
+        impressions: getColumnIndex(['Impressions']),
+        clicks: getColumnIndex(['Clicks']),
+        spend: getColumnIndex(['Spend', 'Cost']),
+        sales: getColumnIndex(['7 Day Total Sales', 'Total Sales', 'Sales']),
+        orders: getColumnIndex(['7 Day Total Orders', 'Total Orders', 'Orders']),
+        campaignName: getColumnIndex(['Campaign Name', 'Campaign']),
+        startDate: getColumnIndex(['Start Date', 'Date']),
+        endDate: getColumnIndex(['End Date'])
+    };
+
+    // Validate required columns with better error message
+    if (indices.clicks === -1 || indices.spend === -1) {
+        const foundColumns = header.slice(0, 10).join(', ');
+        throw new Error(`Missing required columns. Found columns: ${foundColumns}... Please make sure your file is an Amazon Search Term Report with Clicks and Spend columns.`);
+    }
+
+    // Parse data rows and find date range
+    const searchTerms = [];
+    let totalSpend = 0;
+    let totalSales = 0;
+    let totalClicks = 0;
+    let minStartDate = null;
+    let maxEndDate = null;
+
+    for (const row of rows) {
+        if (!row || row.length === 0) continue;
+
+        const getValue = (idx) => idx >= 0 && idx < row.length ? row[idx] : '';
+
+        const clicks = parseFloat(String(getValue(indices.clicks)).replace(/[,$]/g, '')) || 0;
+        const spend = parseFloat(String(getValue(indices.spend)).replace(/[,$]/g, '')) || 0;
+        const sales = parseFloat(String(getValue(indices.sales)).replace(/[,$]/g, '')) || 0;
+        const orders = parseFloat(String(getValue(indices.orders)).replace(/[,$]/g, '')) || 0;
+
+        // Track min start date and max end date
+        const startDateStr = String(getValue(indices.startDate));
+        const endDateStr = String(getValue(indices.endDate));
+
+        if (startDateStr && startDateStr !== 'undefined' && startDateStr !== '') {
+            const startDate = new Date(startDateStr);
+            if (!isNaN(startDate)) {
+                if (!minStartDate || startDate < minStartDate) {
+                    minStartDate = startDate;
+                }
+            }
+        }
+
+        if (endDateStr && endDateStr !== 'undefined' && endDateStr !== '') {
+            const endDate = new Date(endDateStr);
+            if (!isNaN(endDate)) {
+                if (!maxEndDate || endDate > maxEndDate) {
+                    maxEndDate = endDate;
+                }
+            }
+        }
+
+        if (clicks > 0 || spend > 0) {
+            searchTerms.push({
+                searchTerm: String(getValue(indices.searchTerm)),
+                impressions: parseFloat(String(getValue(indices.impressions)).replace(/[,$]/g, '')) || 0,
+                clicks,
+                spend,
+                sales,
+                orders,
+                campaignName: String(getValue(indices.campaignName)),
+                roas: sales > 0 ? sales / spend : 0
+            });
+
+            totalSpend += spend;
+            totalSales += sales;
+            totalClicks += clicks;
+        }
+    }
+
+    if (searchTerms.length === 0) {
+        throw new Error('No valid data found in file. Please make sure this is an Amazon Search Term Report with data rows.');
+    }
+
+    // Calculate date range and monthly multiplier
+    let daysInReport = 30; // Default assumption
+    let monthlyMultiplier = 1;
+
+    if (minStartDate && maxEndDate) {
+        // Calculate days between min start and max end
+        daysInReport = Math.ceil((maxEndDate - minStartDate) / (1000 * 60 * 60 * 24)) + 1;
+
+        if (daysInReport > 0 && daysInReport < 365) {
+            monthlyMultiplier = 30 / daysInReport;
+        } else if (daysInReport >= 365) {
+            // If more than a year, assume it's 30 days (likely data issue)
+            daysInReport = 30;
+            monthlyMultiplier = 1;
+        }
+    } else {
+        // No date columns found - assume 30 days
+        daysInReport = 30;
+        monthlyMultiplier = 1;
+    }
+
+    // Analysis using CONFIG rules
+    const negativeKeywords = searchTerms.filter(st =>
+        st.clicks >= CONFIG.NEGATIVE_CLICKS_THRESHOLD &&
+        st.spend >= CONFIG.NEGATIVE_SPEND_THRESHOLD &&
+        st.orders === 0
+    );
+
+    const harvestOpportunities = searchTerms.filter(st =>
+        st.clicks >= CONFIG.HARVEST_MIN_CLICKS &&
+        st.orders >= CONFIG.HARVEST_MIN_ORDERS &&
+        st.sales >= CONFIG.HARVEST_MIN_SALES &&
+        st.roas >= CONFIG.ROAS_TARGET
+    );
+
+    const lowRoasTerms = searchTerms.filter(st =>
+        st.spend > 10 &&
+        st.roas > 0 &&
+        st.roas < CONFIG.ROAS_TARGET
+    );
+
+    // Calculate opportunities (raw from report period)
+    const negativeWaste = negativeKeywords.reduce((sum, st) => sum + st.spend, 0);
+    const harvestPotential = harvestOpportunities.reduce((sum, st) => sum + (st.sales * 0.15), 0); // 15% lift from exact match
+    const bidWaste = lowRoasTerms.reduce((sum, st) => sum + (st.spend * 0.20), 0); // 20% of low ROAS spend
+
+    // Extrapolate to monthly
+    const monthlyNegativeWaste = negativeWaste * monthlyMultiplier;
+    const monthlyHarvestPotential = harvestPotential * monthlyMultiplier;
+    const monthlyBidWaste = bidWaste * monthlyMultiplier;
+    const monthlyTotalOpportunity = monthlyNegativeWaste + monthlyHarvestPotential + monthlyBidWaste;
+    const monthlySpend = totalSpend * monthlyMultiplier;
+
+    // Calculate health score (inversely correlated with opportunity %)
+    // High waste = low score, low waste = high score
+    const opportunityPercentage = monthlyTotalOpportunity / Math.max(monthlySpend, 1);
+
+    let healthScore = 100;
+
+    // Penalize based on opportunity percentage
+    // 0-5% waste = 90-100 score (excellent)
+    // 5-10% waste = 75-90 score (good)
+    // 10-20% waste = 60-75 score (needs work)
+    // 20%+ waste = 45-60 score (poor)
+
+    if (opportunityPercentage <= 0.05) {
+        healthScore = 90 + (1 - opportunityPercentage / 0.05) * 10;
+    } else if (opportunityPercentage <= 0.10) {
+        healthScore = 75 + (1 - (opportunityPercentage - 0.05) / 0.05) * 15;
+    } else if (opportunityPercentage <= 0.20) {
+        healthScore = 60 + (1 - (opportunityPercentage - 0.10) / 0.10) * 15;
+    } else {
+        healthScore = Math.max(45, 60 - Math.min((opportunityPercentage - 0.20) * 100, 15));
+    }
+
+    healthScore = Math.round(Math.max(45, Math.min(100, healthScore)));
+
+    // Build issues array (use monthly extrapolated values)
+    const issues = [];
+
+    if (negativeKeywords.length > 0) {
+        issues.push({
+            title: 'Zero-Conversion Keywords',
+            description: `Search terms with ${CONFIG.NEGATIVE_CLICKS_THRESHOLD}+ clicks and no sales`,
+            amount: Math.round(monthlyNegativeWaste),
+            count: negativeKeywords.length,
+            priority: 'high',
+            type: 'waste'
+        });
+    }
+
+    if (harvestOpportunities.length > 0) {
+        issues.push({
+            title: 'Harvest Opportunities',
+            description: `High-performing terms ready for exact match campaigns`,
+            amount: Math.round(monthlyHarvestPotential),
+            count: harvestOpportunities.length,
+            priority: 'high',
+            type: 'gain'
+        });
+    }
+
+    if (bidWaste > 0) {
+        issues.push({
+            title: 'Low ROAS Targets',
+            description: `Keywords spending money below target ROAS of ${CONFIG.ROAS_TARGET}x`,
+            amount: Math.round(monthlyBidWaste),
+            count: lowRoasTerms.length,
+            priority: 'medium',
+            type: 'waste'
+        });
+    }
+
+    return {
+        healthScore,
+        totalOpportunity: Math.round(monthlyTotalOpportunity),
+        totals: {
+            spend: Math.round(monthlySpend),
+            sales: Math.round(totalSales * monthlyMultiplier),
+            roas: totalSpend > 0 ? (totalSales / totalSpend) : 0
+        },
+        dataQuality: {
+            validRows: searchTerms.length,
+            daysInReport,
+            monthlyMultiplier: monthlyMultiplier.toFixed(2)
+        },
+        issues
+    };
+}
+
+// Function to show detailed results from analysis
 function showDetailedResults(data) {
     // Hide all other sections
     document.getElementById('quizSection').classList.add('hidden');
     document.getElementById('resultsSection').classList.add('hidden');
-    document.getElementById('uploadSection').style.display = 'none';
+    document.getElementById('uploadSection').classList.add('hidden');
 
-    // Create detailed results section
+    // Create or get detailed results section within modal
+    let detailedSection = document.getElementById('detailedResultsSection');
+    if (!detailedSection) {
+        detailedSection = document.createElement('section');
+        detailedSection.id = 'detailedResultsSection';
+        detailedSection.className = 'modal-section';
+        document.querySelector('.modal-container').appendChild(detailedSection);
+    }
+
+    // Create detailed results content
     const resultsHTML = `
-        <section class="results-section">
+        <div class="results-grid-modal">
             <div class="container">
                 <div class="results-grid">
                     <!-- Health Score -->
@@ -393,7 +663,7 @@ function showDetailedResults(data) {
                         <div class="health-score" style="color: ${getScoreColor(data.healthScore)};">
                             ${data.healthScore}
                         </div>
-                        <p class="score-subtitle">Based on ${data.dataQuality.validRows.toLocaleString()} search terms analyzed</p>
+                        <p class="score-subtitle">Based on ${data.dataQuality.validRows.toLocaleString()} search terms (${data.dataQuality.daysInReport} days extrapolated to 30 days)</p>
                     </div>
 
                     <!-- Total Opportunity -->
@@ -436,12 +706,12 @@ function showDetailedResults(data) {
                                 <div class="breakdown-item ${issue.priority}">
                                     <div class="breakdown-header">
                                         <div>
-                                            <span style="padding: 0.3rem 0.8rem; background: ${issue.priority === 'high' ? 'rgba(239, 68, 68, 0.1)' : 'rgba(245, 158, 11, 0.1)'}; color: ${issue.priority === 'high' ? '#ef4444' : '#f59e0b'}; border-radius: 100px; font-size: 0.75rem; font-weight: 700; margin-right: 0.8rem;">${issue.priority.toUpperCase()}</span>
+                                            <span style="padding: 0.3rem 0.8rem; background: ${issue.priority === 'high' ? 'rgba(194, 117, 99, 0.1)' : 'rgba(212, 165, 116, 0.1)'}; color: ${issue.priority === 'high' ? '#C27563' : '#D4A574'}; border-radius: 100px; font-size: 0.75rem; font-weight: 700; margin-right: 0.8rem;">${issue.priority.toUpperCase()}</span>
                                             <span class="breakdown-title">${issue.title}</span>
                                             <p style="color: var(--text-secondary); font-size: 0.9rem; margin-top: 0.5rem;">${issue.description}</p>
                                             ${issue.count ? `<p style="color: var(--text-muted); font-size: 0.8rem; margin-top: 0.3rem;">${issue.count} items found</p>` : ''}
                                         </div>
-                                        <div class="breakdown-amount" style="color: ${issue.type === 'gain' ? '#10b981' : '#ef4444'};">
+                                        <div class="breakdown-amount" style="color: ${issue.type === 'gain' ? '#0891B2' : '#C27563'};">
                                             ${issue.type === 'gain' ? '+' : '-'}$${Math.round(issue.amount).toLocaleString()}/mo
                                         </div>
                                     </div>
@@ -472,38 +742,110 @@ function showDetailedResults(data) {
                                 </ul>
                             </div>
                         </div>
-                        <button onclick="window.location.href='index.html#pricing'" class="primary-button large" style="width: 100%;">
+                        <button id="goToPricingBtn" class="primary-button large" style="width: 100%;">
                             Start Free Trial - Fix These Issues →
                         </button>
                         <p class="upload-disclaimer">14-day free trial • No credit card required • Cancel anytime</p>
                     </div>
 
                     <!-- Restart -->
-                    <div style="text-align: center;">
-                        <button onclick="location.reload()" style="background: none; border: none; color: var(--text-secondary); cursor: pointer; font-size: 0.95rem;">
-                            ← Analyze another account
+                    <div style="text-align: center; margin-top: 2rem;">
+                        <button id="restartAuditBtn" class="secondary-button" style="background: none; border: 2px solid var(--bg-secondary); color: var(--text-secondary); cursor: pointer; padding: 0.75rem 1.5rem; border-radius: 8px; font-size: 0.95rem;">
+                            ← Analyze Another Account
                         </button>
                     </div>
                 </div>
             </div>
-        </section>
+        </div>
     `;
 
-    // Insert results into page
-    const tempDiv = document.createElement('div');
-    tempDiv.innerHTML = resultsHTML;
-    document.querySelector('body').appendChild(tempDiv.firstElementChild);
+    // Insert results into modal section
+    detailedSection.innerHTML = resultsHTML;
+    detailedSection.classList.remove('hidden');
 
-    window.scrollTo({ top: 0, behavior: 'smooth' });
+    // Add pricing button handler
+    document.getElementById('goToPricingBtn').addEventListener('click', function() {
+        // Close modal
+        const modal = document.getElementById('auditModal');
+        if (modal) {
+            modal.classList.remove('active');
+            document.body.style.overflow = '';
+        }
+
+        // Scroll to pricing section
+        setTimeout(() => {
+            const pricingSection = document.getElementById('pricing');
+            if (pricingSection) {
+                pricingSection.scrollIntoView({ behavior: 'smooth', block: 'start' });
+            }
+        }, 300);
+    });
+
+    // Add restart button handler
+    document.getElementById('restartAuditBtn').addEventListener('click', function() {
+        // Reset to quiz section
+        detailedSection.classList.add('hidden');
+        document.getElementById('quizSection').classList.remove('hidden');
+        document.getElementById('resultsSection').classList.add('hidden');
+        document.getElementById('uploadSection').classList.add('hidden');
+
+        // Reset quiz state
+        quizAnswers = {};
+        selectedFile = null;
+
+        // Reset progress
+        const progressBar = document.getElementById('progressFill');
+        if (progressBar) progressBar.style.width = '0%';
+
+        const progressCounter = document.getElementById('progressPercent');
+        if (progressCounter) progressCounter.textContent = '0';
+
+        // Reset button
+        const submitBtn = document.getElementById('getScoreBtn');
+        if (submitBtn) {
+            submitBtn.disabled = true;
+            submitBtn.classList.remove('ready');
+        }
+
+        // Clear all selections
+        document.querySelectorAll('.option-button.selected').forEach(btn => {
+            btn.classList.remove('selected');
+        });
+        document.querySelectorAll('.question-checkmark.visible').forEach(check => {
+            check.classList.remove('visible');
+        });
+
+        // Scroll to top
+        const modalContainer = document.querySelector('.modal-container');
+        if (modalContainer) modalContainer.scrollTo({ top: 0, behavior: 'smooth' });
+    });
+
+    // Scroll modal to top
+    const modalContainer = document.querySelector('.modal-container');
+    if (modalContainer) {
+        modalContainer.scrollTo({ top: 0, behavior: 'smooth' });
+    }
 }
 
 function getScoreColor(score) {
-    if (score >= 80) return '#10b981';
-    if (score >= 60) return '#f59e0b';
-    return '#ef4444';
+    if (score >= 80) return '#0891B2'; // Brand teal
+    if (score >= 60) return '#D4A574'; // Muted amber
+    return '#C27563'; // Muted terracotta
 }
 
-document.getElementById('getScoreBtn').addEventListener('click', showQuizResults);
+// Initialize quiz when called (will be triggered by modal open)
+function initializeAuditQuiz() {
+    if (!quizInitialized) {
+        const getScoreBtn = document.getElementById('getScoreBtn');
+        if (getScoreBtn) {
+            getScoreBtn.addEventListener('click', showQuizResults);
+        }
+        initQuiz();
+        quizInitialized = true;
+    }
+}
 
-// Initialize on load
-initQuiz();
+// Auto-initialize if elements exist (for standalone audit.html page)
+if (document.getElementById('questionsContainer')) {
+    initializeAuditQuiz();
+}

@@ -389,9 +389,50 @@ def generate_bids_bulk(bids_df: pd.DataFrame) -> Tuple[pd.DataFrame, int]:
         return pd.DataFrame(columns=EXPORT_COLUMNS), []
         
     changes = changes.reset_index(drop=True)
-    # Initialize with index to allow scalar assignment
     df = pd.DataFrame(index=changes.index, columns=EXPORT_COLUMNS)
     
+    # -----------------------------------------------------------
+    # DEDUPLICATION LOGIC (Strategy: Dominant Term/Highest Spend)
+    # -----------------------------------------------------------
+    # If multiple search terms map to the same Keyword ID/Targeting ID,
+    # we must pick ONE bid update to avoid bulk file errors.
+    # We choose the row with the Highest Spend ("Dominant Term").
+    
+    # Ensure Spend column exists for sorting (might be passed in, or we just trust the order if pre-sorted)
+    # If Spend is not present, we can't reliably pick max spend, so we keep first occurrence (highest rank).
+    if "Spend" in changes.columns:
+        # Sort by Spend descending so highest spend is first
+        changes = changes.sort_values(by="Spend", ascending=False).reset_index(drop=True)
+        # Also rebuild index for final DF to match
+        df = pd.DataFrame(index=changes.index, columns=EXPORT_COLUMNS)
+    
+    # Deduplicate by Keyword ID (if present)
+    if "KeywordId" in changes.columns:
+        # Create mask of ID validity
+        valid_kw_id = changes["KeywordId"].notna() & (changes["KeywordId"] != "")
+        
+        # Duplicate check on valid IDs only
+        dupes_mask = changes.loc[valid_kw_id].duplicated(subset=["KeywordId"], keep="first")
+        
+        if dupes_mask.any():
+            # Get indices of duplicates to drop
+            # These are the lower-spend versions of the same ID
+            drop_indices = changes.loc[valid_kw_id][dupes_mask].index
+            changes = changes.drop(drop_indices).reset_index(drop=True)
+            # Resize result DF
+            df = pd.DataFrame(index=changes.index, columns=EXPORT_COLUMNS)
+            
+    # Deduplicate by Product Targeting ID (if present)
+    if "TargetingId" in changes.columns:
+        valid_pt_id = changes["TargetingId"].notna() & (changes["TargetingId"] != "")
+        dupes_mask = changes.loc[valid_pt_id].duplicated(subset=["TargetingId"], keep="first")
+        
+        if dupes_mask.any():
+            drop_indices = changes.loc[valid_pt_id][dupes_mask].index
+            changes = changes.drop(drop_indices).reset_index(drop=True)
+            df = pd.DataFrame(index=changes.index, columns=EXPORT_COLUMNS)
+    # -----------------------------------------------------------
+
     df["Product"] = "Sponsored Products"
     df["Operation"] = "Update"
     df["Campaign Id"] = (changes["CampaignId"] if "CampaignId" in changes.columns else pd.Series([""] * len(df))).apply(clean_id)
@@ -513,16 +554,34 @@ def generate_bids_bulk(bids_df: pd.DataFrame) -> Tuple[pd.DataFrame, int]:
     return df, issues
 
 
+EXPORT_COLUMNS = [
+    "Product", "Entity", "Operation", "Campaign Id", "Ad Group Id", 
+    "Campaign Name", "Ad Group Name", "Targeting Type", "SKU", "Bid", "Ad Group Default Bid", 
+    "Keyword Text", "Match Type", "Product Targeting Expression", 
+    "Keyword Id", "Product Targeting Id", "State"
+]
+
+
 def generate_harvest_bulk(harvest_df: pd.DataFrame, 
                           target_campaign: str = None,
-                          target_ad_group: str = None) -> pd.DataFrame:
+                          target_ad_group: str = None,
+                          portfolio_id: str = None,
+                          campaign_budget: float = 20.0,
+                          launch_date = None) -> pd.DataFrame:
     """
-    Generate Amazon bulk upload file for harvest keywords (new exact match keywords).
+    Generate Amazon bulk upload file for harvest keywords with full hierarchy.
+    Creates: Campaign -> Ad Group -> Product Ad -> Keywords.
+    
+    Features:
+    - Hierarchical structure (C -> AG -> PA -> KW)
+    - Campaign: Targeting Type = Manual
+    - Ad Group: Default Bid logic
+    - Product Ad: Winner SKU selection (1 per AG)
     
     Args:
         harvest_df: DataFrame of harvest candidates
-        target_campaign: Optional target campaign name for new keywords
-        target_ad_group: Optional target ad group name for new keywords
+        target_campaign: Optional target campaign name override
+        target_ad_group: Optional target ad group name override
         
     Returns:
         DataFrame formatted for Amazon bulk upload
@@ -530,34 +589,185 @@ def generate_harvest_bulk(harvest_df: pd.DataFrame,
     if harvest_df is None or harvest_df.empty:
         return pd.DataFrame(columns=EXPORT_COLUMNS)
     
-    harvest_df = harvest_df.reset_index(drop=True)
-    df = pd.DataFrame(index=harvest_df.index, columns=EXPORT_COLUMNS)
+    harvest_df = harvest_df.copy()
     
-    df["Product"] = "Sponsored Products"
-    df["Entity"] = "Keyword"
-    df["Operation"] = "Create"
+    # Format Launch Date
+    from datetime import date
+    if launch_date is None:
+        launch_date = date.today()
     
-    # Use target campaign/ad group if specified, otherwise use source
+    start_date_str = launch_date.strftime("%Y%m%d")
+    
+    # Apply Overrides if present
     if target_campaign:
-        df["Campaign Name"] = target_campaign
-    else:
-        df["Campaign Name"] = harvest_df.get("Campaign Name", "")
-        
+        harvest_df["Campaign Name"] = target_campaign
     if target_ad_group:
-        df["Ad Group Name"] = target_ad_group
-    else:
-        df["Ad Group Name"] = harvest_df.get("Ad Group Name", "")
-    
-    # Get harvest term - clean any targeting prefixes
+        harvest_df["Ad Group Name"] = target_ad_group
+        
+    # Standardize column checking
     term_col = "Customer Search Term" if "Customer Search Term" in harvest_df.columns else "Harvest_Term"
-    df["Keyword Text"] = harvest_df[term_col].apply(strip_targeting_prefix)
-    df["Match Type"] = "exact"
-    df["State"] = "enabled"
     
-    # Use suggested bid if available
-    if "Suggested Bid" in harvest_df.columns:
-        df["Bid"] = harvest_df["Suggested Bid"]
-    elif "CPC" in harvest_df.columns:
-        df["Bid"] = harvest_df["CPC"]
+    frames = []
     
-    return df
+    # Group by Campaign + Ad Group to build hierarchy
+    # (If columns missing, treat as single group with defaults)
+    group_cols = [c for c in ["Campaign Name", "Ad Group Name"] if c in harvest_df.columns]
+    
+    if not group_cols:
+        grouped = [((), harvest_df)]
+    else:
+        grouped = harvest_df.groupby(group_cols)
+        
+    seen_campaigns = set()
+    
+    for keys, group in grouped:
+        # Resolve Group Names
+        if isinstance(keys, str): keys = (keys,)
+        
+        camp_name = ""
+        ag_name = ""
+        
+        if "Campaign Name" in harvest_df.columns:
+            camp_idx = harvest_df.columns.get_loc("Campaign Name")
+            # If we grouped by it, it's in keys. If not, it's consistent in group or empty.
+            if "Campaign Name" in group_cols:
+                idx = group_cols.index("Campaign Name")
+                camp_name = keys[idx]
+            else:
+                camp_name = group["Campaign Name"].iloc[0] if not group.empty else ""
+                
+        if "Ad Group Name" in harvest_df.columns:
+            if "Ad Group Name" in group_cols:
+                idx = group_cols.index("Ad Group Name")
+                ag_name = keys[idx]
+            else:
+                ag_name = group["Ad Group Name"].iloc[0] if not group.empty else ""
+
+        # Determine Default Bid for Ad Group
+        if "Suggested Bid" in group.columns:
+            ag_def_bid = pd.to_numeric(group["Suggested Bid"], errors='coerce').mean()
+        elif "CPC" in group.columns:
+            ag_def_bid = pd.to_numeric(group["CPC"], errors='coerce').mean()
+        else:
+            ag_def_bid = 1.0
+            
+        ag_def_bid = round(ag_def_bid, 2)
+        if pd.isna(ag_def_bid): ag_def_bid = 1.0
+
+        # 1. Campaign Row (Deduplicated)
+        if camp_name and camp_name not in seen_campaigns:
+            camp_row = {
+                "Product": "Sponsored Products",
+                "Entity": "Campaign",
+                "Operation": "Create",
+                "Campaign Id": camp_name,
+                "Campaign Name": camp_name,
+                "Targeting Type": "Manual",
+                "State": "enabled",
+                "Daily Budget": f"{campaign_budget:.2f}",
+                "Start Date": start_date_str,
+                "Portfolio ID": str(portfolio_id) if portfolio_id else ""
+            }
+            frames.append(pd.DataFrame([camp_row]))
+            seen_campaigns.add(camp_name)
+        
+        # 2. Ad Group Row
+        ag_row = {
+            "Product": "Sponsored Products",
+            "Entity": "Ad Group",
+            "Operation": "Create",
+            "Campaign Id": camp_name,
+            "Ad Group Id": ag_name,
+            "Campaign Name": camp_name,
+            "Ad Group Name": ag_name,
+            "Ad Group Default Bid": ag_def_bid,
+            "State": "enabled"
+        }
+        frames.append(pd.DataFrame([ag_row]))
+        
+        # 3. Product Ad Row (Winner SKU)
+        # Check both column names
+        sku_col = "Advertised SKU" if "Advertised SKU" in group.columns else "SKU_advertised"
+        
+        if sku_col in group.columns:
+            # Rank SKUs in this group
+            sku_stats = group.groupby(sku_col).size().reset_index(name='count')
+            if "Sales" in group.columns:
+                sales_stats = group.groupby(sku_col)["Sales"].sum().reset_index()
+                sku_stats = sku_stats.merge(sales_stats, on=sku_col)
+                winner_sku = sku_stats.sort_values("Sales", ascending=False).iloc[0][sku_col]
+            else:
+                winner_sku = sku_stats.sort_values("count", ascending=False).iloc[0][sku_col]
+                
+            if winner_sku and str(winner_sku) != "SKU_NEEDED":
+                # SANITIZATION: Ensure only 1 SKU (Amazon restriction)
+                # If mapped value is "SKU1, SKU2", pick the first one
+                if "," in str(winner_sku):
+                    winner_sku = str(winner_sku).split(",")[0].strip()
+                    
+                pa_row = {
+                    "Product": "Sponsored Products",
+                    "Entity": "Product Ad",
+                    "Operation": "Create",
+                    "Campaign Id": camp_name,
+                    "Ad Group Id": ag_name,
+                    "Campaign Name": camp_name,
+                    "Ad Group Name": ag_name,
+                    "Ad Group Default Bid": ag_def_bid,
+                    "SKU": winner_sku,
+                    "State": "enabled"
+                }
+                frames.append(pd.DataFrame([pa_row]))
+        
+        # 4. Keyword / Product Targeting Rows
+        # Handle mixed types (KW vs PT)
+        kw_rows = pd.DataFrame(index=group.index, columns=EXPORT_COLUMNS)
+        kw_rows["Product"] = "Sponsored Products"
+        kw_rows["Operation"] = "Create"
+        kw_rows["Campaign Id"] = camp_name
+        kw_rows["Ad Group Id"] = ag_name
+        kw_rows["Campaign Name"] = camp_name
+        kw_rows["Ad Group Name"] = ag_name
+        kw_rows["State"] = "enabled"
+
+        # Apply logic row by row or vectorised
+        def map_target(row):
+            term = str(row[term_col]).strip()
+            # Check for ASIN format (B0...)
+            if is_asin(term) or (len(term) == 10 and term.startswith("B0")):
+                return pd.Series({
+                    "Entity": "Product Targeting",
+                    "Product Targeting Expression": f'asin="{term}"',
+                    "Keyword Text": None,
+                    "Match Type": None # PT doesn't have match type in the same way
+                })
+            else:
+                return pd.Series({
+                    "Entity": "Keyword",
+                    "Product Targeting Expression": None,
+                    "Keyword Text": strip_targeting_prefix(term),
+                    "Match Type": "exact"
+                })
+
+        mapped = group.apply(map_target, axis=1)
+        kw_rows["Entity"] = mapped["Entity"]
+        kw_rows["Product Targeting Expression"] = mapped["Product Targeting Expression"]
+        kw_rows["Keyword Text"] = mapped["Keyword Text"]
+        kw_rows["Match Type"] = mapped["Match Type"]
+        
+        # Bids
+        if "Suggested Bid" in group.columns:
+            kw_rows["Bid"] = pd.to_numeric(group["Suggested Bid"], errors='coerce').fillna(ag_def_bid).round(2)
+        elif "CPC_Source" in group.columns:
+             # Fallback if Suggested Bid missing 
+             kw_rows["Bid"] = pd.to_numeric(group["CPC_Source"], errors='coerce').fillna(ag_def_bid).round(2)
+        else:
+             kw_rows["Bid"] = ag_def_bid
+
+        frames.append(kw_rows)
+        
+    if not frames:
+        return pd.DataFrame(columns=EXPORT_COLUMNS)
+        
+    bulk_df = pd.concat(frames, ignore_index=True)
+    return bulk_df[EXPORT_COLUMNS]

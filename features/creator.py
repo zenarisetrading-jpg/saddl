@@ -16,6 +16,9 @@ import plotly.graph_objects as go
 from features._base import BaseFeature
 from core.data_loader import SmartMapper, safe_numeric, is_asin, load_uploaded_file
 from utils.formatters import to_excel_download
+from core.data_hub import DataHub
+from core.db_manager import get_db_manager
+from features.bulk_export import generate_harvest_bulk
 
 # ==========================================
 # CONSTANTS (LaunchPad)
@@ -387,10 +390,30 @@ class CreatorModule(BaseFeature):
 
             if "Advertised SKU" not in df_harvest.columns or df_harvest["Advertised SKU"].eq("SKU_NEEDED").all():
                 # TRY TO PRE-FILL FROM SESSION STATE FIRST
-                data_hub = st.session_state.get('data', {})
-                purchased_report = data_hub.get('purchased_product')
+                # 1. Try Data Hub (Session State)
+                if 'unified_data' in st.session_state:
+                     purchased_report = st.session_state.unified_data.get('advertised_product_report')
+                else:
+                     purchased_report = None
                 
-                if purchased_report is not None:
+                # 2. Key Fallback: Try DB if missing
+                if purchased_report is None or purchased_report.empty:
+                    client_id = st.session_state.get('active_account_id')
+                    if client_id:
+                        try:
+                            # Use db_manager logic to fetch
+                            db_mgr = get_db_manager(st.session_state.get('test_mode', False))
+                            purchased_report = db_mgr.get_advertised_product_map(client_id)
+                            
+                            # Cache it back to DataHub for this session
+                            if not purchased_report.empty:
+                                if 'unified_data' not in st.session_state:
+                                     DataHub() # Initialize structure
+                                st.session_state.unified_data['advertised_product_report'] = purchased_report
+                        except Exception as e:
+                            pass # Fail silently, user will see warning
+
+                if purchased_report is not None and not purchased_report.empty:
                      df_harvest, msg = self.map_skus_from_df(df_harvest, purchased_report)
                      if "Matches found" in msg:
                         check_icon = f'<svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#4ade80" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" style="vertical-align: middle; margin-right: 8px;"><polyline points="20 6 9 17 4 12"></polyline></svg>'
@@ -433,7 +456,80 @@ class CreatorModule(BaseFeature):
         st.dataframe(df_harvest, use_container_width=True)
         
         if st.button("Generate Harvest Campaigns", type="primary", key="btn_gen_harvest", use_container_width=True):
-            bulk_df = self.generate_harvest_bulk_file(df_harvest, portfolio_id, daily_budget, launch_date)
+            
+            # -------------------------------------------------------------
+            # PRE-PROCESSING: Restore "Original Structure" & Naming Logic
+            # -------------------------------------------------------------
+            try:
+                # 1. Momentum Bid Logic
+                # If "Suggested Bid" missing, calculate it based on CPC source
+                if "CPC_Source" not in df_harvest.columns:
+                    if "Spend" in df_harvest.columns and "Clicks" in df_harvest.columns:
+                        df_harvest["CPC_Source"] = df_harvest.apply(
+                            lambda r: r["Spend"]/r["Clicks"] if pd.to_numeric(r["Clicks"], errors='coerce') > 0 else 0, 
+                            axis=1
+                        )
+                    else:
+                        df_harvest["CPC_Source"] = 0.0
+
+                def calc_momentum_bid(row):
+                    # Use existing New Bid if valid, else calculate
+                    if "New Bid" in row and pd.to_numeric(row["New Bid"], errors='coerce') > 0.1:
+                        return float(row["New Bid"])
+                    
+                    src_cpc = pd.to_numeric(row.get("CPC_Source"), errors='coerce')
+                    if pd.isna(src_cpc) or src_cpc <= 0:
+                        return 0.50 # Default fallback
+                    return max(src_cpc * 1.1, 0.10) # 10% bump
+
+                # Map to 'Suggested Bid' which is used by bulk_export
+                df_harvest["Suggested Bid"] = df_harvest.apply(calc_momentum_bid, axis=1)
+
+                # 2. Week/Year Calculation
+                from datetime import date
+                launch_dt = launch_date or date.today()
+                iso_week = launch_dt.isocalendar()[1]
+                iso_year = launch_dt.isocalendar()[0]
+
+                # 3. Campaign Name (Single Weekly Campaign)
+                # Format: HarvestExact_WK{week}_{year}
+                camp_name = f"HarvestExact_WK{iso_week:02d}_{iso_year}"
+                if portfolio_id:
+                     camp_name += f"_{portfolio_id}" # Append PID if exists for uniqueness? No, user wants single camp.
+                
+                # Force single, consolidated campaign by overriding column
+                df_harvest["Campaign Name"] = camp_name
+
+                # 4. Ad Group Name (One per SKU + Type)
+                # Format: AG_{KW/PT}_Exact_{SKU}_WK{week}_{year}
+                def get_ag_name(row):
+                    term = str(row.get("Customer Search Term", "")).strip()
+                    # Sanitize SKU: Split by comma and take first
+                    raw_sku = str(row.get("Advertised SKU", "UNKNOWN"))
+                    if "," in raw_sku:
+                        sku = raw_sku.split(",")[0].strip()
+                    else:
+                        sku = raw_sku.strip()
+                        
+                    suffix = "PT" if is_asin(term) else "KW"
+                    return f"AG_{suffix}_Exact_{sku}_WK{iso_week:02d}_{iso_year}"
+                
+                df_harvest["Ad Group Name"] = df_harvest.apply(get_ag_name, axis=1)
+
+            except Exception as e:
+                st.error(f"Error preparing harvest data: {e}")
+                return
+
+            # -------------------------------------------------------------
+            # EXPORT GENERATION
+            # -------------------------------------------------------------
+            # Use shared function with robust logic (Winner SKU, Manual Targeting, etc.)
+            bulk_df = generate_harvest_bulk(
+                harvest_df=df_harvest,
+                portfolio_id=portfolio_id,
+                campaign_budget=daily_budget,
+                launch_date=launch_date
+            )
             
             check_icon = f'<svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#4ade80" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" style="vertical-align: middle; margin-right: 8px;"><polyline points="20 6 9 17 4 12"></polyline></svg>'
             st.markdown(f"""
@@ -613,8 +709,10 @@ class CreatorModule(BaseFeature):
         except Exception as e:
             return harvest_df, f"❌ Error: {str(e)}"
 
-    def generate_harvest_bulk_file(self, df_harvest, portfolio_id, total_daily_budget, launch_date):
-        """Generate bulk file for Harvest campaigns (Weekly Consolidated)."""
+    def _generate_harvest_bulk_file_deprecated(self, df_harvest, portfolio_id, total_daily_budget, launch_date):
+        """DEPRECATED: Use features.bulk_export.generate_harvest_bulk instead.
+        Generate bulk file for Harvest campaigns (Weekly Consolidated).
+        """
         # Safety check for SKU column
         if "Advertised SKU" not in df_harvest.columns:
             df_harvest = df_harvest.copy()
