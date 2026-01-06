@@ -1,19 +1,20 @@
 """
 Ingestion V2 Models
 ===================
-Pydantic models for type-safe data passing.
+Data models using stdlib dataclasses (no external dependencies).
 PRD Reference: EMAIL_INGESTION_PRD.md Section 11, 13
 """
 
+from dataclasses import dataclass, field
 from datetime import datetime, date
 from typing import Optional, List, Dict, Any
 from uuid import UUID
-from pydantic import BaseModel, Field
 
 from .enums import IngestionSource, IngestionStatus
 
 
-class IngestionPayload(BaseModel):
+@dataclass
+class IngestionPayload:
     """
     Payload passed from Adapter to Validator.
     This is the common interface between all adapters (Email, API, Manual).
@@ -21,23 +22,21 @@ class IngestionPayload(BaseModel):
     PRD Section 7, 8: Adapter responsibilities
     """
     # Identity
-    account_uuid: str = Field(..., description="Account UUID extracted from recipient email")
-    sender_email: str = Field(..., description="Email address of the sender")
+    account_uuid: str
+    sender_email: str
     
     # File data
-    file_content: bytes = Field(..., description="Raw CSV file content")
-    filename: str = Field(..., description="Original filename")
+    file_content: bytes
+    filename: str
     
     # Metadata
-    source: IngestionSource = Field(..., description="EMAIL, API, or MANUAL")
-    received_at: datetime = Field(default_factory=datetime.utcnow)
-    subject: Optional[str] = Field(None, description="Email subject (if applicable)")
-    
-    class Config:
-        arbitrary_types_allowed = True
+    source: IngestionSource
+    received_at: datetime = field(default_factory=datetime.utcnow)
+    subject: Optional[str] = None
 
 
-class IngestionEvent(BaseModel):
+@dataclass
+class IngestionEvent:
     """
     Represents a row in ingestion_events_v2 table.
     
@@ -47,18 +46,17 @@ class IngestionEvent(BaseModel):
     account_id: UUID
     source: IngestionSource
     status: IngestionStatus
+    received_at: datetime
     
     raw_file_path: Optional[str] = None
     source_fingerprint: Optional[str] = None
-    
-    received_at: datetime
     processed_at: Optional[datetime] = None
-    
     failure_reason: Optional[str] = None
-    metadata: Dict[str, Any] = Field(default_factory=dict)
+    metadata: Dict[str, Any] = field(default_factory=dict)
 
 
-class ParsedRow(BaseModel):
+@dataclass
+class ParsedRow:
     """
     Single parsed row from CSV, ready for DB insert.
     
@@ -74,17 +72,18 @@ class ParsedRow(BaseModel):
     sales_7d: float = 0.0
 
 
-class ParseResult(BaseModel):
+@dataclass
+class ParseResult:
     """
     Result of parsing a CSV file.
     
     PRD Section 11: Partial Parse Tolerance
     """
     success: bool
-    rows: List[ParsedRow] = Field(default_factory=list)
+    rows: List[ParsedRow] = field(default_factory=list)
     total_rows: int = 0
     dropped_rows: int = 0
-    warnings: List[str] = Field(default_factory=list)
+    warnings: List[str] = field(default_factory=list)
     error: Optional[str] = None
     
     @property
@@ -102,7 +101,8 @@ class ParseResult(BaseModel):
         return self.drop_rate > 0.01
 
 
-class ValidationResult(BaseModel):
+@dataclass
+class ValidationResult:
     """
     Result of validation layer checks.
     
@@ -110,7 +110,7 @@ class ValidationResult(BaseModel):
     """
     valid: bool
     account_id: Optional[UUID] = None
-    errors: List[str] = Field(default_factory=list)
+    errors: List[str] = field(default_factory=list)
     
     # For duplicate detection
     is_duplicate: bool = False
