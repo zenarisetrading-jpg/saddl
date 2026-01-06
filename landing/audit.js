@@ -434,9 +434,17 @@ async function analyzeSearchTermReport(file) {
         sales: getColumnIndex(['7 Day Total Sales', 'Total Sales', 'Sales']),
         orders: getColumnIndex(['7 Day Total Orders', 'Total Orders', 'Orders']),
         campaignName: getColumnIndex(['Campaign Name', 'Campaign']),
-        startDate: getColumnIndex(['Start Date', 'Date']),
-        endDate: getColumnIndex(['End Date'])
+        startDate: getColumnIndex(['Start Date', 'Date', 'Report Start Date']),
+        endDate: getColumnIndex(['End Date', 'Report End Date'])
     };
+
+    // Debug: Log which date columns were found
+    console.log('Date column detection:', {
+        startDateIndex: indices.startDate,
+        endDateIndex: indices.endDate,
+        startDateColumn: indices.startDate >= 0 ? header[indices.startDate] : 'NOT FOUND',
+        endDateColumn: indices.endDate >= 0 ? header[indices.endDate] : 'NOT FOUND'
+    });
 
     // Validate required columns with better error message
     if (indices.clicks === -1 || indices.spend === -1) {
@@ -466,18 +474,23 @@ async function analyzeSearchTermReport(file) {
         const startDateStr = String(getValue(indices.startDate));
         const endDateStr = String(getValue(indices.endDate));
 
+        // If no separate end date column, use start date for both
+        const effectiveEndDateStr = (endDateStr && endDateStr !== 'undefined' && endDateStr !== '')
+            ? endDateStr
+            : startDateStr;
+
         if (startDateStr && startDateStr !== 'undefined' && startDateStr !== '') {
             const startDate = new Date(startDateStr);
-            if (!isNaN(startDate)) {
+            if (!isNaN(startDate) && startDate.getFullYear() > 2000) {
                 if (!minStartDate || startDate < minStartDate) {
                     minStartDate = startDate;
                 }
             }
         }
 
-        if (endDateStr && endDateStr !== 'undefined' && endDateStr !== '') {
-            const endDate = new Date(endDateStr);
-            if (!isNaN(endDate)) {
+        if (effectiveEndDateStr && effectiveEndDateStr !== 'undefined' && effectiveEndDateStr !== '') {
+            const endDate = new Date(effectiveEndDateStr);
+            if (!isNaN(endDate) && endDate.getFullYear() > 2000) {
                 if (!maxEndDate || endDate > maxEndDate) {
                     maxEndDate = endDate;
                 }
@@ -510,22 +523,43 @@ async function analyzeSearchTermReport(file) {
     let daysInReport = 30; // Default assumption
     let monthlyMultiplier = 1;
 
+    console.log('Date range detection:', {
+        minStartDate: minStartDate ? minStartDate.toISOString() : 'null',
+        maxEndDate: maxEndDate ? maxEndDate.toISOString() : 'null'
+    });
+
     if (minStartDate && maxEndDate) {
         // Calculate days between min start and max end
-        daysInReport = Math.ceil((maxEndDate - minStartDate) / (1000 * 60 * 60 * 24)) + 1;
+        const daysDiff = Math.ceil((maxEndDate - minStartDate) / (1000 * 60 * 60 * 24));
+        daysInReport = daysDiff + 1; // +1 to include both start and end day
+
+        console.log('Days calculation:', {
+            daysDiff,
+            daysInReport,
+            isValid: daysInReport > 0 && daysInReport < 365
+        });
 
         if (daysInReport > 0 && daysInReport < 365) {
             monthlyMultiplier = 30 / daysInReport;
         } else if (daysInReport >= 365) {
             // If more than a year, assume it's 30 days (likely data issue)
+            console.warn('Date range exceeds 365 days, defaulting to 30 days');
+            daysInReport = 30;
+            monthlyMultiplier = 1;
+        } else if (daysInReport <= 0) {
+            // Invalid date range, default to 30 days
+            console.warn('Invalid date range (<=0 days), defaulting to 30 days');
             daysInReport = 30;
             monthlyMultiplier = 1;
         }
     } else {
         // No date columns found - assume 30 days
+        console.warn('No valid dates found in file, defaulting to 30 days');
         daysInReport = 30;
         monthlyMultiplier = 1;
     }
+
+    console.log('Final calculation:', { daysInReport, monthlyMultiplier });
 
     // Analysis using CONFIG rules
     const negativeKeywords = searchTerms.filter(st =>

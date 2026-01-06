@@ -5232,6 +5232,171 @@ html {
 }
 
 /* ========================================
+   COMPARISON TABLE SECTION
+   ======================================== */
+
+.comparison-section {
+    background: #f8fafc;
+    padding: 5rem 0;
+}
+
+.comparison-table-wrapper {
+    max-width: 900px;
+    margin: 0 auto;
+    background: white;
+    border-radius: 12px;
+    box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.1), 0 2px 4px -1px rgba(0, 0, 0, 0.06);
+    overflow: hidden;
+}
+
+.comparison-table {
+    width: 100%;
+    border-collapse: collapse;
+}
+
+.comparison-table thead tr {
+    background: #f1f5f9;
+    border-bottom: 2px solid #e2e8f0;
+}
+
+.comparison-table th {
+    padding: 1.5rem;
+    text-align: left;
+    font-size: 0.95rem;
+    font-weight: 600;
+    text-transform: uppercase;
+    letter-spacing: 0.025em;
+}
+
+.action-col {
+    color: var(--text-secondary);
+    width: 25%;
+}
+
+.blackbox-col, .whitebox-col {
+    width: 37.5%;
+}
+
+.col-header {
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+}
+
+.blackbox-col .col-header {
+    color: var(--danger);
+}
+
+.blackbox-col .col-header svg {
+    color: var(--danger);
+}
+
+.whitebox-col .col-header {
+    color: var(--success);
+}
+
+.whitebox-col .col-header svg {
+    color: var(--success);
+}
+
+.comparison-table tbody tr {
+    border-bottom: 1px solid #e2e8f0;
+    transition: background-color 0.2s ease;
+}
+
+.comparison-table tbody tr:hover {
+    background-color: #f9fafb;
+}
+
+.comparison-table tbody tr:last-child {
+    border-bottom: none;
+}
+
+.comparison-table td {
+    padding: 1.25rem 1.5rem;
+}
+
+.action-cell {
+    font-weight: 600;
+    color: var(--text-primary);
+}
+
+.blackbox-cell {
+    color: var(--text-secondary);
+}
+
+.whitebox-cell {
+    font-weight: 500;
+    color: var(--text-primary);
+}
+
+.reason {
+    display: block;
+    font-size: 0.85rem;
+    color: var(--text-muted);
+    margin-top: 0.25rem;
+    font-style: italic;
+}
+
+.reason-good {
+    display: block;
+    font-size: 0.85rem;
+    color: var(--success);
+    margin-top: 0.25rem;
+    font-weight: 600;
+}
+
+.unknown {
+    color: var(--warning);
+    font-weight: 700;
+    font-size: 1.1rem;
+}
+
+.impact-highlight {
+    font-weight: 700;
+    color: var(--success);
+    font-size: 1.05rem;
+}
+
+.comparison-cta {
+    text-align: center;
+    margin-top: 2rem;
+}
+
+.comparison-question {
+    margin-bottom: 1rem;
+    color: var(--text-secondary);
+    font-size: 1.05rem;
+}
+
+/* Responsive */
+@media (max-width: 768px) {
+    .comparison-table-wrapper {
+        overflow-x: auto;
+    }
+
+    .comparison-table {
+        min-width: 600px;
+    }
+
+    .comparison-table th,
+    .comparison-table td {
+        padding: 1rem;
+        font-size: 0.9rem;
+    }
+
+    .col-header {
+        flex-direction: column;
+        align-items: flex-start;
+        gap: 0.25rem;
+    }
+
+    .col-header svg {
+        display: none;
+    }
+}
+
+/* ========================================
    AUDIT MODAL STYLES
    ======================================== */
 

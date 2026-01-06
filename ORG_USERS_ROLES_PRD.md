@@ -1,11 +1,14 @@
 # PRODUCT REQUIREMENTS DOCUMENT (PRD)
 
+> [!CAUTION]
+> **STATUS: FROZEN — Changes require founder approval**
+
 **Product:** Saddle AdPulse  
 **Module:** Organization, Users, Roles, Seats & Account Limits  
 **Document Type:** Foundational Access & Governance PRD  
 **Version:** 1.0 (FINAL – FROZEN)  
 **Owner:** Founder  
-**Status:** APPROVED FOR ENGINEERING  
+**Status:** FROZEN FOR ENGINEERING  
 **Date:** January 2026
 
 ---
