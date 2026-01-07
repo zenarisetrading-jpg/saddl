@@ -60,6 +60,12 @@ ROLE_HIERARCHY_STR = {
 # =============================================================================
 # Each permission lists the MINIMUM role required.
 # Higher roles automatically inherit.
+#
+# RULE 1: Operator = "Execution, Not Configuration". 
+#         Can run workflows but cannot change system state/config.
+#
+# RULE 2: Simulator = "Analytical Only".
+#         Safe for Viewers as it has no side effects.
 
 PERMISSION_MATRIX = {
     # Owner-only

@@ -154,6 +154,16 @@ body {
     color: var(--text-primary);
 }
 
+.hero-question {
+    font-size: 1.2rem;
+    line-height: 1.6;
+    color: var(--text-primary);
+    margin: 0 auto 1.5rem;
+    max-width: 700px;
+    font-weight: 500;
+    font-style: italic;
+}
+
 .hero-subtitle {
     font-size: 1.35rem;
     color: var(--text-secondary);
@@ -5228,6 +5238,97 @@ html {
     .cta-buttons .primary-button,
     .cta-buttons .secondary-button {
         width: 100%;
+    }
+}
+
+/* ========================================
+   PROBLEM SECTION KICKER
+   ======================================== */
+
+.problem-kicker {
+    display: block;
+    margin-top: 0.75rem;
+    font-weight: 700;
+    color: var(--accent-primary);
+    font-size: 1.05rem;
+}
+
+/* ========================================
+   COMPETITIVE SECTION
+   ======================================== */
+
+.competitive-section {
+    padding: 5rem 0;
+    background: linear-gradient(135deg, var(--bg-primary) 0%, var(--bg-secondary) 100%);
+}
+
+.competitive-grid {
+    display: grid;
+    grid-template-columns: repeat(2, 1fr);
+    gap: 2rem;
+    max-width: 800px;
+    margin: 0 auto 2rem;
+}
+
+.comp-card {
+    background: white;
+    border: 2px solid var(--bg-secondary);
+    border-radius: 12px;
+    padding: 2rem;
+    transition: all 0.3s ease;
+}
+
+.comp-card.highlight {
+    border-color: var(--success);
+    box-shadow: 0 10px 30px rgba(8, 145, 178, 0.15);
+    transform: scale(1.02);
+}
+
+.comp-logo {
+    font-size: 1.1rem;
+    font-weight: 700;
+    color: var(--text-primary);
+    margin-bottom: 1.5rem;
+    padding-bottom: 1rem;
+    border-bottom: 2px solid var(--bg-secondary);
+}
+
+.comp-card.highlight .comp-logo {
+    color: var(--success);
+    border-bottom-color: var(--success);
+}
+
+.comp-verdict {
+    padding: 0.75rem 0;
+    font-size: 1rem;
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+}
+
+.comp-verdict.negative {
+    color: var(--text-muted);
+}
+
+.comp-verdict.positive {
+    color: var(--success);
+    font-weight: 600;
+}
+
+.comp-footnote {
+    text-align: center;
+    color: var(--text-secondary);
+    font-style: italic;
+    font-size: 0.95rem;
+}
+
+@media (max-width: 768px) {
+    .competitive-grid {
+        grid-template-columns: 1fr;
+    }
+
+    .comp-card.highlight {
+        transform: scale(1);
     }
 }
 

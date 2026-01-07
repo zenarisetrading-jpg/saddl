@@ -1,4 +1,9 @@
 import streamlit as st
+import sys
+import os
+from pathlib import Path
+
+# ==========================================
 
 # ==========================================
 # PAGE CONFIGURATION (Must be very first ST command)
@@ -31,7 +36,10 @@ from core.data_loader import safe_numeric
 from pathlib import Path
 
 # === AUTHENTICATION ===
-from auth import require_authentication, render_user_menu
+from core.auth.service import AuthService
+from core.auth.middleware import require_auth, require_permission
+from ui.auth.login import render_login
+# Legacy import removed: from auth import require_authentication, render_user_menu
 
 # Global dark theme CSS for sidebar buttons
 st.markdown("""
@@ -1034,7 +1042,51 @@ def main():
     
     # === AUTHENTICATION GATE ===
     # Shows login page if not authenticated, blocks access to main app
-    user = require_authentication()
+    # === AUTHENTICATION GATE (V2) ===
+    # Using strict V2 Auth Service with Type Assertion
+    from core.auth.models import User
+    from core.auth.service import AuthService  # Explicit local import to guarantee scope
+    
+    auth_service = AuthService()
+    user = auth_service.get_current_user() # Gets from session
+    
+    if user is None:
+        # Not logged in? Show V2 login screen and stop
+        render_login()
+        st.stop()
+    
+    # STRICT TYPE ASSERTION (Guardrail)
+    if not isinstance(user, User):
+        # This catches session corruption or mixing legacy/v2 usage
+        auth_service.sign_out()
+        st.error("Session type mismatch. Please refresh and login again.")
+        st.stop()
+
+    # PHASE 3: FORCED PASSWORD RESET MIDDLEWARE
+    if user.must_reset_password:
+        # If user must reset, lock them to 'profile' module
+        if st.session_state.get('current_module') != 'profile':
+            st.session_state['current_module'] = 'profile'
+            st.warning("⚠️ You must change your password to proceed.")
+            st.rerun()
+
+    # PHASE 3 SECURITY: UPDATE LAST LOGIN
+    # We do this here (middleware) to ensure it runs on every fresh session
+    # but to avoid DB spam, we only do it if the session is "fresh" (e.g. not updated in last 5 min)
+    # simplified: just do it on first load of session
+    if 'login_tracked' not in st.session_state:
+        try:
+             # Quick direct update
+             conn = auth_service._get_connection()
+             with conn.cursor() as cur:
+                 cur.execute("UPDATE users SET last_login_at = NOW() WHERE id = %s", (str(user.id),))
+             conn.commit()
+             conn.close()
+             st.session_state['login_tracked'] = True
+        except Exception as e:
+            print(f"Login Track Error: {e}")
+
+    # User is valid V2 user - proceed
     
     # === DATABASE INITIALIZATION ===
     # Initialize db_manager right after auth, before any UI that needs it
@@ -1043,7 +1095,7 @@ def main():
     
     # === TOP-RIGHT HEADER (Profile, Account, Logout) ===
     # This renders a fixed-position header component
-    render_user_menu()
+    # Legacy: render_user_menu() -> Removed in V2 (Logout in sidebar)
     
     # Helper: Safe navigation (checks for pending actions when leaving optimizer)
     # Helper: Navigation
@@ -1219,10 +1271,38 @@ def main():
         
         st.divider()
         st.markdown("##### ANALYZE")
-        nav_button_chiclet("Actions Review", check_icon, "optimizer")
+        
+        # PERMISSION GATING (V2)
+        from core.auth.permissions import has_permission
+        
+        # Optimizer - Requires 'run_optimizer'
+        if has_permission(user.role, 'run_optimizer'):
+            nav_button_chiclet("Actions Review", check_icon, "optimizer")
+            
         nav_button_chiclet("What If (Forecast)", sim_icon, "simulator")
         nav_button_chiclet("Impact & Results", impact_icon, "impact")
-        nav_button_chiclet("Launch", rocket_icon, "creator")
+        
+        # Launch - Requires 'run_optimizer' (Creating campaigns)
+        if has_permission(user.role, 'run_optimizer'):
+            nav_button_chiclet("Launch", rocket_icon, "creator")
+
+        st.divider()
+        
+        # ADMIN SECTION
+        if has_permission(user.role, 'manage_users'):
+             st.markdown("##### ORGANIZATION")
+             # Icons for new sections
+             team_icon = f'<svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="{nav_icon_color}" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="vertical-align: middle;"><path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"></path><circle cx="9" cy="7" r="4"></circle><path d="M23 21v-2a4 4 0 0 0-3-3.87"></path><path d="M16 3.13a4 4 0 0 1 0 7.75"></path></svg>'
+             billing_icon = f'<svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="{nav_icon_color}" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="vertical-align: middle;"><rect x="2" y="5" width="20" height="14" rx="2"></rect><line x1="2" y1="10" x2="22" y2="10"></line></svg>'
+             
+             nav_button_chiclet("Team", team_icon, "team_settings")
+             # Billing is placeholder for now (Phase 3)
+             # nav_button_chiclet("Billing", billing_icon, "billing")
+
+        st.divider()
+
+        # PROFILE SECTION (Everyone)
+        nav_button_chiclet("Profile", settings_icon, "profile")
 
         st.divider()
 
@@ -1230,7 +1310,7 @@ def main():
         # SECONDARY / SYSTEM
         # =========================
         nav_button_chiclet("Data Setup", storage_icon, "data_hub")
-        nav_button_chiclet("Account Settings", settings_icon, "account_settings")
+        # Account Settings (Merged into Profile)
         nav_button_chiclet("Help", help_icon, "readme")
         
         # Show undo toast if available
@@ -1281,8 +1361,20 @@ def main():
         render_data_hub()
     
     elif current == 'account_settings':
+        # Route legacy calls to consolidated module
         from features.account_settings import run_account_settings
         run_account_settings()
+
+    elif current == 'team_settings':
+        from ui.auth.user_management import render_user_management
+        render_user_management()
+
+    elif current == 'profile':
+        from features.account_settings import run_account_settings
+        run_account_settings()
+        
+    elif current == 'billing':
+        st.info("Billing module coming in Phase 3.")
         
     elif current == 'readme':
         from ui.readme import render_readme

@@ -197,6 +197,9 @@ graph TD
 - Manage users
 - Manage accounts
 - Access billing
+- *Configure* system settings (Execution only)
+
+> **Rule:** OPERATOR may execute workflows but cannot configure system, accounts, ingestion, users, or billing.
 
 #### 👀 Viewer
 - Read-only access
@@ -206,6 +209,8 @@ graph TD
 - Execute actions
 - Upload files
 - Modify settings
+
+> **Note:** Viewers CAN access the **Simulator** because it is analytical-only and has no side effects (no mutation).
 
 ---
 
