@@ -1016,45 +1016,69 @@ Home (Account Overview)
 
 ---
 
-## 9. User Management & Access Control (Phase 3.5)
+## 9. Organization & User Governance (Phases 1-4)
 
-### 9.1 Overview (RBAC + Overrides)
-The system implements a robust Role-Based Access Control (RBAC) model with **Account-Level Overrides**. This allows agencies to grant broad team access while restricting specific users from sensitive accounts.
+### 9.1 System Model (Canonical)
+The system follows a strict hierarchy where **Organizations** are the primary entities, owning both **Users** (Seats) and **Amazon Accounts**.
 
-### 9.2 Role Hierarchy (Global)
-Roles are hierarchical and cumulative. Higher roles inherit all permissions of lower roles.
-
-| Role | Access Level | Capabilities |
-|------|--------------|--------------|
-| **OWNER** | Level 4 | Full system control, Billing, Delete Org, Manage Admins. |
-| **ADMIN** | Level 3 | Manage Users, Manage Amazon Accounts, Configure System. |
-| **OPERATOR** | Level 2 | Execute Optimizations, Trigger Ingestion, Write Access. |
-| **VIEWER** | Level 1 | Read-only Reports & Dashboards. |
-
-### 9.3 Account Access Overrides (The "Downgrade" Rule)
-Overrides allow a user's global role to be **downgraded** for specific Amazon accounts.
-
-> **SECURITY PRINCIPLE**: Overrides can ONLY restrict access. They can never grant *more* permission than the Global Role.
-
-**Resolution Logic:**
-```python
-Effective_Permission = MIN(Global_Role, Account_Override_Role)
+```
+Organization (Billing Entity)
+├── Users (Seats)
+│   └── Role (Global + Account Overrides)
+└── Amazon Accounts (Resource)
 ```
 
-**Use Cases:**
-- **Intern Safety**: Global Role = `OPERATOR`, but set to `VIEWER` on high-value "Enterprise Client" account.
-- **Client Access**: Global Role = `VIEWER`, but given `VIEWER` on specific account (redundant but explicit).
-- **Agency Partition**: User has `NO_ACCESS` (via Override) to accounts they shouldn't see.
+### 9.2 Organization Model
+- **Attributes**: Name, Type (Agency/Seller), Subscription Plan, Amazon Account Limit.
+- **Rules**:
+    - Organizations own Amazon accounts (not users).
+    - Amazon accounts are **hard-capped** by plan.
+    - Users (Seats) are **unlimited** but billable (Soft enforcement).
 
-### 9.4 Enforcement Layers
-1.  **UI Layer**: Elements (buttons, inputs) are hidden/disabled based on `has_permission(action)`.
-2.  **Service Layer**: Functions check `require_role()` before execution.
-3.  **Database Layer**: Constraints prevent unauthorized state changes (e.g., Viewers cannot write to `actions_log`).
+### 9.3 User & Role Model
 
-### 9.5 User Management Features
-- **Invitation**: Admins invite users via email.
-- **Role Management**: Admins adjust Global Roles and Account Overrides.
-- **Security**: Password reset flows, session invalidation on role change.
+#### 9.3.1 Global Roles (Hierarchy)
+Roles are cumulative. Higher roles inherit all permissions of lower roles.
+
+| Role | Access Level | Description | Key Capabilities |
+|------|--------------|-------------|------------------|
+| **OWNER** | Level 4 | Strategic Control | Billing, Delete Org, Transfer Ownership. |
+| **ADMIN** | Level 3 | Operational Control | Manage Users, Add Amazon Accounts, System Config. |
+| **OPERATOR** | Level 2 | Execution | Run Optimizers, Upload Data, Trigger Actions. |
+| **VIEWER** | Level 1 | Read-Only | View Dashboards, Download Reports. |
+
+#### 9.3.2 Login & Authentication
+- **Organization-Scoped**: Users belong to exactly one Organization.
+- **Authentication**: Email + Password.
+- **Session**: Stateful session tracking current User, Role, and Active Account permissions.
+
+### 9.4 Access Control Logic
+
+#### 9.4.1 Global vs. Account-Specific Access
+By default, a user's **Global Role** applies to ALL Amazon accounts in the organization.
+
+#### 9.4.2 Account Access Overrides (Phase 3.5)
+To support Agency use cases (e.g., restricting interns from VIP clients), Admins can set **Account-Specific Overrides**.
+- **Downgrade Only**: Overrides can only *reduce* permissions (e.g., OPERATOR → VIEWER). They cannot grant more access than the Global Role.
+- **Resolution**: `Effective_Permission = MIN(Global_Role, Override_Role)`
+
+| Global Role | Account Override | Effective Access | Scenario |
+|-------------|------------------|------------------|----------|
+| OPERATOR | NONE (Default) | OPERATOR | Standard workflow |
+| OPERATOR | VIEWER | VIEWER | Intern on VIP client |
+| OPERATOR | NO_ACCESS | BLOCKED | Partitioned teams |
+
+### 9.5 Workflows
+
+#### 9.5.1 User Invitation
+1.  Admin enters email & selects Global Role.
+2.  System sends invite link.
+3.  User sets password & joins.
+4.  Billing updates automatically (new billable seat).
+
+#### 9.5.2 Permission Management
+- Admins can modify Global Roles or set Account Overrides at any time via the "Team Settings" UI.
+- Changes take effect immediately (requiring session refresh for active users).
 
 ---
 
