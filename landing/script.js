@@ -1,3 +1,61 @@
+// ========================================
+// PERSONA STATE MANAGEMENT
+// ========================================
+
+// Global persona state (default: 'seller')
+let userPersona = 'seller';
+
+// Function to update persona and filter content
+function setUserPersona(persona) {
+    userPersona = persona;
+
+    // Update visual state of ICP cards
+    document.querySelectorAll('.icp-card').forEach(card => {
+        const cardPersona = card.dataset.icp;
+        if (cardPersona === persona) {
+            card.classList.add('selected');
+        } else {
+            card.classList.remove('selected');
+        }
+    });
+
+    // Filter content based on persona
+    filterContentByPersona(persona);
+
+    // Sync pricing toggle with persona
+    const pricingToggleButtons = document.querySelectorAll('.pricing-toggle-option');
+    pricingToggleButtons.forEach(button => {
+        const isActive = button.dataset.plan === persona;
+        button.classList.toggle('active', isActive);
+        button.setAttribute('aria-pressed', isActive);
+    });
+}
+
+// Function to filter content visibility
+function filterContentByPersona(persona) {
+    // Find all elements with data-persona attribute
+    document.querySelectorAll('[data-persona]').forEach(element => {
+        const elementPersona = element.dataset.persona;
+
+        if (elementPersona === 'all') {
+            // Always show elements marked as 'all'
+            element.classList.remove('persona-hidden');
+        } else if (elementPersona === persona) {
+            // Show elements matching current persona
+            element.classList.remove('persona-hidden');
+        } else {
+            // Hide elements not matching current persona
+            element.classList.add('persona-hidden');
+        }
+    });
+}
+
+// Initialize persona on page load
+document.addEventListener('DOMContentLoaded', function() {
+    // Set default persona
+    setUserPersona('seller');
+});
+
 // Smooth scroll for navigation links
 document.querySelectorAll('a[href^="#"]').forEach(anchor => {
     anchor.addEventListener('click', function (e) {
@@ -180,14 +238,10 @@ const agencyPricing = document.getElementById('agency-pricing');
 const pricingSwitchLink = document.querySelector('.pricing-switch-link');
 
 function switchPricingView(targetPlan) {
-    // Update toggle buttons
-    pricingToggleButtons.forEach(button => {
-        const isActive = button.dataset.plan === targetPlan;
-        button.classList.toggle('active', isActive);
-        button.setAttribute('aria-pressed', isActive);
-    });
+    // Update persona state (this will handle toggle buttons and filtering)
+    setUserPersona(targetPlan);
 
-    // Show/hide pricing views
+    // Show/hide pricing views (legacy - now handled by persona filtering)
     if (targetPlan === 'seller') {
         sellerPricing.classList.remove('hidden');
         agencyPricing.classList.add('hidden');
@@ -245,14 +299,31 @@ icpCards.forEach(card => {
         button.addEventListener('click', function(e) {
             e.stopPropagation();
             const icpType = card.dataset.icp;
-            
-            // Scroll to solution section
-            const solutionSection = document.querySelector('.solution-section-v2');
-            if (solutionSection) {
-                solutionSection.scrollIntoView({ behavior: 'smooth', block: 'start' });
+
+            // Update persona state
+            setUserPersona(icpType);
+
+            // Scroll to problem section (next section after ICP)
+            const problemSection = document.querySelector('.problem-section-v2');
+            if (problemSection) {
+                problemSection.scrollIntoView({ behavior: 'smooth', block: 'start' });
             }
         });
     }
+
+    // Also make the entire card clickable
+    card.addEventListener('click', function() {
+        const icpType = this.dataset.icp;
+
+        // Update persona state
+        setUserPersona(icpType);
+
+        // Scroll to problem section
+        const problemSection = document.querySelector('.problem-section-v2');
+        if (problemSection) {
+            problemSection.scrollIntoView({ behavior: 'smooth', block: 'start' });
+        }
+    });
 });
 
 // Agency CTA Button

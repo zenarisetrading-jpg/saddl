@@ -257,3 +257,19 @@ class ThemeManager:
     def get_chart_template():
         """Return the Plotly template name."""
         return 'plotly_dark' if st.session_state.get('theme_mode', 'dark') == 'dark' else 'plotly_white'
+
+    @staticmethod
+    @st.cache_data(ttl=3600)
+    def get_cached_logo(mode: str) -> str:
+        """Cache logo file reading to avoid disk I/O on every frame."""
+        import base64
+        from pathlib import Path
+        
+        filename = "saddle_logo.png" if mode == 'dark' else "saddle_logo_light.png"
+        # Navigate up from ui/theme.py -> ui -> saddle -> static
+        logo_path = Path(__file__).parent.parent / "static" / filename
+        
+        if logo_path.exists():
+            with open(logo_path, "rb") as f:
+                return base64.b64encode(f.read()).decode()
+        return ""
