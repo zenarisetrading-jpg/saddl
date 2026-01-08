@@ -991,22 +991,22 @@
             <!-- Quiz Section -->
             <section id="quizSection" class="modal-section">
                 <div class="quiz-intro-card">
-                    <h2 style="font-size: 2rem; margin-bottom: 1rem;">Quick Health Check</h2>
-                    <p style="color: var(--text-secondary); margin-bottom: 2rem;">Answer 6 quick questions to get your PPC health score and estimated opportunity.</p>
+                    <h2 style="font-size: 2rem; margin-bottom: 1rem;">Your Ad Impact Snapshot</h2>
+                    <p style="color: var(--text-secondary); margin-bottom: 2rem;">Answer 5 quick questions to assess how clearly you can explain the value created by your ad decisions.</p>
 
                     <div class="progress-container">
                         <div class="progress-bar">
                             <div class="progress-fill" id="progressFill" style="width: 0%;"></div>
                         </div>
                         <div class="progress-text">
-                            <span id="progressPercent">0</span> of 6 answered
+                            <span id="progressPercent">0</span> of 5 answered
                         </div>
                     </div>
 
                     <div id="questionsContainer" class="questions-grid"></div>
 
                     <button id="getScoreBtn" class="primary-button large" disabled style="width: 100%; margin-top: 2rem;">
-                        Get My Health Score
+                        Get My Impact Score
                     </button>
                 </div>
             </section>
@@ -1015,33 +1015,47 @@
             <section id="resultsSection" class="modal-section hidden">
                 <div class="results-grid-modal">
                     <div class="result-card score-card">
-                        <h2 style="margin-bottom: 1rem;">Your PPC Health Score</h2>
+                        <h2 style="margin-bottom: 1rem;">Impact Readiness Score</h2>
                         <div id="healthScore" class="health-score">68</div>
-                        <p class="score-subtitle">Based on your optimization habits</p>
+                        <p class="score-subtitle">Measures how clearly you can explain what your ad decisions actually contributed — beyond market movement.</p>
                     </div>
 
                     <div class="result-card opportunity-card">
                         <div class="card-header">
-                            <h3>Estimated Monthly Opportunity</h3>
+                            <h3>Estimated Unexplained Value</h3>
                             <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" class="opportunity-icon">
                                 <line x1="12" y1="1" x2="12" y2="23"></line>
                                 <path d="M17 5H9.5a3.5 3.5 0 0 0 0 7h5a3.5 3.5 0 0 1 0 7H6"></path>
                             </svg>
                         </div>
-                        <div class="opportunity-amount" id="opportunityAmount">$2,400 - $3,200</div>
-                        <p class="opportunity-subtitle">in recoverable waste + missed gains</p>
+                        <div class="opportunity-amount" id="opportunityAmount">$900 – $1,800</div>
+                        <p class="opportunity-subtitle">per month in performance you can't confidently attribute to your actions.</p>
                     </div>
 
                     <div class="result-card">
-                        <h3 style="margin-bottom: 1.5rem;">Where Your Money Is Going</h3>
+                        <h3 style="margin-bottom: 1.5rem;">Why the Score Is Limited</h3>
                         <div class="breakdown-list" id="breakdownList"></div>
                     </div>
 
+                    <div class="result-card">
+                        <h3 style="margin-bottom: 1.5rem;">How High-Performing Teams Improve This</h3>
+                        <div class="improvement-list">
+                            <div class="improvement-item">
+                                <span class="improvement-title">Separate the impact of actions from market movement</span>
+                            </div>
+                            <div class="improvement-item">
+                                <span class="improvement-title">Measure which decisions actually added value</span>
+                            </div>
+                            <div class="improvement-item">
+                                <span class="improvement-title">Build clear, defensible performance narratives</span>
+                            </div>
+                        </div>
+                    </div>
+
                     <div class="result-card" style="text-align: center; padding: 2rem;">
-                        <h3 style="margin-bottom: 1rem;">Want to See Your Actual Numbers?</h3>
-                        <p style="color: var(--text-secondary); margin-bottom: 1.5rem;">Upload your Search Term Report to get exact waste, harvest opportunities, and bid recommendations from your real data.</p>
-                        <button id="proceedToUploadBtn" class="primary-button large">
-                            Upload My Report →
+                        <h3 style="margin-bottom: 1rem;">Move from metric improvement to provable impact</h3>
+                        <button class="primary-button large beta-signup-trigger">
+                            Request Private Beta Access
                         </button>
                     </div>
                 </div>
