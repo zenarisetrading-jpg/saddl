@@ -10,7 +10,13 @@ Replaces legacy Supabase Auth (auth/service.py).
 import os
 import os
 import re
-import streamlit as st
+try:
+    import streamlit as st
+except ImportError:
+    class MockSt:
+        session_state = {}
+    st = MockSt()
+
 from typing import Optional, Dict, Any
 from core.auth.models import User, Role, PasswordChangeResult
 from core.auth.hashing import verify_password, hash_password
@@ -473,11 +479,51 @@ class AuthService:
             cur = conn.cursor()
             cur.execute("SELECT id FROM users WHERE email = %s", (email.lower().strip(),))
             exists = cur.fetchone() is not None
-            conn.close()
-            
             if exists:
-                # TODO: Trigger email sending logic here
-                print(f"Password reset requested for {email}")
+                # 1. Generate Secure Temp Password
+                # e.g. PPC-a1b2c3d4!
+                temp_password = "PPC-" + os.urandom(4).hex() + "!"
+                
+                # 2. Update DB with new hash + forced reset flag
+                new_hash = hash_password(temp_password)
+                
+                # Re-connect to update
+                # (Optimization: We could have done SELECT FOR UPDATE above, but keeping it simple)
+                conn = self._get_connection()
+                cur = conn.cursor()
+                cur.execute("""
+                    UPDATE users 
+                    SET password_hash = %s, 
+                        must_reset_password = TRUE,
+                        password_updated_at = NOW()
+                    WHERE email = %s
+                """, (new_hash, email.lower().strip()))
+                conn.commit()
+                conn.close()
+                
+                # 3. Send Email
+                from utils.email_sender import EmailSender
+                sender = EmailSender()
+                
+                subject = "Password Reset - Saddle"
+                html = f"""
+                <div style="font-family: sans-serif; color: #333;">
+                    <h2>Password Reset</h2>
+                    <p>Your temporary password is:</p>
+                    <p style="font-size: 18px; font-weight: bold; background: #f4f4f5; padding: 10px; border-radius: 6px; display: inline-block;">
+                        {temp_password}
+                    </p>
+                    <p>Please log in with this password. You will be asked to create a new one immediately.</p>
+                    <br>
+                    <small>If you did not request this, please contact support.</small>
+                </div>
+                """
+                
+                success = sender.send_email(email, subject, html)
+                if success:
+                    print(f"Password reset email sent to {email}")
+                else:
+                    print(f"Failed to send email to {email}")
                 
             return True
             

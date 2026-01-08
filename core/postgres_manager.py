@@ -38,9 +38,13 @@ except ImportError:
         
         # Shim 'ThreadedConnectionPool'
         class ThreadedConnectionPool:
-            def __init__(self, *args, **kwargs): pass
-            def getconn(self): return psycopg2.connect(args[2]) # Rough guess
+            def __init__(self, minconn, maxconn, dsn=None, **kwargs):
+                self.dsn = dsn
+            def getconn(self): 
+                return psycopg2.connect(self.dsn)
             def putconn(self, *args): pass
+            def closeall(self): pass
+            def closeall(self): pass
             
         psycopg2.extras = MockExtras() # type: ignore
         
@@ -149,7 +153,14 @@ class PostgresManager:
         """
         self.db_url = db_url
         self._init_pool()
-        self._init_schema()
+        
+        # Optimization: Only init schema once per process per DB URL
+        if not hasattr(PostgresManager, '_initialized_dbs'):
+            PostgresManager._initialized_dbs = set()
+            
+        if self.db_url not in PostgresManager._initialized_dbs:
+            self._init_schema()
+            PostgresManager._initialized_dbs.add(self.db_url)
     
     def _init_pool(self):
         """Initialize or reinitialize connection pool with optimal settings."""

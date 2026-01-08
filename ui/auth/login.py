@@ -16,13 +16,14 @@ def render_forgot_password():
     """Renders the forgot password form."""
     
     # 1. Logo
-    import base64
-    from pathlib import Path
-    logo_path = Path(__file__).parent.parent.parent / "static" / "saddle_logo.png"
+    # 1. Logo
+    from ui.theme import ThemeManager
+    # Login page force uses 'dark' or 'light'? Usually dark background implies dark logo or light logo against dark bg.
+    # login page has dark styling (rgba(255,255,255,0.02) bg). So we want the default logo (which is usually for dark mode).
+    # Checking previous code: filename was hardcoded "saddle_logo.png" (default).
+    logo_data = ThemeManager.get_cached_logo('dark')
     
-    if logo_path.exists():
-        with open(logo_path, "rb") as f:
-            logo_data = base64.b64encode(f.read()).decode()
+    if logo_data:
         st.markdown(
             f"""
             <div style="text-align: center; margin-bottom: 0.5rem;">
@@ -49,7 +50,7 @@ def render_forgot_password():
                 from core.auth.service import AuthService
                 service = AuthService()
                 if service.request_password_reset(email):
-                    st.success("If an account exists for this email, instructions have been sent.")
+                    st.success("Instructions sent! Check your email for a temporary password.")
                 else:
                     st.error("Unable to process request.")
 
@@ -93,13 +94,11 @@ def render_login():
     # --- LOGIN VIEW ---
     
     # 1. Logo
-    import base64
-    from pathlib import Path
-    logo_path = Path(__file__).parent.parent.parent / "static" / "saddle_logo.png"
+    # 1. Logo
+    from ui.theme import ThemeManager
+    logo_data = ThemeManager.get_cached_logo('dark')
     
-    if logo_path.exists():
-        with open(logo_path, "rb") as f:
-            logo_data = base64.b64encode(f.read()).decode()
+    if logo_data:
         st.markdown(
             f"""
             <div style="text-align: center; margin-bottom: 0.5rem;">

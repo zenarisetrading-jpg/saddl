@@ -42,21 +42,17 @@ def render_sidebar(navigate_to):
                 return
         
         navigate_to(target_module)
+        navigate_to(target_module)
     # Sidebar Logo at TOP (theme-aware, prominent)
-    import base64
-    from pathlib import Path
     theme_mode = st.session_state.get('theme_mode', 'dark')
-    logo_filename = "saddle_logo.png" if theme_mode == 'dark' else "saddle_logo_light.png"
-    logo_path = Path(__file__).parent.parent / "static" / logo_filename
+    logo_data = ThemeManager.get_cached_logo(theme_mode)
     
-    if logo_path.exists():
-        with open(logo_path, "rb") as f:
-            logo_data = base64.b64encode(f.read()).decode()
+    if logo_data:
         st.sidebar.markdown(
             f'<div style="text-align: center; padding: 15px 0 20px 0;"><img src="data:image/png;base64,{logo_data}" style="width: 200px;" /></div>',
             unsafe_allow_html=True
         )
-    
+        
     # Account selector
     from ui.account_manager import render_account_selector
     render_account_selector()

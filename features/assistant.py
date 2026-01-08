@@ -1614,61 +1614,60 @@ def get_dynamic_key_insights() -> list:
     opt_res = st.session_state.get('optimizer_results') or st.session_state.get('latest_optimizer_run')
     
     # Create a cache key based on whether optimizer has data
-    cache_key = 'cached_key_insights'
     has_opt_data = opt_res and 'df' in opt_res and not opt_res['df'].empty
     
-    # Check cache - only use if optimizer state hasn't changed
-    if cache_key in st.session_state:
-        cached = st.session_state[cache_key]
-        cached_has_data = cached.get('has_data', False)
-        cached_insights = cached.get('insights', default_insights)
+    # Fast path: Return defaults if no data
+    if not has_opt_data:
+        return _get_insights_from_database()
         
-        # If states match, use cache
-        if cached_has_data == has_opt_data:
-            return cached_insights
+    try:
+        # Optimizer has run - build insights from optimizer results
+        df = opt_res['df']
+        target_roas = st.session_state.get('opt_target_roas', 3.0)
+        
+        # Use cached core logic
+        # We pass a copy/signature to avoid mutation issues, OR rely on streamlit hashing
+        return _generate_insights_core(df, currency, target_roas)
+        
+    except Exception as e:
+        # Fail gracefully
+        print(f"DEBUG: Error in get_dynamic_key_insights: {str(e)}")
+        return default_insights
+
+@st.cache_data(ttl=600, show_spinner=False)
+def _generate_insights_core(df: pd.DataFrame, currency: str, target_roas: float) -> list:
+    """
+    Core logic for insight generation - extracted for Caching.
+    Arguments must be hashable/serializable.
+    """
+    import streamlit as st
+    # AssistantModule is available in global scope (defined in this file)
     
     try:
-        # First check if optimizer has been run (fastest path)
-        if has_opt_data:
-            # Optimizer has run - build insights from optimizer results
-            try:
-                assistant = AssistantModule()
-                df = opt_res['df']
-                
-                # Validate the dataframe is usable
-                if df is None or df.empty:
-                    # Dataframe became invalid - fall back to reconstructing
-                    df = assistant._construct_granular_dataset()
-                    if df.empty:
-                        # Still no data - try database fallback
-                        return _get_insights_from_database()
-                
-                knowledge = assistant._build_knowledge_graph(df)
-            except Exception as e:
-                # If optimizer data is corrupted, try to rebuild
-                assistant = AssistantModule()
-                df = assistant._construct_granular_dataset()
-                if df.empty:
-                    return _get_insights_from_database()
-                knowledge = assistant._build_knowledge_graph(df)
-        else:
-            # No optimizer results - try to build from raw data
-            assistant = AssistantModule()
-            df = assistant._construct_granular_dataset()
-            
-            if df.empty:
-                return _get_insights_from_database()
-            
-            knowledge = assistant._build_knowledge_graph(df)
-        
-        if "error" in knowledge or not knowledge:
+        if df is None or df.empty:
             return _get_insights_from_database()
+            
+        assistant = AssistantModule()
+        # Ensure we don't mutate the input cache
+        df_proc = df.copy()
         
+        # Inject config into session state mock if needed by AssistantModule
+        # (AssistantModule reads session state in _compute_account_health, so we might need to handle that)
+        # Actually, AssistantModule reads `st.session_state.get('opt_target_roas', 3.0)` widely.
+        # Since we are inside a cached function, st.session_state access is tricky (it captures state at first run).
+        # BETTER: We modify AssistantModule to accept overrides, OR we set the state here temporarily?
+        # No, `st.cache_data` functions CAN access st.session_state, but the dependency tracking is key.
+        # To be safe, we passed `target_roas` as arg.
+        # We need to verify AssistantModule uses it.
+        # Checking code: `target_roas = st.session_state.get('opt_target_roas', 3.0)` in `_compute_account_health`
+        # We can't easily change AssistantModule right now without big refactor.
+        # BUT, since we passed target_roas in args, Streamlit knows to invalidate if that arg changes.
+        # The internal read will read the current session state.
+        
+        knowledge = assistant._build_knowledge_graph(df_proc)
+        
+        # Now process signals (logic extracted from original function)
         signals = []
-        
-        # ===============================
-        # EXTRACT SIGNALS FROM KNOWLEDGE GRAPH
-        # ===============================
         
         # 1. Account Health Signals
         health = knowledge.get('account_health', {})
@@ -1678,7 +1677,7 @@ def get_dynamic_key_insights() -> list:
             wasted_spend = health.get('wasted_spend', 0)
             
             # Get target ROAS for fallback calculation
-            target_roas = st.session_state.get('opt_target_roas', 3.0)
+            # Use the passed target_roas for consistency with cache invalidation
             actual_roas = health.get('actual_roas', roas_score * target_roas / 100)
             
             # ROAS signal
@@ -1725,7 +1724,7 @@ def get_dynamic_key_insights() -> list:
         strategic = knowledge.get('strategic_insights', [])
         for insight in strategic:
             insight_type = insight.get('type', '')
-            severity = insight.get('severity', 'low')
+            # severity = insight.get('severity', 'low') # Not used in original logic
             
             if insight_type == 'untapped_scalers':
                 potential = insight.get('potential_additional_sales', 0)
@@ -1780,14 +1779,10 @@ def get_dynamic_key_insights() -> list:
                 "title": f"{negative_count} negatives pending", "subtitle": "Cleanup recommended",
                 "icon_type": "note"
             })
-        
-        # ===============================
-        # RANK AND SELECT TOP INSIGHTS
-        # ===============================
-        
+            
         if not signals:
-            return default_insights
-        
+            return _get_insights_from_database()
+            
         # Sort by strength descending
         signals.sort(key=lambda x: x['strength'], reverse=True)
         
@@ -1797,26 +1792,32 @@ def get_dynamic_key_insights() -> list:
         
         result = positives + watches
         
-        # Fill remaining slots if needed
+        # Fill remaining slots
         while len(result) < 3:
             if len(positives) < 2 and watches:
                 result.append(watches.pop(0))
             elif signals:
-                result.append(signals.pop(0))
+                # Add from remaining signals if any, prioritizing higher strength
+                remaining_signals = [s for s in signals if s not in result]
+                if remaining_signals:
+                    remaining_signals.sort(key=lambda x: x['strength'], reverse=True)
+                    result.append(remaining_signals.pop(0))
+                else:
+                    # Default fill if no more unique signals
+                    defaults = _get_insights_from_database()
+                    result.append(defaults[len(result)])
             else:
-                result.append(default_insights[len(result)])
+                 # Default fill
+                defaults = _get_insights_from_database()
+                result.append(defaults[len(result)])
         
-        # Cache the result
-        st.session_state[cache_key] = {'has_data': has_opt_data, 'insights': result[:3]}
         return result[:3]
         
     except Exception as e:
-        # Fail gracefully - cache default insights too
-        print(f"DEBUG: Error in get_dynamic_key_insights: {str(e)}")
+        print(f"DEBUG: Error in cached insights core: {str(e)}")
         # import traceback
         # traceback.print_exc()
-        st.session_state[cache_key] = {'has_data': has_opt_data if 'has_opt_data' in locals() else False, 'insights': default_insights}
-        return default_insights
+        return _get_insights_from_database()
 
 def _get_insights_from_database() -> list:
     """Fallback: Try to get last valid insights from DB or return defaults."""
