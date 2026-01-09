@@ -242,7 +242,7 @@ body {
 
 .product-grid {
     display: grid;
-    grid-template-columns: 1fr 1fr;
+    grid-template-columns: 55% 45%;
     gap: 3rem;
     align-items: start;
 }
