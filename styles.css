@@ -234,22 +234,22 @@ body {
     background: var(--color-off-white);
 }
 
+/* Full-width headline above the grid */
+.product-headline {
+    text-align: center;
+    margin-bottom: 3rem;
+}
+
 .product-grid {
     display: grid;
     grid-template-columns: 1fr 1fr;
-    gap: 4rem;
+    gap: 3rem;
     align-items: start;
 }
 
 .product-left {
     position: sticky;
     top: 120px;
-}
-
-.product-left .section-title-cold {
-    text-align: left;
-    margin-bottom: 2rem;
-    font-size: 2.5rem;
 }
 
 .highlight-green {
@@ -262,44 +262,12 @@ body {
     margin-bottom: 0;
 }
 
-/* MacBook Video Frame */
-.macbook-video-wrapper {
-    position: relative;
-}
-
-.macbook-frame-video {
-    background: linear-gradient(to bottom, #1A1A1D 0%, #0B0B0D 100%);
-    border-radius: 16px 16px 0 0;
-    padding: 8px;
-    box-shadow: 0 25px 60px rgba(0, 0, 0, 0.35);
-    position: relative;
-}
-
-.macbook-notch {
-    width: 80px;
-    height: 4px;
-    background: rgba(255, 255, 255, 0.1);
-    border-radius: 2px;
-    margin: 6px auto 8px;
-}
-
-.macbook-screen {
-    background: #0B0B0D;
-    border-radius: 8px;
-    overflow: hidden;
-}
-
+/* Video directly styled (no container) */
 .dashboard-video {
     width: 100%;
     display: block;
-    border-radius: 8px;
-}
-
-.macbook-base {
-    height: 16px;
-    background: linear-gradient(to bottom, #2A2A2E 0%, #1A1A1D 100%);
-    border-radius: 0 0 8px 8px;
-    margin: 0 8px;
+    border-radius: 12px;
+    box-shadow: 0 20px 50px rgba(0, 0, 0, 0.25);
 }
 
 /* Feature Cards */
