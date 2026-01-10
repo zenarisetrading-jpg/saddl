@@ -3,3 +3,7 @@
 data/*.db
 __pycache__/
 *.pyc
+
+# Separate repos (do not commit here)
+mobile/
+desktop/landing/
