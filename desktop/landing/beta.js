@@ -1,69 +1,83 @@
 // Beta Signup Logic
-// Version: 1.2 - Enhanced Debugging & Robust Loading
+// Version: 1.2 - Fixed: proper error handling, correct Supabase access
 
 (function () {
+    'use strict';
+
     console.log('[Beta] Script starting...');
 
-    // Wait for DOM if it's not ready (though script at bottom of body usually means it is)
-    if (document.readyState === 'loading') {
-        document.addEventListener('DOMContentLoaded', initBeta);
-    } else {
-        initBeta();
-    }
+    // Supabase configuration
+    const SUPABASE_URL = 'https://wuakeiwxkjvhsnmkzywz.supabase.co';
+    const SUPABASE_ANON_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Ind1YWtlaXd4a2p2aHNubWt6eXd6Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3NjYxMjE4MzYsImV4cCI6MjA4MTY5NzgzNn0.4n-RdlBEE-zGOxp3NsI8mKOcm10mEXUc9Fcz4-AyVe0';
 
-    function initBeta() {
-        console.log('[Beta] Initializing...');
+    let supabaseClient = null;
+    let initError = null;
 
-        // Supabase configuration
-        const SUPABASE_URL = 'https://wuakeiwxkjvhsnmkzywz.supabase.co';
-        const SUPABASE_ANON_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Ind1YWtlaXd4a2p2aHNubWt6eXd6Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3NjYxMjE4MzYsImV4cCI6MjA4MTY5NzgzNn0.4n-RdlBEE-zGOxp3NsI8mKOcm10mEXUc9Fcz4-AyVe0';
-
-        let supabase = null;
-        let supabaseLoadError = null;
-
-        // Safely initialize Supabase
+    // Initialize Supabase when ready
+    function initSupabase() {
         try {
-            // Check for UMD global 'supabase' (from window.supabase)
-            if (typeof window.supabase !== 'undefined' && typeof window.supabase.createClient === 'function') {
-                supabase = window.supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
+            // Check various ways Supabase might be exposed
+            if (window.supabase && typeof window.supabase.createClient === 'function') {
+                supabaseClient = window.supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
                 console.log('[Beta] Supabase initialized successfully');
+                return true;
             } else {
-                console.warn('[Beta] Supabase JS not found on window object.');
-                supabaseLoadError = 'Library did not load (possible ad blocker or CDN issue)';
+                console.warn('[Beta] window.supabase not available:', typeof window.supabase);
+                initError = 'Supabase library not loaded. Ad blocker may be blocking it.';
+                return false;
             }
         } catch (err) {
             console.error('[Beta] Supabase init error:', err);
-            supabaseLoadError = err.message;
+            initError = err.message;
+            return false;
         }
+    }
 
+    // Attach form handler
+    function attachFormHandler() {
         const form = document.getElementById('betaSignupForm');
+
         if (!form) {
-            console.error('[Beta] Beta signup form not found in DOM');
+            console.error('[Beta] Form element not found!');
             return;
         }
 
         console.log('[Beta] Form found, attaching submit handler...');
 
         form.addEventListener('submit', async function (e) {
-            // PREVENT DEFAULT is critical to stop URL change
+            // CRITICAL: Prevent default form submission
             e.preventDefault();
-            console.log('[Beta] Form submission intercepted');
+            e.stopPropagation();
 
-            const submitBtn = this.querySelector('button[type="submit"]');
-            const originalText = submitBtn.textContent;
-            submitBtn.textContent = 'Submitting...';
-            submitBtn.disabled = true;
+            console.log('[Beta] Form submit intercepted');
 
-            // If Supabase failed to load, alert immediately
-            if (!supabase) {
-                console.error('[Beta] Supabase not available');
-                alert(`Unable to submit: The database connection failed. \nReason: ${supabaseLoadError || 'Unknown error'}.\n\nPlease try disabling ad blockers for this site.`);
-                submitBtn.textContent = originalText;
-                submitBtn.disabled = false;
+            const submitBtn = form.querySelector('button[type="submit"]');
+            const originalText = submitBtn ? submitBtn.textContent : '';
+
+            if (submitBtn) {
+                submitBtn.textContent = 'Submitting...';
+                submitBtn.disabled = true;
+            }
+
+            // Check if Supabase is ready
+            if (!supabaseClient) {
+                // Try to init again in case it loaded late
+                initSupabase();
+            }
+
+            if (!supabaseClient) {
+                console.error('[Beta] Supabase not available for submission');
+                alert('Unable to submit: Database connection failed.\n\n' +
+                    (initError || 'Please try disabling ad blockers and refresh the page.'));
+                if (submitBtn) {
+                    submitBtn.textContent = originalText;
+                    submitBtn.disabled = false;
+                }
                 return;
             }
 
-            const formData = new FormData(this);
+            // Collect form data
+            const formData = new FormData(form);
             const data = {
                 name: formData.get('name'),
                 email: formData.get('email'),
@@ -74,37 +88,44 @@
                 source: 'landing_page'
             };
 
+            console.log('[Beta] Submitting data:', { ...data, email: '***' });
+
             try {
-                console.log('[Beta] Sending data to Supabase...', data);
-                const { error } = await supabase.from('beta_signups').insert([data]);
+                const { data: result, error } = await supabaseClient
+                    .from('beta_signups')
+                    .insert([data]);
 
                 if (error) {
-                    console.error('[Beta] Supabase insert error:', error);
+                    console.error('[Beta] Supabase error:', error);
 
-                    // Handle duplicate email specifically
                     if (error.code === '23505') {
                         alert('This email is already registered for beta access. We\'ll be in touch soon!');
-                    } else {
-                        throw error;
+                        if (submitBtn) {
+                            submitBtn.textContent = originalText;
+                            submitBtn.disabled = false;
+                        }
+                        return;
                     }
-                } else {
-                    // Success path
-                    console.log('[Beta] Signup successful');
-                    this.classList.add('hidden');
-                    const successMsg = document.getElementById('betaSuccessMessage');
-                    if (successMsg) {
-                        successMsg.classList.remove('hidden');
-                        successMsg.scrollIntoView({ behavior: 'smooth', block: 'center' });
-                    } else {
-                        alert('Thanks! You are on the list.');
-                    }
+
+                    throw error;
                 }
-            } catch (error) {
-                console.error('[Beta] Submission caught error:', error);
-                alert(`Something went wrong. Please try again. \nError: ${error.message}`);
-            } finally {
-                // Restore button state if not successful (success hides form anyway)
-                if (!this.classList.contains('hidden')) {
+
+                console.log('[Beta] Signup successful!');
+
+                // Show success message
+                form.classList.add('hidden');
+                const successMsg = document.getElementById('betaSuccessMessage');
+                if (successMsg) {
+                    successMsg.classList.remove('hidden');
+                    successMsg.scrollIntoView({ behavior: 'smooth', block: 'center' });
+                } else {
+                    alert('Thanks! Your application has been received.');
+                }
+
+            } catch (err) {
+                console.error('[Beta] Submission error:', err);
+                alert('Something went wrong. Please try again.\n\nError: ' + (err.message || 'Unknown error'));
+                if (submitBtn) {
                     submitBtn.textContent = originalText;
                     submitBtn.disabled = false;
                 }
@@ -112,6 +133,22 @@
         });
 
         console.log('[Beta] Submit handler attached successfully');
+    }
+
+    // Initialize when DOM is ready
+    function init() {
+        console.log('[Beta] Initializing...');
+        initSupabase();
+        attachFormHandler();
         console.log('[Beta] Initialization complete');
     }
+
+    // Run init when DOM is ready
+    if (document.readyState === 'loading') {
+        document.addEventListener('DOMContentLoaded', init);
+    } else {
+        // DOM already loaded
+        init();
+    }
+
 })();
