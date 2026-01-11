@@ -98,13 +98,6 @@ def _ensure_impact_columns(df: pd.DataFrame) -> pd.DataFrame:
     
     return df
 
-
-# ==========================================
-# MARKET DECOMPOSITION - Import from clean module
-# ==========================================
-from core.roas_attribution import get_roas_attribution
-
-
 # ==========================================
 # CONFIDENCE CLASSIFICATION (High/Medium/Low)
 # ==========================================
@@ -642,15 +635,6 @@ def render_impact_dashboard():
     display_summary['spend_avoided_confidence'] = spend_avoided_result['confidence']
     display_summary['spend_avoided_sigma'] = spend_avoided_result['totalSigma']
     
-    # ==========================================
-    # WIRE MARKET DECOMPOSITION (CPC/CVR/AOV) from clean module
-    # ==========================================
-    client_id = st.session_state.get('active_account_id', '')  # Fixed: use correct session state key
-    if client_id:
-        roas_attr = get_roas_attribution(client_id, days=30)
-        if roas_attr:
-            display_summary.update(roas_attr)  # Adds cpc_impact, cvr_impact, aov_impact, market_impact_roas, periods, etc.
-    
     # HERO TILES (Now synchronized with FILTERED maturity counts)
     # Use len(mature_df) and len(pending_attr_df) which respect the Validated Only toggle
     from utils.formatters import get_account_currency
@@ -857,27 +841,14 @@ def _render_hero_banner(impact_df: pd.DataFrame, currency: str, horizon_label: s
     before_sales = df['before_sales'].sum()
     threshold = before_sales * 0.02 if before_sales > 0 else 10  # 2% threshold for break even
     
-    # Get market environment from summary for contextual framing
-    market_environment = summary.get('market_impact_roas', 0) if summary else 0
-    
     if attributed_impact > threshold:
         answer_prefix = "YES"
         answer_color = "#10B981"  # Green
-        if market_environment > 0.1:
-            # Tailwind context
-            subtitle = f"Your decisions added {currency}{abs_impact:,.0f} — on top of a favorable market."
-        elif market_environment < -0.1:
-            # Headwind context  
-            subtitle = f"Your decisions created {currency}{abs_impact:,.0f} — despite market headwinds."
-        else:
-            subtitle = f"That's {currency}{abs_impact:,.0f} more than if you'd done nothing."
+        subtitle = f"That's {currency}{abs_impact:,.0f} more than if you'd done nothing."
     elif attributed_impact < -threshold:
         answer_prefix = "NOT YET"
         answer_color = "#EF4444"  # Red
-        if market_environment < -0.1:
-            subtitle = f"Your decisions cost {currency}{abs_impact:,.0f} — though market conditions were also tough."
-        else:
-            subtitle = f"Your decisions cost {currency}{abs_impact:,.0f} compared to doing nothing."
+        subtitle = f"Your decisions cost {currency}{abs_impact:,.0f} compared to doing nothing."
     else:
         answer_prefix = "BREAK EVEN"
         answer_color = "#9CA3AF"  # Gray
@@ -1053,7 +1024,7 @@ def _render_what_worked_card(currency: str):
 
 
 def _render_what_didnt_card(currency: str):
-    """Section 2B: Needs Review - Underperforming Decisions."""
+    """Section 2B: What Didn't Work - Decision Gaps."""
     metrics = st.session_state.get('_impact_metrics', {})
     gap_val = metrics.get('gap_val', 0)
     gap_count = metrics.get('gap_count', 0)
@@ -1064,20 +1035,20 @@ def _render_what_didnt_card(currency: str):
     st.markdown(f"""
     <div style="background: rgba(239, 68, 68, 0.08); border: 1px solid rgba(239, 68, 68, 0.2); border-radius: 12px; padding: 20px; height: 100%;">
         <div style="font-size: 0.85rem; font-weight: 600; color: #EF4444; text-transform: uppercase; letter-spacing: 0.5px; margin-bottom: 12px;">
-            ✗ Needs Review
+            ✗ What Didn't
         </div>
         <div style="font-size: 1.8rem; font-weight: 700; color: #EF4444; margin-bottom: 8px;">
             {currency}{gap_val:,.0f}
         </div>
         <div style="font-size: 0.9rem; color: #94a3b8; margin-bottom: 16px;">
-            {gap_count} decisions underperformed
+            {gap_count} decisions hurt
         </div>
         <div style="border-top: 1px solid rgba(239, 68, 68, 0.15); padding-top: 12px; font-size: 0.8rem; color: #8F8CA3; line-height: 1.6;">
             <div style="display: flex; align-items: center; gap: 6px; margin-bottom: 6px;">
                 {warning_icon}
-                <span>These decisions cost more than they earned</span>
+                <span>Decision Gaps: Missed opportunities</span>
             </div>
-            <div style="font-size: 0.75rem; color: #666; margin-top: 4px;">↳ Review in details below</div>
+            <div style="height: 16px;"></div>
         </div>
     </div>
     """, unsafe_allow_html=True)
@@ -1296,79 +1267,6 @@ def _render_details_table_collapsed(impact_df: pd.DataFrame, currency: str):
                 csv = impact_df.to_csv(index=False)
                 st.download_button("Download", csv, "impact_details.csv", "text/csv")
         
-        # Diagnostic Toggle
-        show_diagnostics = st.toggle("Show diagnostic columns", key="diag_toggle_collapsed")
-        
-        if show_diagnostics:
-             # Extended Diagnostic View
-             display_df = impact_df.copy()
-             
-             # Calculate CVR/AOV safely
-             if 'before_orders' in display_df.columns and 'before_clicks' in display_df.columns:
-                  display_df['CVR Before'] = (display_df['before_orders'] / display_df['before_clicks'].replace(0, np.nan) * 100).fillna(0)
-                  display_df['CVR After'] = (display_df['observed_after_orders'] / display_df['observed_after_clicks'].replace(0, np.nan) * 100).fillna(0)
-                  display_df['CVR Before'] = display_df['CVR Before'].apply(lambda x: f"{x:.1f}%")
-                  display_df['CVR After'] = display_df['CVR After'].apply(lambda x: f"{x:.1f}%")
-
-             if 'before_sales' in display_df.columns and 'before_orders' in display_df.columns:
-                  display_df['AOV Before'] = (display_df['before_sales'] / display_df['before_orders'].replace(0, np.nan)).fillna(0)
-                  display_df['AOV After'] = (display_df['observed_after_sales'] / display_df['observed_after_orders'].replace(0, np.nan)).fillna(0)
-                  display_df['AOV Before'] = display_df['AOV Before'].apply(lambda x: f"{currency}{x:.2f}")
-                  display_df['AOV After'] = display_df['AOV After'].apply(lambda x: f"{currency}{x:.2f}")
-             
-             # Add Before Clicks
-             if 'before_clicks' in display_df.columns:
-                 display_df['Clicks Before'] = display_df['before_clicks'].fillna(0).astype(int)
-
-             # Formatting % columns
-             for col in ['expected_trend_pct', 'actual_change_pct', 'cpc_change_pct']:
-                 if col in display_df.columns:
-                     display_df[col] = display_df[col].apply(lambda x: f"{x:+.1f}%" if pd.notna(x) else "-")
-            
-             # Rename map for full view
-             rename_map = {
-                 'target_text': 'Target', 'action_type': 'Action', 
-                 'validation_status': 'Status', 'maturity_status': 'Maturity',
-                 'decision_impact': 'Impact (Raw)', 'final_decision_impact': 'Impact (Weighted)',
-                 'confidence_weight': 'Conf. Weight',
-                 'expected_trend_pct': 'Exp Trend %', 'actual_change_pct': 'Actual Lift %',
-                 'before_spend': 'Spend Before', 'observed_after_spend': 'Spend After',
-                 'before_sales': 'Sales Before', 'observed_after_sales': 'Sales After',
-                 'cpc_before': 'CPC Before', 'cpc_after': 'CPC After'
-             }
-             
-             # Format Currency Columns (Spend/Sales/CPC)
-             curr_cols = ['before_spend', 'observed_after_spend', 'before_sales', 'observed_after_sales', 'cpc_before', 'cpc_after']
-             for c in curr_cols:
-                 if c in display_df.columns:
-                     display_df[c] = display_df[c].apply(lambda x: f"{currency}{x:,.2f}" if pd.notna(x) else "-")
-
-             # Select columns (using NEW names)
-             # Core Identifiers
-             cols = ['Target', 'Action', 'Status', 'Maturity']
-             # The Calculator (Before -> After)
-             cols += ['Spend Before', 'Spend After', 'Sales Before', 'Sales After']
-             cols += ['CPC Before', 'CPC After', 'CVR Before', 'CVR After', 'AOV Before', 'AOV After']
-             cols += ['Clicks Before']
-             # The Diagnostics (Why)
-             cols += ['Exp Trend %', 'Actual Lift %']
-             # The Result
-             cols += ['Impact (Raw)', 'Conf. Weight', 'Impact (Weighted)']
-             
-             # Rename available cols
-             display_df = display_df.rename(columns=rename_map)
-             
-             # Filter cols that exist
-             final_cols = [c for c in cols if c in display_df.columns]
-             display_df = display_df[final_cols]
-             
-        else:
-            # Standard View
-            display_df = impact_df[['target_text', 'action_type', impact_col, 'validation_status', 'maturity_status']].copy()
-            display_df.columns = ['What', 'Action', 'Impact', 'Status', 'Maturity']
-            display_df['Action'] = display_df['Action'].str.replace('_', ' ').str.title()
-            display_df['Impact'] = display_df['Impact'].fillna(0).round(0).astype(int)
-
         # Use column_config for currency formatting while keeping numeric sorting
         st.dataframe(
             display_df, 
@@ -1380,10 +1278,6 @@ def _render_details_table_collapsed(impact_df: pd.DataFrame, currency: str):
                     "↕ Impact",
                     help="Click to sort. Negative = potential issue",
                     format=f"{currency}%d"
-                ),
-                "Impact (Weighted)": st.column_config.NumberColumn(
-                    "Weighted Impact",
-                    format=f"{currency}%.2f"
                 )
             }
         )
@@ -1494,375 +1388,6 @@ def _render_validation_rate_chart(impact_df: pd.DataFrame):
             Unverified = insufficient signal
         </div>
         """, unsafe_allow_html=True)
-
-
-def _render_roas_attribution_bar(summary: Dict[str, Any], impact_df: pd.DataFrame, currency: str):
-    """
-    Section: ROAS Attribution Visual
-    Plotly Waterfall chart showing: Baseline → Market → Decisions → Actual
-    Now uses data from core/roas_attribution module.
-    """
-    import plotly.graph_objects as go
-    
-    st.markdown("""
-    <p style="font-size: 1rem; font-weight: 600; color: #F4F4F5; margin-bottom: 12px; display: flex; align-items: center; gap: 8px;">
-        <svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="#00E5CC" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-            <polyline points="23 6 13.5 15.5 8.5 10.5 1 18"></polyline>
-            <polyline points="17 6 23 6 23 12"></polyline>
-        </svg>
-        ROAS Attribution
-    </p>
-    """, unsafe_allow_html=True)
-    
-    # Use attribution data from module (populated via get_roas_attribution)
-    baseline_roas = summary.get('baseline_roas', 0)
-    actual_roas = summary.get('actual_roas', 0)
-    market_impact_roas = summary.get('market_impact_roas', 0)
-    
-    # Get decision impact value for display (from dashboard's calculations, not module)
-    decision_impact_value = summary.get('attributed_impact_universal', summary.get('decision_impact', 0))
-    
-    # Always calculate decision_impact_roas from dashboard's decision_impact value
-    total_spend = impact_df['observed_after_spend'].sum() if not impact_df.empty and 'observed_after_spend' in impact_df.columns else 1
-    decision_impact_roas = decision_impact_value / total_spend if total_spend > 0 else 0
-    
-    baseline_roas = summary.get('baseline_roas', 0.0)
-    actual_roas = summary.get('actual_roas', 0.0)
-    market_impact_roas = summary.get('market_impact_roas', 0.0)
-    # decision_impact_roas is already calculated above
-
-    
-    # Structural components
-    scale_effect = summary.get('scale_effect', 0.0)
-    portfolio_effect = summary.get('portfolio_effect', 0.0)
-    unexplained = summary.get('unexplained', 0.0)
-    
-    # Calculate Combined Forces (Market + structural + unexplained)
-    # Ideally: Combined = Actual - Baseline - Decision
-    # This ensures the waterfall connects perfectly
-    combined_forces = actual_roas - baseline_roas - decision_impact_roas
-    
-    # Breakdown of Combined Forces for tooltip/text
-    # Note: 'combined_forces' implicitly captures scale, portfolio, market, and residual
-    structural_total = scale_effect + portfolio_effect
-    
-    # Prior and Actual Labels
-    periods = summary.get('periods', {})
-    prior_start = periods.get('prior_start')
-    current_end = periods.get('current_end')
-    
-    prior_label = f"Baseline ({prior_start.strftime('%b %d')})" if prior_start else "Baseline"
-    actual_label = f"Actual ({current_end.strftime('%b %d')})" if current_end else "Actual"
-
-    # --- 1. Waterfall Chart Data ---
-    C_BASELINE = "#5B5670"    # Saddle Deep Purple
-    C_POS = "#8FC9D6"         # Muted Cyan (Positive)
-    C_NEG = "#FF6B6B"         # Red (Negative)
-    C_DECISION = "#2A8EC9"    # Signal Blue
-    C_DECISION_NEG = "#FFA502" # Orange Warning
-    
-    x_data = [prior_label, "Environment", "Your Decisions", actual_label]
-    y_data = []    # Length of bar
-    base_data = [] # Bottom of bar
-    colors = []
-    text_data = []
-    
-    # Initialize connector lines
-    connector_x = []
-    connector_y = []
-    
-    current_level = 0.0
-    
-    # Bar 1: Baseline
-    y_data.append(baseline_roas)
-    base_data.append(0)
-    colors.append(C_BASELINE)
-    text_data.append(f"{baseline_roas:.2f}")
-    current_level += baseline_roas
-    
-    # Connector: Baseline -> Environment
-    connector_x.extend([prior_label, "Environment", None])
-    connector_y.extend([current_level, current_level, None])
-    
-    # Bar 2: Environment (Floating)
-    combined_color = C_POS if combined_forces >= 0 else C_NEG
-    y_data.append(combined_forces)
-    base_data.append(current_level)
-    colors.append(combined_color)
-    text_data.append(f"{combined_forces:+.2f}")
-    current_level += combined_forces
-    
-    # Connector: Environment -> Your Decisions
-    connector_x.extend(["Environment", "Your Decisions", None])
-    connector_y.extend([current_level, current_level, None])
-    
-    # Bar 3: Your Decisions (Floating)
-    decision_color = C_DECISION if decision_impact_roas >= 0 else C_DECISION_NEG
-    y_data.append(decision_impact_roas)
-    base_data.append(current_level)
-    colors.append(decision_color)
-    text_data.append(f"{decision_impact_roas:+.2f}")
-    current_level += decision_impact_roas
-    
-    # Connector: Your Decisions -> Actual
-    connector_x.extend(["Your Decisions", actual_label, None])
-    connector_y.extend([current_level, current_level, None])
-    
-    # Bar 4: Actual
-    y_data.append(actual_roas)
-    base_data.append(0)
-    colors.append(C_POS) # Neutral/Result color
-    text_data.append(f"{actual_roas:.2f}")
-
-    # --- Render Chart ---
-    fig = go.Figure()
-    
-    # The Bars
-    fig.add_trace(go.Bar(
-        x=x_data,
-        y=y_data,
-        base=base_data,
-        marker_color=colors,
-        text=text_data,
-        textposition='auto',
-        hoverinfo='x+text',
-        width=0.6
-    ))
-    
-    # The Connectors
-    fig.add_trace(go.Scatter(
-        x=connector_x,
-        y=connector_y,
-        mode='lines',
-        line=dict(color='rgba(255, 255, 255, 0.3)', width=1, dash='dash'),
-        hoverinfo='skip',
-        showlegend=False
-    ))
-    
-    # --- Dynamic Scaling (Magnify Impact) ---
-    # Calculate min/max data points to zoom the Y-axis
-    # Points: Baseline, Combined End, Decisions End (Actual)
-    # We want to focus on the 'action' zone.
-    
-    # Calculate running totals to find true min/max
-    r1 = baseline_roas
-    r2 = baseline_roas + combined_forces
-    r3 = baseline_roas + combined_forces + decision_impact_roas # = Actual
-    
-    data_points = [0, baseline_roas, r1, r2, r3, actual_roas]
-    min_val = min(data_points)
-    max_val = max(data_points)
-    
-    # Magnification logic:
-    # If standard 0-based view makes changes look tiny, we zoom in.
-    # We'll set the range to [min_val - padding, max_val + padding]
-    # But we normally don't want to cut the bottom of the bars completely unless necessary.
-    # However, user asked to "artificially magnify". 
-    # Let's try a clamp at 50% of min value if min value is high (> 2.0).
-    
-    y_range = None
-    if max_val > 0:
-        span = max_val - min_val
-        # Determine strictness of zoom
-        zoom_floor = max(0, min_val * 0.5) # Show at least top 50% of the bar height
-        if min_val > 2.0:
-             zoom_floor = max(0, min_val - 0.5) # Tighter zoom for high ROAS
-             
-        padding = (max_val - zoom_floor) * 0.1
-        y_range = [max(0, zoom_floor - padding), max_val + padding]
-
-    fig.update_layout(
-        title="ROAS Attribution",
-        plot_bgcolor='rgba(0,0,0,0)',
-        paper_bgcolor='rgba(0,0,0,0)',
-        font=dict(color='#E5E7EB'),
-        showlegend=False,
-        height=320,
-        margin=dict(l=20, r=20, t=40, b=20),
-        yaxis=dict(
-            showgrid=True, 
-            gridcolor='rgba(255,255,255,0.1)', 
-            title="ROAS", 
-            zeroline=True, 
-            zerolinecolor='rgba(255,255,255,0.2)',
-            range=y_range
-        ),
-        xaxis=dict(showgrid=False)
-    )
-    
-    st.plotly_chart(fig, use_container_width=True, config={'displayModeBar': False})
-    
-    # Equation Summary with reconciliation checkmark
-    st.markdown(
-        f"<div style='text-align: center; color: #E5E7EB; font-weight: 600; font-size: 16px; margin-top: -10px; margin-bottom: 20px;'>"
-        f"Baseline {baseline_roas:.2f} → {combined_forces:+.2f} Environment → {decision_impact_roas:+.2f} Your Decisions → {actual_roas:.2f} Actual "
-        f"<span style='color: #10B981;'>✓</span>"
-        f"</div>",
-        unsafe_allow_html=True
-    )
-
-    # --- Revenue Highlight (User Request) ---
-    # Logic: If Combined Forces < 0 (Headwinds), we "Protected" revenue.
-    #        If Combined Forces >= 0 (Tailwinds), we "Created" additional value.
-    if decision_impact_value > 0:
-        highlight_label = "Revenue Protected" if combined_forces < 0 else "Value Created"
-        counterfactual_roas = baseline_roas + combined_forces
-        
-        # Explicit formatting for the currency value
-        formatted_value = f"{currency}{decision_impact_value:,.0f}" if currency else f"${decision_impact_value:,.0f}"
-        
-        st.markdown(
-            f"""
-            <div style="
-                background-color: rgba(46, 213, 115, 0.12); 
-                border: 1px solid rgba(46, 213, 115, 0.3);
-                border-radius: 6px; 
-                padding: 12px; 
-                margin-top: 12px; 
-                margin-bottom: 24px;
-                text-align: center;
-            ">
-                <div style="color: #2ed573; font-size: 18px; font-weight: 700; margin-bottom: 4px;">
-                    {highlight_label}: {formatted_value}
-                </div>
-                <div style="color: #2ed573; font-size: 13px; opacity: 0.9;">
-                    (Without optimizations, ROAS would have been {counterfactual_roas:.2f})
-                </div>
-            </div>
-            """,
-            unsafe_allow_html=True
-        )
-
-
-    # --- Expandable Breakdown ---
-    with st.expander("Full Breakdown", expanded=False):
-        # Data Prep for Text
-        prior_metrics = summary.get('prior_metrics', {})
-        current_metrics = summary.get('current_metrics', {})
-        
-        # Calculate % changes for text
-        def get_pct_change(key):
-            p = prior_metrics.get(key, 0)
-            c = current_metrics.get(key, 0)
-            return ((c - p) / p * 100) if p > 0 else 0
-
-        cpc_pct = get_pct_change('cpc')
-        cvr_pct = get_pct_change('cvr')
-        aov_pct = get_pct_change('aov')
-        
-        cpc_impact = summary.get('cpc_impact', 0)
-        cvr_impact = summary.get('cvr_impact', 0)
-        aov_impact = summary.get('aov_impact', 0)
-        
-        col1, col2 = st.columns(2)
-        
-        # LEFT COLUMN: Market & Structural Forces
-        with col1:
-            st.markdown(f"**Environment: {combined_forces:+.2f} ROAS**")
-            st.divider()
-            
-            # Market Subsection - ROAS impacts primary, percentages in tooltips
-            st.markdown(f"""
-            <div style="font-size: 14px; font-weight: 600; color: #cccccc; margin-bottom: 8px;">Market Conditions: {market_impact_roas:+.2f}</div>
-            
-            <div style="font-size: 13px; color: #aaaaaa; line-height: 1.8;">
-            • CPC: <span style="color: {'#ff6b6b' if cpc_impact < 0 else '#2ed573'}; font-weight: 600;" title="CPC {('increased' if cpc_pct >=0 else 'dropped')} {abs(cpc_pct):.1f}%">{cpc_impact:+.2f} ROAS</span>
-              <span style="color: #666; font-size: 11px; cursor: help;" title="CPC {('increased' if cpc_pct >=0 else 'dropped')} {abs(cpc_pct):.1f}%">ⓘ</span><br>
-              
-            • CVR: <span style="color: {'#ff6b6b' if cvr_impact < 0 else '#2ed573'}; font-weight: 600;" title="CVR {('increased' if cvr_pct >=0 else 'dropped')} {abs(cvr_pct):.1f}%">{cvr_impact:+.2f} ROAS</span>
-              <span style="color: #666; font-size: 11px; cursor: help;" title="CVR {('increased' if cvr_pct >=0 else 'dropped')} {abs(cvr_pct):.1f}%">ⓘ</span><br>
-              
-            • AOV: <span style="color: {'#ff6b6b' if aov_impact < 0 else '#2ed573'}; font-weight: 600;" title="AOV {('increased' if aov_pct >=0 else 'dropped')} {abs(aov_pct):.1f}%">{aov_impact:+.2f} ROAS</span>
-              <span style="color: #666; font-size: 11px; cursor: help;" title="AOV {('increased' if aov_pct >=0 else 'dropped')} {abs(aov_pct):.1f}%">ⓘ</span>
-            </div>
-            
-            <div style="font-size: 11px; color: #666; margin-top: 8px; font-family: monospace;">
-            {cpc_impact:+.2f} + {cvr_impact:+.2f} + {aov_impact:+.2f} = {market_impact_roas:+.2f} ✓
-            </div>
-            """, unsafe_allow_html=True)
-            
-            st.markdown("") # Spatial gap
-            
-            # Structural Subsection
-            st.markdown(f"""
-            <div style="font-size: 14px; font-weight: 600; color: #cccccc; margin-bottom: 8px;">Account Structure: {structural_total:+.2f}</div>
-            
-            <div style="font-size: 13px; color: #aaaaaa; line-height: 1.6;">
-            • Scale effect: {scale_effect:+.2f} (Spend change)<br>
-            • Portfolio effect: {portfolio_effect:+.2f} (Campaign mix)<br>
-            <span style="font-style: italic; color: #888888;">New campaigns in ramp-up phase (if any)</span>
-            </div>
-            """, unsafe_allow_html=True)
-
-        # RIGHT COLUMN: Decision Impact
-        with col2:
-            # We need net_value from somewhere. 
-            # In validation script we calculated it. In dashboard it's decision_impact_value? No, that's not in summary dict usually.
-            # But the dashboard caller calculates it as `decision_impact_value`.
-            # Let's hope it's passed or derived. 
-            # Wait, `get_roas_attribution` output doesn't seem to include the dollar value directly in `decision_impact_value`.
-            # But `_render_new_impact_analytics` (the caller) calculates `decision_impact_value`.
-            # We need to pass it in summary or argument. 
-            # Since I can't change the caller easily right now without seeing it, I'll calculate approximate from impact_df if possible.
-            
-            # ATTRIBUTION FIX: Use the same value as the "Revenue Protected" Banner (71K)
-            # This excludes "Market Drag" to align with our Attributed Impact definition.
-            # Using raw sum (40K/2.7K) caused confusion.
-            net_value = summary.get('attributed_impact_universal', 0)
-            if net_value == 0 and not impact_df.empty and 'decision_impact' in impact_df.columns:
-                 # Fallback only if missing
-                 net_value = impact_df['decision_impact'].sum()
-                 
-            action_count = len(impact_df)
-                
-            st.markdown(f"**Your Decisions: {decision_impact_roas:+.2f} ROAS**")
-            st.divider()
-            
-            st.markdown(f"""
-            <div style="font-size: 14px; font-weight: 600; color: #cccccc; margin-bottom: 8px;">Activity:</div>
-            <div style="font-size: 13px; color: #aaaaaa; line-height: 1.6;">
-            • {action_count} actions executed<br>
-            • Net value created: <b>{currency}{net_value:,.0f}</b>
-            </div>
-            
-            <br>
-            
-            <div style="font-size: 14px; font-weight: 600; color: #cccccc; margin-bottom: 8px;">ROAS Contribution:</div>
-            <div style="font-size: 13px; color: #aaaaaa; line-height: 1.6;">
-            • Added {decision_impact_roas:+.2f} on top of market baseline<br>
-            • Offset structural drag of {structural_total:+.2f}<br>
-            • Net effect: Created value despite headwinds
-            </div>
-            """, unsafe_allow_html=True)
-            
-        # BOTTOM: Attribution Summary Box
-        # BOTTOM: Attribution Summary Box
-        # Using concise construction to guarantee no indentation issues causing code-block rendering
-        summary_html = "".join([
-            '<div style="background-color: #0f1624; border: 1px solid #2d3748; border-radius: 8px; padding: 20px; margin-top: 20px;">',
-            '  <div style="color: #cccccc; font-size: 13px; font-weight: 600; margin-bottom: 10px;">Attribution Summary</div>',
-            '  <div style="display: flex; justify-content: space-between; margin-bottom: 15px;">',
-            '    <div style="color: #aaaaaa; font-size: 13px;">',
-            '      Counterfactual Analysis:<br>',
-            f'      Without decisions → <b>{(baseline_roas + combined_forces):.2f} ROAS</b> (Market + Structural)<br>',
-            f'      With decisions → <b>{actual_roas:.2f} ROAS</b> (Actual achieved)',
-            '    </div>',
-            '    <div style="text-align: right; color: #aaaaaa; font-size: 13px;">',
-            f'      Value Created: <b style="color: #2ed573;">{currency}{net_value:,.0f}</b>',
-            '    </div>',
-            '  </div>',
-            '  <div style="color: #aaaaaa; font-size: 13px; line-height: 1.6; margin-bottom: 15px;">',
-            f'    Explanation: Market conditions impact ({market_impact_roas:+.2f} ROAS) combined with structural effects from growth ',
-            f'    ({structural_total:+.2f}) was offset by {action_count} optimizations ({decision_impact_roas:+.2f}), ',
-            '    delivering result.',
-            '  </div>',
-            '  <div style="border-top: 1px solid #2d3748; padding-top: 10px; display: flex; justify-content: space-between; font-size: 12px; color: #888888;">',
-            '    <div>Attribution Quality: <span style="color: #2ed573;">✓ Clean</span></div>',
-                        f'    <div>Noise & Timing: {unexplained:+.2f} ROAS <span style="font-size: 10px; color: #666;">(timing lags, small-sample variance)</span></div>',
-            '  </div>',
-            '</div>'
-        ])
-        st.markdown(summary_html, unsafe_allow_html=True)
 
 
 def _render_cumulative_impact_chart(impact_df: pd.DataFrame, currency: str):
@@ -2148,23 +1673,16 @@ def _render_new_impact_analytics(summary: Dict[str, Any], impact_df: pd.DataFram
     st.markdown("<div style='height: 32px;'></div>", unsafe_allow_html=True)
 
     # ==========================================
-    # SECTION 3 & 4: ROAS ATTRIBUTION | DECISION MAP (New Layout)
+    # SECTION 3 & 4: CHARTS ROW (Decision Map | Progress Chart)
     # ==========================================
     chart_c1, chart_c2 = st.columns(2, gap="medium")
     
     with chart_c1:
-        _render_roas_attribution_bar(summary, impact_df, currency)
+        _render_decision_outcome_matrix(impact_df, summary)
         
     with chart_c2:
-        _render_decision_outcome_matrix(impact_df, summary)
+        _render_cumulative_impact_chart(impact_df, currency)
 
-    st.markdown("<div style='height: 32px;'></div>", unsafe_allow_html=True)
-    
-    # ==========================================
-    # SECTION 4B: CUMULATIVE IMPACT CHART (Moved Down - Full Width)
-    # ==========================================
-    _render_cumulative_impact_chart(impact_df, currency)
-    
     st.markdown("<div style='height: 32px;'></div>", unsafe_allow_html=True)
 
     # ==========================================
@@ -2184,7 +1702,7 @@ def _render_new_impact_analytics(summary: Dict[str, Any], impact_df: pd.DataFram
     # SECTION 7: COLLAPSED DETAILS TABLE
     # ==========================================
     _render_details_table_collapsed(impact_df, currency)
-    # Debug console removed for production
+    _render_debug_console(impact_df)
 
 
 def _render_debug_console(impact_df: pd.DataFrame):
@@ -3075,9 +2593,6 @@ def _render_drill_down_table(impact_df: pd.DataFrame, show_migration_badge: bool
         
         display_df['decision_outcome'] = display_df.apply(get_decision_outcome, axis=1)
         
-        # Toggle for diagnostic columns
-        show_diagnostics = st.toggle("Show diagnostic columns", help="Reveal intermediate calculations for decision quality flags")
-        
         # ==========================================
         # SELECT FINAL COLUMNS (per spec)
         # ==========================================
@@ -3089,12 +2604,6 @@ def _render_drill_down_table(impact_df: pd.DataFrame, show_migration_badge: bool
             'expected_sales', 'decision_impact',
             'market_tag', 'decision_outcome', 'validation_status'
         ]
-        
-        if show_diagnostics:
-             display_cols.extend([
-                'expected_trend_pct', 'actual_change_pct', 
-                'final_decision_impact', 'confidence_weight'
-             ])
         
         # Filter to columns that actually exist
         cols_to_use = [c for c in display_cols if c in display_df.columns]
@@ -3117,19 +2626,14 @@ def _render_drill_down_table(impact_df: pd.DataFrame, show_migration_badge: bool
             'decision_impact': 'Decision Impact',
             'market_tag': 'Market Tag',
             'decision_outcome': 'Decision Outcome',
-            'validation_status': 'Validation Status',
-            # Diagnostic columns
-            'expected_trend_pct': 'Exp. Trend %',
-            'actual_change_pct': 'Actual Lift %',
-            'final_decision_impact': 'Weighted Impact',
-            'confidence_weight': 'Conf. Weight'
+            'validation_status': 'Validation Status'
         }
         display_df = display_df.rename(columns=final_rename)
         
         # Format currency columns
         from utils.formatters import get_account_currency
         df_currency = get_account_currency()
-        currency_cols = ['Before Spend', 'After Spend', 'Spend Avoided', 'Before Sales', 'After Sales', 'Expected Sales', 'Decision Impact', 'Weighted Impact']
+        currency_cols = ['Before Spend', 'After Spend', 'Spend Avoided', 'Before Sales', 'After Sales', 'Expected Sales', 'Decision Impact']
         for col in currency_cols:
             if col in display_df.columns:
                 display_df[col] = display_df[col].apply(lambda x: f"{df_currency}{x:,.2f}" if pd.notna(x) else "-")
@@ -3140,36 +2644,9 @@ def _render_drill_down_table(impact_df: pd.DataFrame, show_migration_badge: bool
             if col in display_df.columns:
                 display_df[col] = display_df[col].apply(lambda x: f"{df_currency}{x:.2f}" if pd.notna(x) else "-")
         
-        # Format Percentage columns
-        pct_cols = ['CPC Change %', 'Exp. Trend %', 'Actual Lift %']
-        for col in pct_cols:
-            if col in display_df.columns:
-                 display_df[col] = display_df[col].apply(lambda x: f"{x:+.1f}%" if pd.notna(x) else "-")
-                 
-        # Add CVR/AOV if diagnostics enabled (and data exists)
-        if show_diagnostics:
-             # Calculate CVR/AOV if not present (safely)
-             if 'before_orders' in impact_df.columns and 'before_clicks' in impact_df.columns:
-                  display_df['CVR Before'] = (impact_df['before_orders'] / impact_df['before_clicks'].replace(0, np.nan) * 100).fillna(0)
-                  display_df['CVR After'] = (impact_df['observed_after_orders'] / impact_df['observed_after_clicks'].replace(0, np.nan) * 100).fillna(0)
-                  
-                  display_df['CVR Before'] = display_df['CVR Before'].apply(lambda x: f"{x:.1f}%")
-                  display_df['CVR After'] = display_df['CVR After'].apply(lambda x: f"{x:.1f}%")
-
-             if 'before_sales' in impact_df.columns and 'before_orders' in impact_df.columns:
-                  display_df['AOV Before'] = (impact_df['before_sales'] / impact_df['before_orders'].replace(0, np.nan)).fillna(0)
-                  display_df['AOV After'] = (impact_df['observed_after_sales'] / impact_df['observed_after_orders'].replace(0, np.nan)).fillna(0)
-
-                  display_df['AOV Before'] = display_df['AOV Before'].apply(lambda x: f"{df_currency}{x:.2f}")
-                  display_df['AOV After'] = display_df['AOV After'].apply(lambda x: f"{df_currency}{x:.2f}")
-                  
-             # Add Before Clicks
-             if 'before_clicks' in impact_df.columns:
-                 display_df['Clicks Before'] = impact_df['before_clicks'].fillna(0).astype(int)
-
-        # Format Confidence Weight
-        if 'Conf. Weight' in display_df.columns:
-            display_df['Conf. Weight'] = display_df['Conf. Weight'].apply(lambda x: f"{x:.2f}" if pd.notna(x) else "-")
+        # Format CPC Change %
+        if 'CPC Change %' in display_df.columns:
+            display_df['CPC Change %'] = display_df['CPC Change %'].apply(lambda x: f"{x:+.1f}%" if pd.notna(x) else "-")
         
         # Show migration legend if applicable
         if show_migration_badge and 'is_migration' in impact_df.columns and impact_df['is_migration'].any():
@@ -3198,22 +2675,6 @@ def _render_drill_down_table(impact_df: pd.DataFrame, show_migration_badge: bool
                 "Validation Status": st.column_config.TextColumn(
                     "Validation Status",
                     help="Verification that the action was actually applied based on subsequent spend reporting"
-                ),
-                "Exp. Trend %": st.column_config.TextColumn(
-                    "Exp. Trend %",
-                    help="What the market did (Baseline Trend). Negative = Headwind."
-                ),
-                "Actual Lift %": st.column_config.TextColumn(
-                    "Actual Lift %",
-                    help="What actually happened (Observed Lift)."
-                ),
-                "Weighted Impact": st.column_config.TextColumn(
-                    "Weighted Impact",
-                    help="Decision Impact × Confidence Weight. Used for 'Revenue Protected' total."
-                ),
-                "Conf. Weight": st.column_config.TextColumn(
-                    "Conf. Weight",
-                    help="Damping factor (0.0-1.0) based on data volume. Reduces impact of low-click decisions."
                 )
             }
         )
