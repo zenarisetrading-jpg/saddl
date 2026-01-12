@@ -765,7 +765,8 @@ def render_impact_dashboard():
         total_verified_impact=total_verified_impact,
         summary=display_summary,
         mature_count=measured_count,
-        pending_count=pending_display_count
+        pending_count=pending_display_count,
+        canonical_metrics=canonical_metrics  # Phase 3: Single source of truth
     )
     
     st.divider()
@@ -847,10 +848,13 @@ def _render_empty_state():
     """)
 
 
-def _render_hero_banner(impact_df: pd.DataFrame, currency: str, horizon_label: str = "30D", total_verified_impact: float = None, summary: Dict[str, Any] = {}, mature_count: int = 0, pending_count: int = 0):
+def _render_hero_banner(impact_df: pd.DataFrame, currency: str, horizon_label: str = "30D", total_verified_impact: float = None, summary: Dict[str, Any] = {}, mature_count: int = 0, pending_count: int = 0, canonical_metrics: 'ImpactMetrics' = None):
     """
     Render the Hero Section: "Did your optimizations make money?"
     Human-centered design with YES/NO/BREAK EVEN prefix.
+    
+    Args:
+        canonical_metrics: If provided, use this as single source of truth (Phase 3+)
     """
     import numpy as np
     
@@ -858,43 +862,80 @@ def _render_hero_banner(impact_df: pd.DataFrame, currency: str, horizon_label: s
         st.info("No data for hero calculation")
         return
 
-    # Ensure required columns exist (handles old cached data)
-    df = _ensure_impact_columns(impact_df)
-    
     # ==========================================
-    # QUADRANT AGGREGATION
+    # PHASE 3: USE CANONICAL METRICS IF PROVIDED
     # ==========================================
-    # Use WEIGHTED impact (final_decision_impact) if available, else fallback
-    impact_col = 'final_decision_impact' if 'final_decision_impact' in df.columns else 'decision_impact'
-    
-    offensive_wins = df[df['market_tag'] == 'Offensive Win']
-    offensive_val = offensive_wins[impact_col].sum()
-    
-    defensive_wins = df[df['market_tag'] == 'Defensive Win']
-    defensive_val = defensive_wins[impact_col].sum()
-    
-    gaps = df[df['market_tag'] == 'Gap']
-    gap_val = gaps[impact_col].sum()
-    
-    drag = df[df['market_tag'] == 'Market Drag']
-    drag_count = len(drag)
-    
-    # Attributed Impact excludes Market Drag (ambiguous attribution)
-    attributed_impact = offensive_val + defensive_val + gap_val
-    total_wins = offensive_val + defensive_val
-    
-    # Store metrics in session for other sections to consume
-    st.session_state['_impact_metrics'] = {
-        'attributed_impact': attributed_impact,
-        'offensive_val': offensive_val,
-        'defensive_val': defensive_val,
-        'gap_val': gap_val,
-        'total_wins': total_wins,
-        'drag_count': drag_count,
-        'offensive_count': len(offensive_wins),
-        'defensive_count': len(defensive_wins),
-        'gap_count': len(gaps),
-    }
+    if canonical_metrics is not None and canonical_metrics.has_data:
+        attributed_impact = canonical_metrics.attributed_impact
+        offensive_val = canonical_metrics.offensive_value
+        defensive_val = canonical_metrics.defensive_value
+        gap_val = canonical_metrics.gap_value
+        drag_count = canonical_metrics.drag_actions
+        total_wins = offensive_val + defensive_val
+        
+        # Prepare counts for display
+        offensive_count = canonical_metrics.offensive_actions
+        defensive_count = canonical_metrics.defensive_actions
+        gap_count = canonical_metrics.gap_actions
+        
+        # Store in session state for other sections (temporary - Phase 4 will remove)
+        st.session_state['_impact_metrics'] = {
+            'attributed_impact': attributed_impact,
+            'offensive_val': offensive_val,
+            'defensive_val': defensive_val,
+            'gap_val': gap_val,
+            'total_wins': total_wins,
+            'drag_count': drag_count,
+            'offensive_count': offensive_count,
+            'defensive_count': defensive_count,
+            'gap_count': gap_count,
+        }
+        
+        # Get df for before_sales calculation
+        df = _ensure_impact_columns(impact_df)
+    else:
+        # ==========================================
+        # LEGACY CALCULATION (fallback)
+        # ==========================================
+        # Ensure required columns exist (handles old cached data)
+        df = _ensure_impact_columns(impact_df)
+        
+        # Use WEIGHTED impact (final_decision_impact) if available, else fallback
+        impact_col = 'final_decision_impact' if 'final_decision_impact' in df.columns else 'decision_impact'
+        
+        offensive_wins = df[df['market_tag'] == 'Offensive Win']
+        offensive_val = offensive_wins[impact_col].sum()
+        
+        defensive_wins = df[df['market_tag'] == 'Defensive Win']
+        defensive_val = defensive_wins[impact_col].sum()
+        
+        gaps = df[df['market_tag'] == 'Gap']
+        gap_val = gaps[impact_col].sum()
+        
+        drag = df[df['market_tag'] == 'Market Drag']
+        drag_count = len(drag)
+        
+        # Attributed Impact excludes Market Drag (ambiguous attribution)
+        attributed_impact = offensive_val + defensive_val + gap_val
+        total_wins = offensive_val + defensive_val
+        
+        # Prepare counts for display
+        offensive_count = len(offensive_wins)
+        defensive_count = len(defensive_wins)
+        gap_count = len(gaps)
+        
+        # Store metrics in session for other sections to consume
+        st.session_state['_impact_metrics'] = {
+            'attributed_impact': attributed_impact,
+            'offensive_val': offensive_val,
+            'defensive_val': defensive_val,
+            'gap_val': gap_val,
+            'total_wins': total_wins,
+            'drag_count': drag_count,
+            'offensive_count': offensive_count,
+            'defensive_count': defensive_count,
+            'gap_count': gap_count,
+        }
     
     # --- HUMAN-CENTERED DISPLAY ---
     
@@ -939,8 +980,9 @@ def _render_hero_banner(impact_df: pd.DataFrame, currency: str, horizon_label: s
     arrow_up_icon = '<svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="12" y1="19" x2="12" y2="5"></line><polyline points="5 12 12 5 19 12"></polyline></svg>'
     
     # Progress bar calculation (wins vs total excluding drag)
-    total_counted = len(offensive_wins) + len(defensive_wins) + len(gaps)
-    win_count = len(offensive_wins) + len(defensive_wins)
+    # Progress bar calculation (wins vs total excluding drag)
+    total_counted = offensive_count + defensive_count + gap_count
+    win_count = offensive_count + defensive_count
     win_pct = (win_count / total_counted * 100) if total_counted > 0 else 0
     
     # Methodology tooltip
@@ -1234,8 +1276,12 @@ def _render_data_confidence_section(impact_df: pd.DataFrame):
     """, unsafe_allow_html=True)
 
 
-def _render_value_breakdown_section(impact_df: pd.DataFrame, currency: str):
-    """Section 6: Where did the value come from? - Impact by action type."""
+def _render_value_breakdown_section(impact_df: pd.DataFrame, currency: str, canonical_metrics: 'ImpactMetrics' = None):
+    """Section 6: Where did the value come from? - Impact by action type.
+    
+    Args:
+        canonical_metrics: If provided, use this validation logic (Phase 3+)
+    """
     import plotly.graph_objects as go
     
     if impact_df.empty:
@@ -1257,8 +1303,21 @@ def _render_value_breakdown_section(impact_df: pd.DataFrame, currency: str):
     # Ensure required columns exist (handles old cached data)
     df = _ensure_impact_columns(impact_df)
     
-    # Exclude Market Drag (ambiguous attribution)
-    df = df[df['market_tag'] != 'Market Drag']
+    # ==========================================
+    # PHASE 3: USE CANONICAL METRICS FILTERS
+    # ==========================================
+    # If canonical metrics provided, respect its filters (e.g. validated only)
+    if canonical_metrics is not None:
+        filters = canonical_metrics.filters_applied
+        if filters.get('validated_only') and 'validated' in df.columns:
+            df = df[df['validated'] == True]
+        
+        # Consistent logic: Exclude market drag
+        df = df[df['market_tag'] != 'Market Drag']
+    else:
+        # Legacy fallback
+        # Exclude Market Drag (ambiguous attribution)
+        df = df[df['market_tag'] != 'Market Drag']
     
     # Group by action type using pre-calculated decision_impact
     if 'final_decision_impact' not in df.columns:
@@ -1452,11 +1511,14 @@ def _render_validation_rate_chart(impact_df: pd.DataFrame):
         """, unsafe_allow_html=True)
 
 
-def _render_roas_attribution_bar(summary: Dict[str, Any], impact_df: pd.DataFrame, currency: str):
+def _render_roas_attribution_bar(summary: Dict[str, Any], impact_df: pd.DataFrame, currency: str, canonical_metrics: 'ImpactMetrics' = None):
     """
     Section: ROAS Attribution Visual
     Plotly Waterfall chart showing: Baseline → Market → Decisions → Actual
     Now uses data from core/roas_attribution module.
+    
+    Args:
+        canonical_metrics: If provided, use this for decision_impact_value (Phase 3+)
     """
     import plotly.graph_objects as go
     
@@ -1475,11 +1537,18 @@ def _render_roas_attribution_bar(summary: Dict[str, Any], impact_df: pd.DataFram
     actual_roas = summary.get('actual_roas', 0)
     market_impact_roas = summary.get('market_impact_roas', 0)
     
-    # Get decision impact value for display (from dashboard's calculations, not module)
-    decision_impact_value = summary.get('attributed_impact_universal', summary.get('decision_impact', 0))
+    # ==========================================
+    # PHASE 3: USE CANONICAL METRICS IF PROVIDED
+    # ==========================================
+    if canonical_metrics is not None and canonical_metrics.has_data:
+        decision_impact_value = canonical_metrics.attributed_impact
+        total_spend = canonical_metrics.total_spend
+    else:
+        # LEGACY: Get decision impact value from summary dict
+        decision_impact_value = summary.get('attributed_impact_universal', summary.get('decision_impact', 0))
+        total_spend = impact_df['observed_after_spend'].sum() if not impact_df.empty and 'observed_after_spend' in impact_df.columns else 1
     
-    # Always calculate decision_impact_roas from dashboard's decision_impact value
-    total_spend = impact_df['observed_after_spend'].sum() if not impact_df.empty and 'observed_after_spend' in impact_df.columns else 1
+    # Calculate decision_impact_roas from the value
     decision_impact_roas = decision_impact_value / total_spend if total_spend > 0 else 0
     
     baseline_roas = summary.get('baseline_roas', 0.0)
@@ -2095,7 +2164,7 @@ def _render_new_impact_analytics(summary: Dict[str, Any], impact_df: pd.DataFram
     chart_c1, chart_c2 = st.columns(2, gap="medium")
     
     with chart_c1:
-        _render_roas_attribution_bar(summary, impact_df, currency)
+        _render_roas_attribution_bar(summary, impact_df, currency, canonical_metrics=canonical_metrics)
         
     with chart_c2:
         _render_decision_outcome_matrix(impact_df, summary)
@@ -2118,7 +2187,7 @@ def _render_new_impact_analytics(summary: Dict[str, Any], impact_df: pd.DataFram
         _render_data_confidence_section(validation_df)
     
     with conf_c2:
-        _render_value_breakdown_section(impact_df, currency)
+        _render_value_breakdown_section(impact_df, currency, canonical_metrics=canonical_metrics)
 
     st.markdown("<div style='height: 24px;'></div>", unsafe_allow_html=True)
 
@@ -3200,39 +3269,39 @@ def get_recent_impact_summary() -> Optional[dict]:
         
         # Use existing CACHED data fetcher (14 Days)
         # discard dataframe, keep summary
-        _, summary = _fetch_impact_data(selected_client, test_mode, before_days=14, after_days=14, cache_version=cache_version)
+        impact_df, summary = _fetch_impact_data(selected_client, test_mode, before_days=14, after_days=14, cache_version=cache_version)
         
-        if not summary:
+        # ==========================================
+        # PHASE 3: USE CANONICAL METRICS
+        # ==========================================
+        from features.impact_metrics import ImpactMetrics
+        
+        # Calculate metrics using single source of truth
+        # Fixed 14-day window for home tile
+        metrics = ImpactMetrics.from_dataframe(impact_df, horizon_days=14)
+        
+        if not metrics.has_data:
             return None
+            
+        # Extract values
+        decision_impact = metrics.attributed_impact
+        win_rate = metrics.win_rate
         
-        # Handle dual-summary structure (all/validated)
+        # Handle top action type (legacy logic for now as ImpactMetrics doesn't group by type yet)
+        # But we filter dataframe same way
         active_summary = summary.get('validated', summary.get('all', summary))
-        
-        if active_summary.get('total_actions', 0) == 0:
-            return None
-        
-        # Extract key metrics - DECISION IMPACT FOCUS
-        # Prioritize UNIVERSAL metric (Mature + All Types) to match Dashboard Hero
-        decision_impact = active_summary.get('attributed_impact_universal', active_summary.get('decision_impact', 0))
-        win_rate = active_summary.get('win_rate', 0)
-        
-        # Get top action type
         by_type = active_summary.get('by_action_type', {})
         top_action_type = None
         if by_type:
-            top_action_type = max(by_type, key=lambda k: by_type[k].get('decision_impact', 0)) # Sort by impact
-        
-        pct_good = active_summary.get('pct_good', 0)
-        pct_bad = active_summary.get('pct_bad', 0)
-        quality_score = pct_good - pct_bad
-
+            top_action_type = max(by_type, key=lambda k: by_type[k].get('decision_impact', 0))
+            
         return {
             'sales': decision_impact, # Mapped to 'sales' key for compatibility but represents impact
             'label': 'Decision Impact',
             'win_rate': win_rate,
             'top_action_type': top_action_type,
-            'quality_score': quality_score,
-            'roi': active_summary.get('roas_lift_pct', 0)
+            'quality_score': active_summary.get('pct_good', 0) - active_summary.get('pct_bad', 0), # Keep legacy for quality score
+            'roi': metrics.decision_impact_roas * 100 # Convert to percentage
         }
         
     except Exception as e:
