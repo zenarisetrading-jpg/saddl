@@ -90,6 +90,15 @@ class ImpactMetrics:
             working_df = df[df['is_mature'] == True].copy()
         else:
             working_df = df.copy()
+            
+        # === Step 1.5: Apply validation filter ===
+        if filters.get('validated_only'):
+            if 'validated' in working_df.columns:
+                working_df = working_df[working_df['validated'] == True]
+            elif 'validation_status' in working_df.columns:
+                # Use standard regex for validation (matches Dashboard logic)
+                mask = working_df['validation_status'].str.contains('✓|CPC Validated|CPC Match|Directional|Confirmed|Normalized|Volume', na=False, regex=True)
+                working_df = working_df[mask]
         
         if working_df.empty:
             return cls._empty_metrics(filters, horizon_days)
