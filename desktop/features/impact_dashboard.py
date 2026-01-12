@@ -794,7 +794,7 @@ def render_impact_dashboard():
                 st.info("No measured impact data for the selected filter")
             else:
                 # IMPACT ANALYTICS: New human-centered layout with embedded details table
-                _render_new_impact_analytics(display_summary, active_df, show_validated_only, mature_count=measured_count, pending_count=pending_display_count, raw_impact_df=impact_df)
+                _render_new_impact_analytics(display_summary, active_df, show_validated_only, mature_count=measured_count, pending_count=pending_display_count, raw_impact_df=impact_df, canonical_metrics=canonical_metrics)
         
         with tab_pending:
             # Section 1: Pending Attribution (immature actions)
@@ -1984,7 +1984,7 @@ def _render_cumulative_impact_chart(impact_df: pd.DataFrame, currency: str):
         """, unsafe_allow_html=True)
 
 
-def _render_new_impact_analytics(summary: Dict[str, Any], impact_df: pd.DataFrame, validated_only: bool = True, mature_count: int = 0, pending_count: int = 0, raw_impact_df: pd.DataFrame = None):
+def _render_new_impact_analytics(summary: Dict[str, Any], impact_df: pd.DataFrame, validated_only: bool = True, mature_count: int = 0, pending_count: int = 0, raw_impact_df: pd.DataFrame = None, canonical_metrics: 'ImpactMetrics' = None):
     """
     Render new impact analytics layout.
     Structure:
