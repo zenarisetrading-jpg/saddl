@@ -18,6 +18,9 @@ from typing import Dict, Any, Optional, Tuple
 from datetime import datetime, timedelta
 from core.db_manager import get_db_manager
 
+# === PHASE 2: Single Source of Truth ===
+from features.impact_metrics import ImpactMetrics
+
 # ==========================================
 # MULTI-HORIZON IMPACT MEASUREMENT CONFIG
 # ==========================================
@@ -371,7 +374,30 @@ def _fetch_impact_data(client_id: str, test_mode: bool, before_days: int = 14, a
         }
 
 
-
+# ==========================================
+# PHASE 2: COMPARISON LOGGING (temporary)
+# ==========================================
+def _log_metric_comparison(canonical: 'ImpactMetrics', legacy_summary: dict):
+    """
+    TEMPORARY: Compare canonical vs legacy calculations.
+    Remove this function after Phase 4 validation.
+    """
+    legacy_attributed = legacy_summary.get('attributed_impact_universal', 
+                        legacy_summary.get('decision_impact', 0))
+    
+    discrepancy = abs(canonical.attributed_impact - legacy_attributed)
+    pct_diff = (discrepancy / legacy_attributed * 100) if legacy_attributed else 0
+    
+    if discrepancy > 1:  # More than $1 difference
+        print(f"""
+        ⚠️  METRIC DISCREPANCY DETECTED
+        ├── Canonical (new):  ${canonical.attributed_impact:,.2f}
+        ├── Legacy (summary): ${legacy_attributed:,.2f}
+        ├── Difference:       ${discrepancy:,.2f} ({pct_diff:.1f}%)
+        └── Filters applied:  {canonical.filters_applied}
+        """)
+    else:
+        print(f"✅ Metrics aligned: ${canonical.attributed_impact:,.2f}")
 
 
 def render_impact_dashboard():
@@ -454,7 +480,7 @@ def render_impact_dashboard():
         # Use cached fetcher
         test_mode = st.session_state.get('test_mode', False)
         # Cache invalidation via version string (changes when data uploaded)
-        cache_version = "v16_perf_" + str(st.session_state.get('data_upload_timestamp', 'init'))
+        cache_version = "v18_perf_" + str(st.session_state.get('data_upload_timestamp', 'init'))
         
         # Get horizon config
         horizon_config = IMPACT_WINDOWS["horizons"].get(horizon, IMPACT_WINDOWS["horizons"]["14D"])
@@ -463,6 +489,26 @@ def render_impact_dashboard():
         buffer_days = IMPACT_WINDOWS["maturity_buffer_days"]  # 3 days
         
         impact_df, full_summary = _fetch_impact_data(selected_client, test_mode, before_days, after_days, cache_version)
+        
+        # ================================================================
+        # PHASE 2: CANONICAL METRICS COMPUTATION (Single Source of Truth)
+        # ================================================================
+        # Gather current filter state
+        current_filters = {
+            'validated_only': st.session_state.get('validated_only_toggle', False),
+            'mature_only': True,  # Always filter to mature for display
+        }
+        
+        # SINGLE CALCULATION POINT
+        canonical_metrics = ImpactMetrics.from_dataframe(
+            impact_df, 
+            filters=current_filters,
+            horizon_days=after_days
+        )
+        
+        # === COMPARISON LOGGING (temporary - remove after Phase 4) ===
+        _log_metric_comparison(canonical_metrics, full_summary)
+        # ================================================================
         
         # === MATURITY GATE ===
         # Add maturity status to each action - determines if impact can be calculated
@@ -1610,15 +1656,16 @@ def _render_roas_attribution_bar(summary: Dict[str, Any], impact_df: pd.DataFram
         unsafe_allow_html=True
     )
 
-    # --- Revenue Highlight (User Request) ---
-    # Logic: If Combined Forces < 0 (Headwinds), we "Protected" revenue.
-    #        If Combined Forces >= 0 (Tailwinds), we "Created" additional value.
-    if decision_impact_value > 0:
+    # --- Revenue Highlight (Aligned with Hero Card) ---
+    # Pull from session state to ensure identical value as Hero card
+    impact_metrics = st.session_state.get('_impact_metrics', {})
+    hero_attributed_impact = impact_metrics.get('attributed_impact', decision_impact_value)
+    
+    if hero_attributed_impact > 0:
         highlight_label = "Revenue Protected" if combined_forces < 0 else "Value Created"
         counterfactual_roas = baseline_roas + combined_forces
         
-        # Explicit formatting for the currency value
-        formatted_value = f"{currency}{decision_impact_value:,.0f}" if currency else f"${decision_impact_value:,.0f}"
+        formatted_value = f"{currency}{hero_attributed_impact:,.0f}" if currency else f"${hero_attributed_impact:,.0f}"
         
         st.markdown(
             f"""
@@ -1705,23 +1752,14 @@ def _render_roas_attribution_bar(summary: Dict[str, Any], impact_df: pd.DataFram
 
         # RIGHT COLUMN: Decision Impact
         with col2:
-            # We need net_value from somewhere. 
-            # In validation script we calculated it. In dashboard it's decision_impact_value? No, that's not in summary dict usually.
-            # But the dashboard caller calculates it as `decision_impact_value`.
-            # Let's hope it's passed or derived. 
-            # Wait, `get_roas_attribution` output doesn't seem to include the dollar value directly in `decision_impact_value`.
-            # But `_render_new_impact_analytics` (the caller) calculates `decision_impact_value`.
-            # We need to pass it in summary or argument. 
-            # Since I can't change the caller easily right now without seeing it, I'll calculate approximate from impact_df if possible.
-            
-            # Recalculate or extract from impact_df
-            # impact_df has 'decision_impact' column?
-            net_value = 0
+            # Get action count for display
             action_count = 0
-            if not impact_df.empty and 'decision_impact' in impact_df.columns:
-                # Filter strictly as per dashboard logic (validated actions only is passed in impact_df usually)
-                net_value = impact_df['decision_impact'].sum()
-                action_count = len(impact_df)
+            if not impact_df.empty:
+                # Count only mature, non-drag actions for display
+                if 'is_mature' in impact_df.columns and 'market_tag' in impact_df.columns:
+                    action_count = len(impact_df[(impact_df['is_mature'] == True) & (impact_df['market_tag'] != 'Market Drag')])
+                else:
+                    action_count = len(impact_df)
                 
             st.markdown(f"**Decision Impact: {decision_impact_roas:+.2f} ROAS**")
             st.divider()
@@ -1729,8 +1767,7 @@ def _render_roas_attribution_bar(summary: Dict[str, Any], impact_df: pd.DataFram
             st.markdown(f"""
             <div style="font-size: 14px; font-weight: 600; color: #cccccc; margin-bottom: 8px;">Activity:</div>
             <div style="font-size: 13px; color: #aaaaaa; line-height: 1.6;">
-            • {action_count} actions executed<br>
-            • Net value created: <b>{currency}{net_value:,.0f}</b>
+            • {action_count} actions executed
             </div>
             
             <br>
@@ -1754,9 +1791,6 @@ def _render_roas_attribution_bar(summary: Dict[str, Any], impact_df: pd.DataFram
             '      Counterfactual Analysis:<br>',
             f'      Without decisions → <b>{(baseline_roas + combined_forces):.2f} ROAS</b> (Market + Structural)<br>',
             f'      With decisions → <b>{actual_roas:.2f} ROAS</b> (Actual achieved)',
-            '    </div>',
-            '    <div style="text-align: right; color: #aaaaaa; font-size: 13px;">',
-            f'      Value Created: <b style="color: #2ed573;">{currency}{net_value:,.0f}</b>',
             '    </div>',
             '  </div>',
             '  <div style="color: #aaaaaa; font-size: 13px; line-height: 1.6; margin-bottom: 15px;">',
