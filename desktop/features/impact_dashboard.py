@@ -374,30 +374,7 @@ def _fetch_impact_data(client_id: str, test_mode: bool, before_days: int = 14, a
         }
 
 
-# ==========================================
-# PHASE 2: COMPARISON LOGGING (temporary)
-# ==========================================
-def _log_metric_comparison(canonical: 'ImpactMetrics', legacy_summary: dict):
-    """
-    TEMPORARY: Compare canonical vs legacy calculations.
-    Remove this function after Phase 4 validation.
-    """
-    legacy_attributed = legacy_summary.get('attributed_impact_universal', 
-                        legacy_summary.get('decision_impact', 0))
-    
-    discrepancy = abs(canonical.attributed_impact - legacy_attributed)
-    pct_diff = (discrepancy / legacy_attributed * 100) if legacy_attributed else 0
-    
-    if discrepancy > 1:  # More than $1 difference
-        print(f"""
-        ⚠️  METRIC DISCREPANCY DETECTED
-        ├── Canonical (new):  ${canonical.attributed_impact:,.2f}
-        ├── Legacy (summary): ${legacy_attributed:,.2f}
-        ├── Difference:       ${discrepancy:,.2f} ({pct_diff:.1f}%)
-        └── Filters applied:  {canonical.filters_applied}
-        """)
-    else:
-        print(f"✅ Metrics aligned: ${canonical.attributed_impact:,.2f}")
+
 
 
 def render_impact_dashboard():
@@ -506,9 +483,7 @@ def render_impact_dashboard():
             horizon_days=after_days
         )
         
-        # === COMPARISON LOGGING (temporary - remove after Phase 4) ===
-        _log_metric_comparison(canonical_metrics, full_summary)
-        # ================================================================
+
         
         # === MATURITY GATE ===
         # Add maturity status to each action - determines if impact can be calculated
@@ -864,82 +839,44 @@ def _render_hero_banner(impact_df: pd.DataFrame, currency: str, horizon_label: s
         return
 
     # ==========================================
-    # PHASE 3: USE CANONICAL METRICS IF PROVIDED
+    # PHASE 4: USE CANONICAL METRICS (Single Source of Truth)
     # ==========================================
-    if canonical_metrics is not None and canonical_metrics.has_data:
-        attributed_impact = canonical_metrics.attributed_impact
-        offensive_val = canonical_metrics.offensive_value
-        defensive_val = canonical_metrics.defensive_value
-        gap_val = canonical_metrics.gap_value
-        drag_count = canonical_metrics.drag_actions
-        total_wins = offensive_val + defensive_val
-        
-        # Prepare counts for display
-        offensive_count = canonical_metrics.offensive_actions
-        defensive_count = canonical_metrics.defensive_actions
-        gap_count = canonical_metrics.gap_actions
-        
-        # Store in session state for other sections (temporary - Phase 4 will remove)
-        st.session_state['_impact_metrics'] = {
-            'attributed_impact': attributed_impact,
-            'offensive_val': offensive_val,
-            'defensive_val': defensive_val,
-            'gap_val': gap_val,
-            'total_wins': total_wins,
-            'drag_count': drag_count,
-            'offensive_count': offensive_count,
-            'defensive_count': defensive_count,
-            'gap_count': gap_count,
-        }
-        
-        # Get df for before_sales calculation
-        df = _ensure_impact_columns(impact_df)
-        
-        # Define impact_col for downstream stats usage
-        impact_col = 'final_decision_impact' if 'final_decision_impact' in df.columns else 'decision_impact'
-    else:
-        # ==========================================
-        # LEGACY CALCULATION (fallback)
-        # ==========================================
-        # Ensure required columns exist (handles old cached data)
-        df = _ensure_impact_columns(impact_df)
-        
-        # Use WEIGHTED impact (final_decision_impact) if available, else fallback
-        impact_col = 'final_decision_impact' if 'final_decision_impact' in df.columns else 'decision_impact'
-        
-        offensive_wins = df[df['market_tag'] == 'Offensive Win']
-        offensive_val = offensive_wins[impact_col].sum()
-        
-        defensive_wins = df[df['market_tag'] == 'Defensive Win']
-        defensive_val = defensive_wins[impact_col].sum()
-        
-        gaps = df[df['market_tag'] == 'Gap']
-        gap_val = gaps[impact_col].sum()
-        
-        drag = df[df['market_tag'] == 'Market Drag']
-        drag_count = len(drag)
-        
-        # Attributed Impact excludes Market Drag (ambiguous attribution)
-        attributed_impact = offensive_val + defensive_val + gap_val
-        total_wins = offensive_val + defensive_val
-        
-        # Prepare counts for display
-        offensive_count = len(offensive_wins)
-        defensive_count = len(defensive_wins)
-        gap_count = len(gaps)
-        
-        # Store metrics in session for other sections to consume
-        st.session_state['_impact_metrics'] = {
-            'attributed_impact': attributed_impact,
-            'offensive_val': offensive_val,
-            'defensive_val': defensive_val,
-            'gap_val': gap_val,
-            'total_wins': total_wins,
-            'drag_count': drag_count,
-            'offensive_count': offensive_count,
-            'defensive_count': defensive_count,
-            'gap_count': gap_count,
-        }
+    # We now assume canonical_metrics is passed. If not, we return early or show error.
+    if canonical_metrics is None or not canonical_metrics.has_data:
+        # Fallback for edge cases where metrics failed to calc
+        st.warning("Impact metrics unavailable")
+        return
+
+    attributed_impact = canonical_metrics.attributed_impact
+    offensive_val = canonical_metrics.offensive_value
+    defensive_val = canonical_metrics.defensive_value
+    gap_val = canonical_metrics.gap_value
+    drag_count = canonical_metrics.drag_actions
+    total_wins = offensive_val + defensive_val
+    
+    # Prepare counts for display
+    offensive_count = canonical_metrics.offensive_actions
+    defensive_count = canonical_metrics.defensive_actions
+    gap_count = canonical_metrics.gap_actions
+    
+    # Store in session state for other sections (temporary - Phase 4 will remove)
+    st.session_state['_impact_metrics'] = {
+        'attributed_impact': attributed_impact,
+        'offensive_val': offensive_val,
+        'defensive_val': defensive_val,
+        'gap_val': gap_val,
+        'total_wins': total_wins,
+        'drag_count': drag_count,
+        'offensive_count': offensive_count,
+        'defensive_count': defensive_count,
+        'gap_count': gap_count,
+    }
+    
+    # Get df for before_sales calculation
+    df = _ensure_impact_columns(impact_df)
+    
+    # Define impact_col for downstream stats usage
+    impact_col = 'final_decision_impact' if 'final_decision_impact' in df.columns else 'decision_impact'
     
     # --- HUMAN-CENTERED DISPLAY ---
     
@@ -1308,7 +1245,7 @@ def _render_value_breakdown_section(impact_df: pd.DataFrame, currency: str, cano
     df = _ensure_impact_columns(impact_df)
     
     # ==========================================
-    # PHASE 3: USE CANONICAL METRICS FILTERS
+    # PHASE 4: USE CANONICAL METRICS FILTERS
     # ==========================================
     # If canonical metrics provided, respect its filters (e.g. validated only)
     if canonical_metrics is not None:
@@ -1319,8 +1256,8 @@ def _render_value_breakdown_section(impact_df: pd.DataFrame, currency: str, cano
         # Consistent logic: Exclude market drag
         df = df[df['market_tag'] != 'Market Drag']
     else:
-        # Legacy fallback
-        # Exclude Market Drag (ambiguous attribution)
+        # Fallback if canonical metrics missing (shouldn't happen)
+        # Exclude Market Drag matching legacy logic
         df = df[df['market_tag'] != 'Market Drag']
     
     # Group by action type using pre-calculated decision_impact
@@ -1544,13 +1481,15 @@ def _render_roas_attribution_bar(summary: Dict[str, Any], impact_df: pd.DataFram
     # ==========================================
     # PHASE 3: USE CANONICAL METRICS IF PROVIDED
     # ==========================================
-    if canonical_metrics is not None and canonical_metrics.has_data:
-        decision_impact_value = canonical_metrics.attributed_impact
-        total_spend = canonical_metrics.total_spend
-    else:
-        # LEGACY: Get decision impact value from summary dict
-        decision_impact_value = summary.get('attributed_impact_universal', summary.get('decision_impact', 0))
-        total_spend = impact_df['observed_after_spend'].sum() if not impact_df.empty and 'observed_after_spend' in impact_df.columns else 1
+    # ==========================================
+    # PHASE 4: USE CANONICAL METRICS (Single Source of Truth)
+    # ==========================================
+    if canonical_metrics is None or not canonical_metrics.has_data:
+        st.warning("Impact metrics unavailable")
+        return
+
+    decision_impact_value = canonical_metrics.attributed_impact
+    total_spend = canonical_metrics.total_spend
     
     # Calculate decision_impact_roas from the value
     decision_impact_roas = decision_impact_value / total_spend if total_spend > 0 else 0
