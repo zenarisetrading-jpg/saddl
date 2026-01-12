@@ -495,7 +495,7 @@ def render_impact_dashboard():
         # ================================================================
         # Gather current filter state
         current_filters = {
-            'validated_only': st.session_state.get('validated_only_toggle', False),
+            'validated_only': st.session_state.get('validated_only_toggle', True),
             'mature_only': True,  # Always filter to mature for display
         }
         
@@ -621,6 +621,7 @@ def render_impact_dashboard():
         show_validated_only = st.toggle(
             "Validated Only", 
             value=True, 
+            key='validated_only_toggle', 
             help="Show only actions confirmed by actual CPC/Bid data"
         )
     with toggle_col2:
