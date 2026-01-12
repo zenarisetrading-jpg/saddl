@@ -799,30 +799,12 @@ SPC_Baseline = COALESCE(Rolling_30D_SPC, Window_SPC)
 | **Zero** | Performance matched expectations |
 | **Negative** | Bid decision generated LESS sales than counterfactual |
 
-### 4.8 Macro Attribution (ROAS Decomposition)
-
-While Section 4.7 defines "Decision Impact" (micro-attribution for individual actions), this section defines "ROAS Decomposition" (macro-attribution for the entire account).
+### 4.8 Multi-Horizon Impact Measurement
 
 #### 4.8.1 Purpose
-To explain *why* the account's total ROAS changed, breaking it down into internal (controlled) vs external (uncontrolled) factors.
-
-#### 4.8.2 The 5 Component Model
-1.  **Decision Impact**: Validated lift from our actions.
-2.  **Market Forces**: External shifts in CPC, CVR, and AOV.
-3.  **Scale Effect**: Natural efficiency loss from spend scaling.
-4.  **Portfolio Effect**: Efficiency drag from new campaign launches.
-5.  **Unexplained**: Residual variance.
-
-#### 4.8.3 Key Distinction from Decision Impact
-*   **Decision Impact** answers: "Did *this specific bid change* work?"
-*   **Macro Attribution** answers: "Why is my account ROAS down 10% despite good bid decisions?" (e.g., "Market CPCs rose 15%" or "We launched 5 new products").
-
-### 4.9 Multi-Horizon Impact Measurement
-
-#### 4.9.1 Purpose
 Amazon's attribution window is 7-14 days. Measuring at 7 days produces incomplete data and false negatives. We use a principled multi-horizon approach for accurate impact measurement.
 
-#### 4.9.2 Measurement Horizons
+#### 4.8.2 Measurement Horizons
 
 | Horizon | Before Window | After Window | Maturity | Purpose |
 |---------|---------------|--------------|----------|---------|
@@ -830,7 +812,7 @@ Amazon's attribution window is 7-14 days. Measuring at 7 days produces incomplet
 | **30D** | 14 days | 30 days | 33 days | Confirmed — is the impact sustained? |
 | **60D** | 14 days | 60 days | 63 days | Long-term — did the gains hold? |
 
-#### 4.9.3 Maturity Formula
+#### 4.8.3 Maturity Formula
 ```
 is_mature(horizon) = (action_date + horizon_days + 3) ≤ latest_data_date
 ```
@@ -839,14 +821,14 @@ is_mature(horizon) = (action_date + horizon_days + 3) ≤ latest_data_date
 - **After window**: 14, 30, or 60 days (per selected horizon)
 - **Buffer**: 3 days for attribution to settle
 
-#### 4.9.4 Example (data through Dec 28)
+#### 4.8.4 Example (data through Dec 28)
 | Action Date | 14D Mature? | 30D Mature? | 60D Mature? |
 |-------------|-------------|-------------|-------------|
 | Dec 11 | ✅ (Dec 28) | ❌ (Jan 13) | ❌ (Feb 12) |
 | Nov 25 | ✅ | ✅ (Dec 28) | ❌ (Jan 27) |
 | Oct 1 | ✅ | ✅ | ✅ |
 
-#### 4.9.5 Dashboard Behavior
+#### 4.8.5 Dashboard Behavior
 - User selects horizon via radio toggle (14D / 30D / 60D)
 - **Aggregates** (ROAS change, revenue impact, win rate) include ONLY actions mature for selected horizon
 - **Pending actions** excluded from aggregates, shown separately with expected maturity date
@@ -855,12 +837,12 @@ is_mature(horizon) = (action_date + horizon_days + 3) ≤ latest_data_date
 > **Why not 7 days?**  
 > Most PPC tools measure at 7 days. This captures only ~75% of attributed conversions and measures bid changes before they stabilize. We choose accuracy over speed.
 
-### 4.10 Decision Outcome Matrix (Jan 2026 - Counterfactual Framework)
+### 4.9 Decision Outcome Matrix (Jan 2026 - Counterfactual Framework)
 
-#### 4.10.1 Philosophy
+#### 4.9.1 Philosophy
 Isolate **decision quality** from **market conditions** by comparing actual performance to a counterfactual baseline.
 
-#### 4.10.2 Counterfactual Logic
+#### 4.9.2 Counterfactual Logic
 
 **X-Axis: Expected Trend %**
 - Formula: `(Expected Sales - Before Sales) / Before Sales * 100`
@@ -871,7 +853,7 @@ Isolate **decision quality** from **market conditions** by comparing actual perf
 - Formula: `Actual Change % - Expected Trend %`
 - **Translation**: "How much did we BEAT or MISS the counterfactual baseline?"
 
-#### 4.10.3 Quadrants
+#### 4.9.3 Quadrants
 
 | Quadrant | Criteria | Meaning | Attribution |
 |----------|----------|---------|-------------|
@@ -880,7 +862,7 @@ Isolate **decision quality** from **market conditions** by comparing actual perf
 | **Decision Gap** | X≥0, Y<0 | Spend increased but missed expectations → Inefficient scale | ✅ Included |
 | **Market Drag** | X<0, Y<0 | Market shrank AND we underperformed → External confound | ❌ **EXCLUDED** |
 
-#### 4.10.4 Decision-Attributed Impact (Refined Hero Metric)
+#### 4.9.4 Decision-Attributed Impact (Refined Hero Metric)
 
 **Formula**: `Sum(Offensive Wins + Defensive Wins + Decision Gaps)`
 
@@ -896,7 +878,7 @@ Isolate **decision quality** from **market conditions** by comparing actual perf
 - Breakdown: "✅ Wins: +X (Offensive + Defensive) | ❌ Gaps: -Y"
 - Footnote: "ℹ️ Z actions excluded (Market Drag — ambiguous attribution)"
 
-### 4.11 Capital Protected (Refined Logic)
+### 4.10 Capital Protected (Refined Logic)
 
 **Definition**: Wasteful spend eliminated from confirmed negative keyword blocks.
 
@@ -1160,41 +1142,3 @@ To support Agency use cases (e.g., restricting interns from VIP clients), Admins
 | Bulk Export | `features/bulk_export.py` |
 | Database Manager | `core/postgres_manager.py` |
 | Main UI | `ppcsuite_v4_ui_experiment.py` |
-### 4.7 Impact Reconciliation & Diagnostics
-
-#### 4.7.1 Reconciliation Methodology
-This system tracks two distinct impact values that serve different purposes:
-
-1.  **Attributed Impact (Revenue Protected)**
-    *   **Definition**: Net revenue impact from decisions that "worked" according to optimization logic.
-    *   **Formula**: `Offensive Wins + Defensive Wins + Gaps - (Decisions made in Market Drag conditions)`
-    *   **Exclusion**: Explicitly **excludes** actions tagged as `Market Drag` (where market declined > expected trend).
-    *   **Purpose**: To measure the value of the *optimizer's logic* independent of adverse market conditions (Counterfactual: "What value did we add/protect given the headwinds?").
-    *   **UI Location**: Hero Banner, "Revenue Protected" highlight, Waterfall Summary.
-
-2.  **Total Net Impact (Absolute Truth)**
-    *   **Definition**: The raw sum of *all* decision impacts, including those made during market crashes.
-    *   **Formula**: `Attributed Impact + Market Drag Impact`
-    *   **Purpose**: To provide a complete, transparent audit trail of all actions for CSV exports and deep-dive analysis.
-    *   **UI Location**: CSV Export, detailed "Raw Impact" columns.
-
-**Crucial Logic**: The "Net Value Created" displayed in the Impact Breakdown text MUST match the **Attributed Impact** (Formula 1) to align with the headline "Revenue Protected" figure.
-
-#### 4.7.2 Diagnostic Table
-To support transparency, the "Full Breakdown" -> "Show all decisions" table includes a **Diagnostic Mode** toggle.
-
-**Columns (Diagnostic Mode):**
-*   **Identity**: Target, Action, Status, Maturity
-*   **Base Metrics**: Spend, Sales, CPC, CVR, AOV (Before vs After)
-*   **Context**:
-    *   `Exp Trend %`: Baseline market trend (The "Headwind/Tailwind").
-    *   `Actual Lift %`: Observed performance change.
-*   **Calculated**:
-    *   `Impact (Raw)`: `(Actual Sales - Expected Sales)`.
-    *   `Conf. Weight`: Damping factor (0.0-1.0) based on data volume (<15 clicks).
-    *   `Impact (Weighted)`: `Raw Impact * Conf. Weight`.
-
-**Decision Quality Flags:**
-*   **Good**: Positive impact OR Defensive Win (Sales dropped less than market).
-*   **Bad**: Negative impact in a Normal market.
-*   **Neutral**: Insufficient data or negligible impact.
