@@ -893,6 +893,9 @@ def _render_hero_banner(impact_df: pd.DataFrame, currency: str, horizon_label: s
         
         # Get df for before_sales calculation
         df = _ensure_impact_columns(impact_df)
+        
+        # Define impact_col for downstream stats usage
+        impact_col = 'final_decision_impact' if 'final_decision_impact' in df.columns else 'decision_impact'
     else:
         # ==========================================
         # LEGACY CALCULATION (fallback)
