@@ -306,16 +306,32 @@ class PerformanceSnapshotModule(BaseFeature):
             df['Date'] = pd.to_datetime(df[date_col], errors='coerce')
             
             # Apply Global Date Filter if set in render_ui
-            if getattr(self, 'date_filter', None):
-                try:
-                    dates = self.date_filter
-                    # Handle single date or range tuple
-                    if isinstance(dates, (tuple, list)):
-                        start = pd.Timestamp(dates[0])
-                        end = pd.Timestamp(dates[1]) if len(dates) > 1 else start
-                        df = df[(df['Date'] >= start) & (df['Date'] <= end)]
-                except Exception:
-                    pass
+        if getattr(self, 'date_filter', None):
+            try:
+                dates = self.date_filter
+                # Handle single date or range tuple
+                if isinstance(dates, (tuple, list)):
+                    start = pd.Timestamp(dates[0])
+                    end = pd.Timestamp(dates[1]) if len(dates) > 1 else start
+                    
+                    # CRITICAL FIX: Expand range to include COMPLETE WEEKS
+                    # This ensures weekly aggregations show full weeks even if the
+                    # selected range only partially overlaps a week.
+                    # 
+                    # Example: If user selects 1/1 - 1/5:
+                    # - Week of 12/29 (Mon) includes [12/29, 12/30, 12/31, 1/1, 1/2, 1/3, 1/4]
+                    # - Without expansion, 12/29-12/31 would be excluded
+                    # - With expansion, we include the full week starting Monday 12/29
+                    
+                    # Expand start to the Monday of that week (weekday 0=Mon, 6=Sun)
+                    start_expanded = start - pd.Timedelta(days=start.weekday())
+                    
+                    # Expand end to the Sunday of that week
+                    end_expanded = end + pd.Timedelta(days=(6 - end.weekday()))
+                    
+                    df = df[(df['Date'] >= start_expanded) & (df['Date'] <= end_expanded)]
+            except Exception:
+                pass
 
         # ---------------------------------------------------------
         # Unified Match Type Logic
