@@ -533,7 +533,7 @@ class PostgresManager:
                             (client_id, start_date, campaign_name, ad_group_name, target_text, 
                              customer_search_term, match_type, spend, sales, orders, clicks, impressions)
                             VALUES %s
-                            ON CONFLICT ON CONSTRAINT target_stats_unique_row 
+                            ON CONFLICT (client_id, start_date, campaign_name, ad_group_name, target_text, customer_search_term, match_type) 
                             DO UPDATE SET
                                 spend = EXCLUDED.spend,
                                 sales = EXCLUDED.sales,
