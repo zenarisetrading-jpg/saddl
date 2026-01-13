@@ -250,6 +250,11 @@ class PerformanceSnapshotModule(BaseFeature):
                     if not dates.empty:
                         min_d, max_d = dates.min().date(), dates.max().date()
                         
+                        # Since data is weekly (Mon-Sun), extend max to the end of the week
+                        # max_d is the week start (Monday), so add 6 days to show through Sunday
+                        from datetime import timedelta
+                        max_d_end_of_week = max_d + timedelta(days=6)
+                        
                         # --- Unified Control Bar (Fixed 7-Day Comparison) ---
                         comp_days = 7  # Fixed to 7-day comparison
                         
@@ -259,9 +264,9 @@ class PerformanceSnapshotModule(BaseFeature):
                         with c2:
                             self.date_filter = st.date_input(
                                 "Date Range",
-                                value=(min_d, max_d),
+                                value=(min_d, max_d_end_of_week),
                                 min_value=min_d,
-                                max_value=max_d,
+                                max_value=max_d_end_of_week,
                                 label_visibility="collapsed",
                                 key="overview_date_picker"
                             )
