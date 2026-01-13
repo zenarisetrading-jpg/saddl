@@ -558,7 +558,7 @@ EXPORT_COLUMNS = [
     "Product", "Entity", "Operation", "Campaign Id", "Ad Group Id", 
     "Campaign Name", "Ad Group Name", "Targeting Type", "SKU", "Bid", "Ad Group Default Bid", 
     "Keyword Text", "Match Type", "Product Targeting Expression", 
-    "Keyword Id", "Product Targeting Id", "State"
+    "Keyword Id", "Product Targeting Id", "State", "Bidding Strategy", "Daily Budget"
 ]
 
 
@@ -664,6 +664,7 @@ def generate_harvest_bulk(harvest_df: pd.DataFrame,
                 "Campaign Name": camp_name,
                 "Targeting Type": "Manual",
                 "State": "enabled",
+                "Bidding Strategy": "Dynamic bidding (down only)",
                 "Daily Budget": f"{campaign_budget:.2f}",
                 "Start Date": start_date_str,
                 "Portfolio ID": str(portfolio_id) if portfolio_id else ""
@@ -713,7 +714,6 @@ def generate_harvest_bulk(harvest_df: pd.DataFrame,
                     "Ad Group Id": ag_name,
                     "Campaign Name": camp_name,
                     "Ad Group Name": ag_name,
-                    "Ad Group Default Bid": ag_def_bid,
                     "SKU": winner_sku,
                     "State": "enabled"
                 }
@@ -728,6 +728,7 @@ def generate_harvest_bulk(harvest_df: pd.DataFrame,
         kw_rows["Ad Group Id"] = ag_name
         kw_rows["Campaign Name"] = camp_name
         kw_rows["Ad Group Name"] = ag_name
+        kw_rows["Ad Group Default Bid"] = ag_def_bid
         kw_rows["State"] = "enabled"
 
         # Apply logic row by row or vectorised
