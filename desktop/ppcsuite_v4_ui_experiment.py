@@ -147,7 +147,7 @@ def run_performance_hub():
     if 'active_perf_tab' not in st.session_state:
         st.session_state['active_perf_tab'] = "Account Health"
         
-    c1, c2 = st.columns(2)
+    c1, c2, c3 = st.columns(3)
     with c1:
         is_active = st.session_state['active_perf_tab'] == "Account Health"
         if st.button("🛡️ ACCOUNT HEALTH", key="btn_tab_report", use_container_width=True, type="primary" if is_active else "secondary"):
@@ -158,12 +158,20 @@ def run_performance_hub():
         if st.button("🧭 PERFORMANCE OVERVIEW", key="btn_tab_perf", use_container_width=True, type="primary" if is_active else "secondary"):
             st.session_state['active_perf_tab'] = "Performance Overview"
             st.rerun()
+    with c3:
+        is_active = st.session_state['active_perf_tab'] == "Executive Dashboard"
+        if st.button("📊 EXECUTIVE DASHBOARD", key="btn_tab_exec", use_container_width=True, type="primary" if is_active else "secondary"):
+            st.session_state['active_perf_tab'] = "Executive Dashboard"
+            st.rerun()
             
     st.markdown("<br>", unsafe_allow_html=True)
     
     if st.session_state['active_perf_tab'] == "Account Health":
         from features.report_card import ReportCardModule
         ReportCardModule().run()
+    elif st.session_state['active_perf_tab'] == "Executive Dashboard":
+        from features.executive_dashboard import ExecutiveDashboard
+        ExecutiveDashboard().run()
     else:
         from features.performance_snapshot import PerformanceSnapshotModule
         PerformanceSnapshotModule().run()

@@ -177,31 +177,44 @@ The Performance Reporting Model provides comprehensive dashboards for analyzing 
 
 ### 2.2 Key Features
 
-#### 2.2.1 Executive KPIs
-- **Total Spend**: Aggregate ad spend for selected period
-- **Total Sales**: Attributed sales revenue
-- **ROAS**: Return on Ad Spend (Sales / Spend)
-- **ACoS**: Advertising Cost of Sale (Spend / Sales × 100)
-- **CTR**: Click-Through Rate
-- **CVR**: Conversion Rate (Orders / Clicks)
+### 2.2 Key Features
 
-#### 2.2.2 Period Comparison
-- Current vs. Previous period comparison
-- Trend indicators (↑/↓) with percentage change
-- Configurable periods: 7D, 14D, 30D
+#### 2.2.1 Executive Dashboard (New - Jan 2025)
+A high-level command center for account health and strategic decision-making.
 
-#### 2.2.3 Performance Breakdown Views
+**A. KPI Cards (Gradient Style)**
+- **Total Spend**: With month-to-date pacing
+- **Total Sales**: Attributed revenue
+- **ROAS**: Return on Ad Spend (with color-coded delta)
+- **Net Decision Impact**: Cumulative value of optimization actions
 
-| Dimension | Hierarchy | Metrics Shown |
-|-----------|-----------|---------------|
-| **Match Type** | Exact > Broad > Phrase > Auto > PT > Category | Spend, Sales, ROAS, ACoS |
-| **Category** | Category > Sub-Category > SKU | Spend, Sales, ROAS, Orders |
-| **Campaign** | Campaign > Ad Group > Target | Full metrics drill-down |
+**B. Strategic Gauges (4-Zone Color System)**
+- **Account Health**: Composite score (0-100)
+- **Decision ROI**: Net Decision Impact / Managed Spend (Target: >5%)
+- **Spend Efficiency**: % of spend in "efficient" ad groups (ROAS > 2.0x)
+- *Zones*: Poor (Rose) → Fair (Amber) → Good (Teal) → Excellent (Emerald)
 
-#### 2.2.4 Trend Visualization
-- Time-series charts for Spend/Sales
-- ROAS trend line overlay
-- Interactive date range selection
+**C. Visualizations**
+- **Performance Quadrants (Scatter)**: Campaigns mapped by ROAS vs. CVR.
+    - *Stars*: High ROAS, High CVR (Emerald)
+    - *Scale Potential*: High ROAS, Low CVR (Amber)
+    - *Profit Potential*: Low ROAS, High CVR (Cyan)
+    - *Cut*: Low ROAS, Low CVR (Rose)
+- **Revenue by Quadrant (Donut)**: Distribution of revenue across the 4 quadrants.
+- **Efficiency Index (Horizontal Bar)**: "Where the Money Is" breakdown.
+    - Measures **Efficiency Ratio** = Revenue Share % / Spend Share %
+    - *Amplifier*: Ratio > 1.0 (Green)
+    - *Balanced*: Ratio 0.75 - 1.0 (Amber)
+    - *Drag*: Ratio < 0.75 (Red)
+- **Decision Impact Timeline**: Scatter plot of weekly action windows, colored by impact magnitude.
+
+#### 2.2.2 Performance Breakdown Views
+- **Match Type Analysis**: Table with Spend, Sales, ROAS, ACoS, CTR, CVR breakdown.
+- **Trend Analysis**: Dual-axis time-series chart (Bar vs Line) for custom metric comparison (e.g., Sales vs ACOS).
+
+#### 2.2.3 Period Comparison
+- Configurable timeframes: Weekly, Monthly, Quarterly, Yearly (for trends)
+- Default view: Last 30 Days (snapshot)
 
 ### 2.3 Data Flow
 
