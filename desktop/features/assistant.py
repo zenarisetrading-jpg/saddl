@@ -54,8 +54,8 @@ For EVERY question, you MUST run through this mental process:
 The context contains PRE-COMPUTED INSIGHTS (not just raw data). These are strategic observations I've already identified.
 
 KEY GUIDELINES:
-- "Simulation Forecast" = What MIGHT happen (Future)
-- "Realized Impact" = What ACTUALLY happened (Past/Proven). Always cite this from `optimization_impact['realized_impact_30d']` to prove value of the engine.
+- "Simulation Forecast" = What MIGHT happen (Future) - found in `optimization_impact`
+- "Realized Impact" = What ACTUALLY happened (Past/Proven). **ALWAYS use `module_context.decision_impact`** - this is the ONLY valid source. It contains: attributed_impact, offensive_value, defensive_value, gap_value, win_rate, total_actions. IGNORE any status messages in optimization_impact.
 - "Platform Methodology" = Refer to `platform_knowledge` to explain HOW metrics (like incremental revenue or bid logic) are calculated.
 - Don't just list data - explain WHY it matters.
 - If asking about specific terms, check the Master Dataset first.
@@ -939,29 +939,91 @@ If Auto outperforms Manual: Discovery is working - harvest more aggressively
                     "high_waste_clusters": high_waste[['cluster_id', 'top_terms', 'waste_pct', 'spend']].to_dict('records') if not high_waste.empty else []
                 }
 
-        # Realized Impact (from Impact Analyzer / DB)
-        if 'db_manager' in st.session_state and st.session_state['db_manager']:
-            try:
-                db = st.session_state['db_manager']
-                # Get client_id if available or fetch first
-                client_id = None
-                with db._get_connection() as conn:
-                     cursor = conn.cursor()
-                     cursor.execute("SELECT DISTINCT client_id FROM actions_log ORDER BY client_id LIMIT 1")
-                     row = cursor.fetchone()
-                     client_id = row[0] if row else None
+        # =========================================================
+        # DECISION IMPACT - Uses ImpactMetrics for exact dashboard match
+        # MUST match numbers shown on Impact Dashboard hero tiles
+        # =========================================================
+        try:
+            # DEBUG LOGGING SETUP
+            import logging
+            logging.basicConfig(filename='assistant_debug.log', level=logging.INFO)
+            
+            # ROBUST CLIENT ID DISCOVERY
+            client_id = st.session_state.get('active_account_id')
+            
+            # Fallback 1: Check unified_data
+            if not client_id and 'unified_data' in st.session_state:
+                client_id = st.session_state.unified_data.get('client_id')
                 
-                if client_id:
-                    summary = db.get_impact_summary(client_id)
-                    context['realized_impact'] = {
-                        "total_actions_tracked": summary['total_actions'],
-                        "actual_monthly_savings": f"AED {summary['monthly_savings']:,.2f}",
-                        "actual_sales_growth": f"AED {summary['monthly_growth']:,.2f}",
-                        "net_profit_impact": f"AED {summary['net_impact']:,.2f}",
-                        "note": "This is ACTUAL historical impact from actions taken, distinct from projected impact."
+            # Fallback 2: Check query params (deep linking)
+            if not client_id:
+                query_params = st.query_params
+                client_id = query_params.get("account", [None])[0]
+            
+            # Fallback 3: Query DB for most recent active client (last resort)
+            if not client_id:
+                try:
+                    db = get_db_manager(st.session_state.get('test_mode', False))
+                    with db._get_connection() as conn:
+                        with conn.cursor() as cur:
+                            cur.execute("SELECT client_id FROM actions_log ORDER BY action_date DESC LIMIT 1")
+                            row = cur.fetchone()
+                            if row:
+                                client_id = row[0]
+                                logging.info(f"Fallback client_id found in DB: {client_id}")
+                except Exception as db_err:
+                    logging.error(f"DB Fallback failed: {db_err}")
+
+            if client_id:
+                db = get_db_manager(st.session_state.get('test_mode', False))
+                
+                # Use SAME windows as Impact Dashboard (14D before, 14D after)
+                after_days = 14
+                
+                impact_df = db.get_action_impact(client_id, before_days=14, after_days=after_days)
+                
+                # Debug logging
+                logging.info(f"Assistant Context - Client: {client_id}, Impact Rows: {len(impact_df) if impact_df is not None else 0}")
+                
+                if impact_df is not None and not impact_df.empty:
+                    # Import ImpactMetrics for canonical calculation (same as dashboard)
+                    try:
+                        from features.impact_metrics import ImpactMetrics
+                        
+                        # Apply same filters as dashboard (validated_only=True, mature_only=True)
+                        metrics = ImpactMetrics.from_dataframe(
+                            impact_df,
+                            filters={'validated_only': True, 'mature_only': True},
+                            horizon_days=after_days
+                        )
+                        
+                        # =====================================================
+                        # NO RECALCULATION - Just pass ImpactMetrics.to_dict()
+                        # All values come directly from the canonical source
+                        # =====================================================
+                        context['decision_impact'] = metrics.to_dict()
+                        context['decision_impact']['client_id'] = client_id
+                        context['decision_impact']['source'] = "ImpactMetrics (canonical - matches Impact Dashboard)"
+                    except ImportError as ie:
+                        logging.error(f"ImpactMetrics ImportError: {ie}")
+                        context['decision_impact'] = {"status": "ImpactMetrics module not found", "fallback": True}
+                    except Exception as me:
+                        logging.error(f"ImpactMetrics Algo Error: {me}")
+                        context['decision_impact'] = {"status": "Calculation Error", "error": str(me)}
+                else:
+                    logging.warning(f"No impact data found for client {client_id}")
+                    context['decision_impact'] = {
+                        "status": "No actions logged yet", 
+                        "debug_client": client_id,
+                        "note": "Run optimizer and save actions to track impact."
                     }
-            except Exception as e:
-                context['realized_impact'] = {"status": "Not available", "error": str(e)}
+            else:
+                logging.warning("No client_id found in session or DB fallback")
+                context['decision_impact'] = {"status": "Account not identified", "error": "Could not determine active account"}
+                    
+        except Exception as e:
+            if 'logging' in locals(): logging.error(f"General Context Error: {e}")
+            context['decision_impact'] = {"status": "Error", "error": str(e)}
         
         return context
 
@@ -1412,9 +1474,13 @@ PLATFORM METHODOLOGY & ENGINE LOGIC (UPDATED JAN 2, 2026)
         df = self._construct_granular_dataset()
         
         if df.empty:
-            return json.dumps({
-                "error": "No data loaded yet. Please upload a Search Term Report in the Data Hub."
-            }, indent=2)
+            # Even without STR data, we can still provide decision_impact from DB
+            knowledge = {
+                "error": "No Search Term Report loaded yet. Upload in Data Hub for full analysis.",
+                "data_status": self._summarize_data_status(),
+                "module_context": self._gather_module_context()  # This includes decision_impact
+            }
+            return json.dumps(knowledge, indent=2, default=str)
         
         knowledge = self._build_knowledge_graph(df)
         
@@ -1427,9 +1493,17 @@ PLATFORM METHODOLOGY & ENGINE LOGIC (UPDATED JAN 2, 2026)
 
     def _call_llm(self, messages):
         """Calls OpenAI API using the requests library."""
-        api_key = st.secrets.get("OPENAI_API_KEY")
+        # Safely access secrets - handle missing secrets.toml
+        api_key = None
+        try:
+            api_key = st.secrets.get("OPENAI_API_KEY")
+        except Exception:
+            # secrets.toml doesn't exist - try environment variable
+            import os
+            api_key = os.environ.get("OPENAI_API_KEY")
+        
         if not api_key:
-            return "⚠️ OpenAI API Key not found in secrets. Please configure it."
+            return "⚠️ OpenAI API Key not configured. Please add OPENAI_API_KEY to .streamlit/secrets.toml or environment variables."
 
         headers = {
             "Authorization": f"Bearer {api_key}",

@@ -548,6 +548,196 @@ class PostgresManager:
         
         return total_saved
 
+    # ==========================================
+    # RAW SEARCH TERM DATA STORAGE
+    # ==========================================
+    
+    def save_raw_search_term_data(self, df: pd.DataFrame, client_id: str, batch_size: int = 5000) -> int:
+        """
+        Save raw daily search term data BEFORE weekly aggregation.
+        Preserves original granularity for re-aggregation and auditing.
+        
+        Flow: Upload → raw_search_term_data (daily) → reaggregate → target_stats (weekly)
+        
+        Args:
+            df: DataFrame with Date, Campaign Name, Ad Group Name, Targeting, 
+                Customer Search Term, Match Type, Impressions, Clicks, Spend, Sales, Orders
+            client_id: Account identifier
+            batch_size: Rows per batch insert (default 5000 for large uploads)
+        
+        Returns:
+            Number of rows saved
+        """
+        if df is None or df.empty:
+            return 0
+        
+        # Determine date column
+        date_col = None
+        for col in ['Date', 'Start Date', 'Report Date', 'date', 'start_date', 'report_date']:
+            if col in df.columns:
+                date_col = col
+                break
+        
+        if date_col is None:
+            print("WARNING: No date column found in raw data upload")
+            return 0
+        
+        # Required columns
+        camp_col = next((c for c in ['Campaign Name', 'campaign_name'] if c in df.columns), None)
+        ag_col = next((c for c in ['Ad Group Name', 'ad_group_name'] if c in df.columns), None)
+        
+        if not camp_col or not ag_col:
+            print("WARNING: Missing Campaign Name or Ad Group Name columns")
+            return 0
+        
+        # Optional columns
+        targeting_col = next((c for c in ['Targeting', 'targeting'] if c in df.columns), None)
+        cst_col = next((c for c in ['Customer Search Term', 'customer_search_term'] if c in df.columns), None)
+        mt_col = next((c for c in ['Match Type', 'match_type'] if c in df.columns), None)
+        
+        # Prepare records
+        records = []
+        for _, row in df.iterrows():
+            # Parse date
+            report_date = pd.to_datetime(row[date_col], errors='coerce')
+            if pd.isna(report_date):
+                continue
+            
+            records.append((
+                client_id,
+                report_date.date().isoformat(),
+                str(row[camp_col]).lower().strip() if pd.notna(row[camp_col]) else '',
+                str(row[ag_col]).lower().strip() if pd.notna(row[ag_col]) else '',
+                str(row[targeting_col]).lower().strip() if targeting_col and pd.notna(row.get(targeting_col)) else None,
+                str(row[cst_col]).lower().strip() if cst_col and pd.notna(row.get(cst_col)) else None,
+                str(row[mt_col]).lower().strip() if mt_col and pd.notna(row.get(mt_col)) else None,
+                int(row.get('Impressions', 0) or 0),
+                int(row.get('Clicks', 0) or 0),
+                float(row.get('Spend', 0) or 0),
+                float(row.get('Sales', 0) or 0),
+                int(row.get('Orders', 0) or 0)
+            ))
+        
+        if not records:
+            return 0
+        
+        # Batch insert with ON CONFLICT for deduplication
+        # If same row is uploaded again, update metrics instead of duplicating
+        total_saved = 0
+        with self._get_connection() as conn:
+            with conn.cursor(cursor_factory=RealDictCursor) as cursor:
+                for i in range(0, len(records), batch_size):
+                    batch = records[i:i + batch_size]
+                    execute_values(cursor, """
+                        INSERT INTO raw_search_term_data 
+                        (client_id, report_date, campaign_name, ad_group_name, targeting, 
+                         customer_search_term, match_type, impressions, clicks, spend, sales, orders)
+                        VALUES %s
+                        ON CONFLICT (client_id, report_date, campaign_name, ad_group_name, targeting, customer_search_term)
+                        DO UPDATE SET
+                            match_type = EXCLUDED.match_type,
+                            impressions = EXCLUDED.impressions,
+                            clicks = EXCLUDED.clicks,
+                            spend = EXCLUDED.spend,
+                            sales = EXCLUDED.sales,
+                            orders = EXCLUDED.orders,
+                            uploaded_at = CURRENT_TIMESTAMP
+                    """, batch)
+                    total_saved += len(batch)
+        
+        print(f"RAW_SAVE: Upserted {total_saved} daily rows to raw_search_term_data for {client_id}")
+        return total_saved
+    
+    def reaggregate_target_stats(self, client_id: str, week_starts: List[str] = None) -> int:
+        """
+        Re-aggregate target_stats from raw_search_term_data for given weeks.
+        
+        This ensures partial week uploads are correctly combined:
+        - Upload Mon-Wed (Batch 1) → raw table has 3 rows
+        - Upload Thu-Sun (Batch 2) → raw table has 6 rows
+        - Reaggregate → target_stats has 1 row with SUM of all 6 days
+        
+        Args:
+            client_id: Account identifier
+            week_starts: Optional list of week start dates (Monday) to reaggregate.
+                        If None, determines weeks from raw_search_term_data.
+        
+        Returns:
+            Number of rows upserted in target_stats
+        """
+        # Step 1: Determine affected weeks if not provided
+        if week_starts is None:
+            with self._get_connection() as conn:
+                with conn.cursor(cursor_factory=RealDictCursor) as cursor:
+                    cursor.execute("""
+                        SELECT DISTINCT date_trunc('week', report_date)::date as week_start
+                        FROM raw_search_term_data
+                        WHERE client_id = %s
+                        ORDER BY week_start DESC
+                    """, (client_id,))
+                    week_starts = [row['week_start'].isoformat() for row in cursor.fetchall()]
+        
+        if not week_starts:
+            return 0
+        
+        # Step 2: Delete existing target_stats for these weeks
+        with self._get_connection() as conn:
+            with conn.cursor(cursor_factory=RealDictCursor) as cursor:
+                for week_start in week_starts:
+                    cursor.execute("""
+                        DELETE FROM target_stats 
+                        WHERE client_id = %s AND start_date = %s
+                    """, (client_id, week_start))
+        
+        # Step 3: Aggregate from raw and insert into target_stats
+        total_upserted = 0
+        with self._get_connection() as conn:
+            with conn.cursor(cursor_factory=RealDictCursor) as cursor:
+                for week_start in week_starts:
+                    cursor.execute("""
+                        INSERT INTO target_stats 
+                        (client_id, start_date, campaign_name, ad_group_name, target_text, 
+                         customer_search_term, match_type, spend, sales, orders, clicks, impressions)
+                        SELECT 
+                            client_id,
+                            date_trunc('week', report_date)::date as start_date,
+                            campaign_name,
+                            ad_group_name,
+                            COALESCE(targeting, customer_search_term) as target_text,
+                            customer_search_term,
+                            match_type,
+                            SUM(spend) as spend,
+                            SUM(sales) as sales,
+                            SUM(orders) as orders,
+                            SUM(clicks) as clicks,
+                            SUM(impressions) as impressions
+                        FROM raw_search_term_data
+                        WHERE client_id = %s 
+                          AND date_trunc('week', report_date)::date = %s
+                        GROUP BY 
+                            client_id, 
+                            date_trunc('week', report_date)::date,
+                            campaign_name, 
+                            ad_group_name, 
+                            targeting,
+                            customer_search_term,
+                            match_type
+                        ON CONFLICT (client_id, start_date, campaign_name, ad_group_name, target_text, customer_search_term)
+                        DO UPDATE SET
+                            match_type = EXCLUDED.match_type,
+                            spend = EXCLUDED.spend,
+                            sales = EXCLUDED.sales,
+                            orders = EXCLUDED.orders,
+                            clicks = EXCLUDED.clicks,
+                            impressions = EXCLUDED.impressions,
+                            updated_at = CURRENT_TIMESTAMP
+                    """, (client_id, week_start))
+                    total_upserted += cursor.rowcount
+        
+        print(f"REAGG: Aggregated {total_upserted} weekly rows from raw_search_term_data to target_stats for {client_id}")
+        return total_upserted
+
+
     def get_all_weekly_stats(self) -> List[Dict[str, Any]]:
         with self._get_connection() as conn:
             with conn.cursor(cursor_factory=RealDictCursor) as cursor:

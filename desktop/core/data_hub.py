@@ -134,41 +134,44 @@ class DataHub:
         self._enrich_data()
         
         # SAVE TO DB (Persistence)
+        # NEW FLOW: Save raw daily data first, then reaggregate to weekly target_stats
         save_success = False
         save_error = None
         try:
             db = get_db_manager(st.session_state.get('test_mode', False))
             
-            # Prepare records
-            records = []
+            # Client ID check
+            client_id = st.session_state.get('active_account_id')
+            if not client_id:
+                st.error("❌ No Active Account Selected! Please select an account in the sidebar.")
+                return 0
             
-            # Determine date column
+            # Determine date column for affected weeks calculation
             date_col = None
             for col in ['Date', 'Start Date', 'date']:
                 if col in df_renamed.columns:
                     date_col = col
                     break
             
-            # Determine key columns
-            camp_col = next((c for c in ['Campaign Name', 'campaign_name'] if c in df_renamed.columns), None)
-            ag_col = next((c for c in ['Ad Group Name', 'ad_group_name'] if c in df_renamed.columns), None)
-            target_col = next((c for c in ['Targeting', 'Customer Search Term'] if c in df_renamed.columns), None)
-            mt_col = 'Match Type' if 'Match Type' in df_renamed.columns else None
+            # Step 1: Save raw daily data (with deduplication)
+            raw_count = db.save_raw_search_term_data(df_renamed, client_id)
             
-            # Save to DB using the NEW signature (df, client_id, start_date)
-            client_id = st.session_state.get('active_account_id')
-            if not client_id:
-                st.error("❌ No Active Account Selected! Please select an account in the sidebar.")
-                return 0
-            
-            # Get the date from the first row
-            start_date = None
+            # Step 2: Determine affected weeks from the uploaded data
+            affected_weeks = []
             if date_col and not df_renamed.empty:
-                first_date = pd.to_datetime(df_renamed[date_col].iloc[0], errors='coerce')
-                if pd.notna(first_date):
-                    start_date = first_date.date()
+                dates = pd.to_datetime(df_renamed[date_col], errors='coerce')
+                valid_dates = dates.dropna()
+                if not valid_dates.empty:
+                    # Get unique week starts (Monday)
+                    week_starts = valid_dates.dt.to_period('W-MON').dt.start_time.dt.date.unique()
+                    affected_weeks = [w.isoformat() for w in week_starts]
             
-            saved_count = db.save_target_stats_batch(df_renamed, client_id, start_date)
+            # Step 3: Reaggregate those weeks from raw → target_stats
+            agg_count = 0
+            if affected_weeks:
+                agg_count = db.reaggregate_target_stats(client_id, affected_weeks)
+            
+            saved_count = raw_count  # Report raw rows as the count
             
             # VERIFY the save worked
             if saved_count > 0:

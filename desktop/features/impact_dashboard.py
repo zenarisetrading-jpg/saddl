@@ -3219,9 +3219,32 @@ def get_recent_impact_summary() -> Optional[dict]:
         # ==========================================
         from features.impact_metrics import ImpactMetrics
         
+        # === CRITICAL FIX: REPLICATE MATURITY LOGIC ===
+        # Getting the maturity right is essential for matching the dash
+        if not impact_df.empty and 'action_date' in impact_df.columns:
+            # Need strict latest date from data summary
+            period_info = summary.get('period_info', {})
+            latest_data_date = period_info.get('after_end') or period_info.get('latest_date')
+            
+            if latest_data_date:
+                # Calculate maturity exactly as dashboard does
+                impact_df['is_mature'] = impact_df['action_date'].apply(
+                    lambda d: get_maturity_status(d, latest_data_date, horizon='14D')['is_mature']
+                )
+        
         # Calculate metrics using single source of truth
         # Fixed 14-day window for home tile
-        metrics = ImpactMetrics.from_dataframe(impact_df, horizon_days=14)
+        # ENFORCE FILTERS to match Dashboard default view
+        canonical_filters = {
+            'validated_only': True,
+            'mature_only': True
+        }
+        
+        metrics = ImpactMetrics.from_dataframe(
+            impact_df, 
+            horizon_days=14,
+            filters=canonical_filters
+        )
         
         if not metrics.has_data:
             return None
@@ -3231,7 +3254,9 @@ def get_recent_impact_summary() -> Optional[dict]:
         win_rate = metrics.win_rate
         
         # Handle top action type (legacy logic for now as ImpactMetrics doesn't group by type yet)
-        # But we filter dataframe same way
+        # We need to filter the summary/dataframe to match the metrics filters for consistency
+        # But 'summary' from _fetch_impact_data is pre-calculated. 
+        # For simplicity, we trust the top action from the 'validated' bucket if available.
         active_summary = summary.get('validated', summary.get('all', summary))
         by_type = active_summary.get('by_action_type', {})
         top_action_type = None

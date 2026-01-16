@@ -16,6 +16,7 @@ from features.impact_metrics import ImpactMetrics
 from features.report_card import get_account_health_score
 from features.constants import classify_match_type
 from ui.theme import ThemeManager
+from features.impact_dashboard import get_maturity_status
 
 
 class ExecutiveDashboard:
@@ -252,7 +253,7 @@ class ExecutiveDashboard:
         col1, col2 = st.columns([3, 7])
         with col1:
             with st.container(border=True):
-                self._render_decision_impact(data)
+                self._render_decision_impact_card(data)
         with col2:
             with st.container(border=True):
                 self._render_decision_timeline(data)
@@ -308,12 +309,35 @@ class ExecutiveDashboard:
             )
             
             # Fetch official impact summary to ensure alignment with Impact Dashboard
+            # Get data with validation/maturity columns effectively
+            # Note: db_manager.get_action_impact returns raw data. We need to apply maturity logic.
             try:
                 impact_summary = self.db_manager.get_impact_summary(
                     self.client_id,
                     before_days=14,
                     after_days=14
                 )
+                
+                # === CRITICAL FIX: REPLICATE MATURITY LOGIC ===
+                # Getting the maturity right is essential for matching the dash
+                if not impact_df.empty and 'action_date' in impact_df.columns:
+                    # Need strict latest date from data summary logic
+                    # Since we don't have the full summary here, we estimate based on max date in target stats
+                    # Or better, fetch the summary logic.
+                    # Simplified: Use max date from impact_df if available, or fetch impact summary (which we just did)
+                    
+                    # Better fallback: Use latest date from target stats calculated above
+                    latest_data_date = max_date.date()
+                    
+                    if latest_data_date:
+                        # Calculate maturity exactly as dashboard does
+                        impact_df['is_mature'] = impact_df['action_date'].apply(
+                            lambda d: get_maturity_status(d, latest_data_date, horizon='14D')['is_mature']
+                        )
+                        impact_df['maturity_status'] = impact_df['action_date'].apply(
+                            lambda d: get_maturity_status(d, latest_data_date, horizon='14D')['status']
+                        )
+                    
             except Exception:
                 impact_summary = None
             
@@ -378,10 +402,13 @@ class ExecutiveDashboard:
         
         # Date range
         dr = data['date_range']
+        # Calculate actual duration
+        duration = (dr['end'] - dr['start']).days
+        
         st.markdown(f"""
         <p style='color: #64748b; font-size: 0.85rem; margin-bottom: 20px;'>
             📅 {dr['start'].strftime('%b %d')} – {dr['end'].strftime('%b %d, %Y')} 
-            <span style="color: #475569;">vs. Previous 30 Days</span>
+            <span style="color: #475569;">vs. Previous {duration} Days</span>
         </p>
         """, unsafe_allow_html=True)
         
@@ -842,144 +869,7 @@ class ExecutiveDashboard:
         
         st.plotly_chart(fig, use_container_width=True)
     
-    def _render_decision_impact(self, data: Dict[str, Any]):
-        """Render decision impact using pre-calculated metrics (aligned with Impact Dashboard)."""
-        self._chart_header("Decision Impact", "lightbulb")
-        
-        impact_df = data.get('impact_df')
-        canonical_metrics = data.get('canonical_metrics')  # ImpactMetrics instance
-        
-        # PRIMARY: Use canonical_metrics.attributed_impact (EXACT match with Impact Dashboard)
-        # This uses the same ImpactMetrics.from_dataframe() as Impact Dashboard (line 480-484)
-        if canonical_metrics and canonical_metrics.attributed_impact != 0:
-            net_impact = canonical_metrics.attributed_impact
-            self._render_impact_hero(net_impact)
-            self._render_impact_breakdown(impact_df)
-            return
-        
-        # FALLBACK: Use impact_summary from DB if canonical_metrics not available
-        impact_summary = data.get('impact_summary')
-        if impact_summary:
-            validated_summary = impact_summary.get('validated', impact_summary.get('all', {}))
-            official_impact = validated_summary.get('attributed_impact_universal', 
-                                                     validated_summary.get('decision_impact', 0))
-            if official_impact != 0:
-                net_impact = official_impact
-                self._render_impact_hero(net_impact)
-                self._render_impact_breakdown(impact_df)
-                return
-        
-        if impact_df is None or impact_df.empty:
-            st.info("ℹ️ No decision data available.")
-            return
-        
-        try:
-            # Use pre-calculated final_decision_impact (most sophisticated)
-            if 'final_decision_impact' in impact_df.columns:
-                impact_col = 'final_decision_impact'
-            elif 'decision_impact' in impact_df.columns:
-                impact_col = 'decision_impact'
-            elif 'impact_score' in impact_df.columns:
-                impact_col = 'impact_score'
-            else:
-                # Fallback to calculating from delta_sales
-                if 'delta_sales' in impact_df.columns:
-                    impact_df['impact'] = impact_df['delta_sales']
-                    impact_col = 'impact'
-                else:
-                    st.warning("⚠️ No impact metrics available in data.")
-                    return
-            
-            # Filter valid actions (exclude HOLD, MONITOR, FLAGGED)
-            valid_actions = impact_df[
-                ~impact_df['action_type'].isin(['HOLD', 'MONITOR', 'FLAGGED'])
-            ].copy()
-            
-            if valid_actions.empty:
-                st.info("ℹ️ No actionable decisions yet.")
-                return
-            
-            # Categorize actions
-            bid_ups = valid_actions[
-                valid_actions['action_type'].isin(['BID_CHANGE', 'VISIBILITY_BOOST'])
-            ]
-            
-            # Filter bid increases if we have old/new bid columns
-            if 'old_value' in valid_actions.columns and 'new_value' in valid_actions.columns:
-                bid_ups = bid_ups[
-                    pd.to_numeric(bid_ups['new_value'], errors='coerce') > 
-                    pd.to_numeric(bid_ups['old_value'], errors='coerce')
-                ]
-            
-            pauses = valid_actions[valid_actions['action_type'] == 'PAUSE']
-            
-            negatives = valid_actions[
-                valid_actions['action_type'].isin(['NEGATIVE', 'NEGATIVE_ADD'])
-            ]
-            harvest = valid_actions[valid_actions['action_type'] == 'HARVEST']
-            
-            # Calculate totals using pre-calculated impact
-            bid_ups_impact = bid_ups[impact_col].sum()
-            pauses_impact = pauses[impact_col].sum()
-            negatives_impact = negatives[impact_col].sum()
-            harvest_impact = harvest[impact_col].sum()
-            
-            net_impact = bid_ups_impact + pauses_impact + negatives_impact + harvest_impact
-            
-            # Hero card
-            impact_color = self.COLORS['success'] if net_impact >= 0 else self.COLORS['danger']
-            currency = get_account_currency()
-            
-            impact_display = f"{'+ ' if net_impact >= 0 else ''}{currency} {abs(net_impact):,.0f}"
-            st.markdown(f"""
-            <div class="impact-hero">
-                <div style="color: #94a3b8; font-size: 0.7rem; text-transform: uppercase; letter-spacing: 1px; margin-bottom: 10px;">
-                    NET IMPACT (LAST 14 DAYS)
-                </div>
-                <div style="color: {impact_color}; font-size: 2.8rem; font-weight: 700;">
-                    {impact_display}
-                </div>
-            </div>
-            """, unsafe_allow_html=True)
-            
-            # Category breakdown
-            categories = [
-                ("Bid Increases", bid_ups_impact, len(bid_ups), self.COLORS['success']),
-                ("Pauses", pauses_impact, len(pauses), self.COLORS['danger']),
-                ("Negatives", negatives_impact, len(negatives), self.COLORS['warning']),
-                ("Harvests", harvest_impact, len(harvest), self.COLORS['primary'])
-            ]
-            
-            for label, impact, count, color in categories:
-                if count == 0:
-                    continue
-                
-                icon = '↑' if impact >= 0 else '↓'
-                currency = get_account_currency()
-                
-                row_display = f"{icon} {currency} {abs(impact):,.0f}"
-                st.markdown(f"""
-                <div class="impact-row" style="border-left-color: {color};">
-                    <div>
-                        <div style="color: #F5F5F7; font-weight: 600; font-size: 0.9rem;">
-                            {label}
-                        </div>
-                        <div style="color: #64748b; font-size: 0.75rem;">
-                            {count} actions
-                        </div>
-                    </div>
-                    <div style="text-align: right;">
-                        <div style="color: {color}; font-weight: 700; font-size: 1rem;">
-                            {row_display}
-                        </div>
-                    </div>
-                </div>
-                """, unsafe_allow_html=True)
-            
-            
-        except Exception as e:
-            st.error(f"❌ Error: {e}")
-            import traceback
+
 
     def _render_campaign_trends(self, data: Dict[str, Any]):
         """Render dynamic campaign trends (Sales vs ACOS) with dropdowns."""
@@ -1690,7 +1580,7 @@ class ExecutiveDashboard:
         
         st.plotly_chart(fig, use_container_width=True)
 
-    def _render_decision_impact(self, data: Dict[str, Any]):
+    def _render_decision_impact_card(self, data: Dict[str, Any]):
         """Render decision impact using CANONICAL metrics from ImpactMetrics."""
         self._chart_header("Decision Impact", "lightbulb")
         
@@ -1773,6 +1663,3 @@ class ExecutiveDashboard:
             with st.expander("Debug Info"):
                 st.code(traceback.format_exc())
     
-    def _render_impact_breakdown(self, impact_df: Optional[pd.DataFrame]):
-        """Deprecated - logic moved to _render_decision_impact."""
-        pass

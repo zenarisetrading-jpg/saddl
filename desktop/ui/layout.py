@@ -5,10 +5,14 @@ Page setup, sidebar navigation, and home page.
 """
 
 import streamlit as st
+import pandas as pd
+import numpy as np
+from datetime import timedelta
 
 from ui.theme import ThemeManager
 from features.impact_dashboard import get_recent_impact_summary
 from features.report_card import get_account_health_score
+from core.account_utils import get_active_account_id
 
 def setup_page():
     """Setup page CSS and styling."""
@@ -107,6 +111,7 @@ def render_sidebar(navigate_to):
     return st.session_state.get('current_module', 'home')
 
 def render_home():
+    from features.impact_dashboard import get_recent_impact_summary
     st.markdown("""
         <style>
         /* Specific card targeting via markers */
@@ -372,21 +377,256 @@ def render_home():
         if st.button("Review Actions", use_container_width=True, type="primary"):
             st.session_state['current_module'] = 'optimizer'
             st.rerun()
+            
+        # Secondary CTA
+        if st.button("View Account Health", use_container_width=True):
+            st.session_state['current_module'] = 'performance'
+            st.session_state['active_perf_tab'] = 'Account Health'
+            st.rerun()
 
     st.markdown("<br><br>", unsafe_allow_html=True)
-    st.markdown("### Key Insights")
-    i1, i2, i3 = st.columns(3)
+    st.markdown("### KEY INSIGHTS")
     
-    # Theme-aware Icon Colors
+    # ========================================
+    # COMPUTE 6 KEY INSIGHTS
+    # ========================================
+    from datetime import date, timedelta
+    from utils.formatters import get_account_currency
+    from core.account_utils import get_active_account_id
+    from features.impact_dashboard import get_recent_impact_summary
+    import numpy as np
+    
+    currency = get_account_currency()
+    insights = []
+    
+    # Get DB manager and client
+    db_manager = st.session_state.get('db_manager')
+    client_id = get_active_account_id()
+    
+    # ========================================
+    # ROW 1: PERFORMANCE METRICS (14d delta)
+    # ========================================
+    roas_delta = 0
+    efficiency_delta = 0
+    efficiency_current = 0
+    top_campaign = "—"
+    top_campaign_delta = 0
+    
+    if db_manager and client_id:
+        try:
+            # Fetch all data and filter locally (get_target_stats_df doesn't accept date params)
+            df_all = db_manager.get_target_stats_df(client_id)
+            
+
+
+            if df_all is not None and not df_all.empty:
+                # Column normalization (Case-insensitive check)
+                if 'Date' not in df_all.columns:
+                    # Try lowercase 'date'
+                    col_map = {c.lower(): c for c in df_all.columns}
+                    if 'date' in col_map:
+                        df_all['Date'] = df_all[col_map['date']]
+                
+                if 'Date' in df_all.columns:
+                    df_all['Date'] = pd.to_datetime(df_all['Date'], errors='coerce')
+                    df_all = df_all.dropna(subset=['Date'])
+                    
+                    if not df_all.empty:
+                        max_date = df_all['Date'].max().date()
+                        
+                        # Define windows (inclusive)
+                        end_curr_date = max_date
+                        start_curr_date = max_date - timedelta(days=14)
+                        end_prev_date = start_curr_date - timedelta(days=1)
+                        start_prev_date = end_prev_date - timedelta(days=13)
+                        
+                        # Convert to Timestamps for robust filtering
+                        ts_start_curr = pd.Timestamp(start_curr_date)
+                        ts_end_curr = pd.Timestamp(end_curr_date) + pd.Timedelta(days=1) - pd.Timedelta(seconds=1)
+                        
+                        ts_start_prev = pd.Timestamp(start_prev_date)
+                        ts_end_prev = pd.Timestamp(end_prev_date) + pd.Timedelta(days=1) - pd.Timedelta(seconds=1)
+                        
+                        # Filter using Timestamps (more reliable than .dt.date comparison)
+                        df_curr = df_all[(df_all['Date'] >= ts_start_curr) & (df_all['Date'] <= ts_end_curr)]
+                        df_prev = df_all[(df_all['Date'] >= ts_start_prev) & (df_all['Date'] <= ts_end_prev)]
+                        
+
+                        
+                        if not df_curr.empty:
+                            # ROAS Trend
+                            curr_spend = df_curr['Spend'].sum() if 'Spend' in df_curr.columns else 0
+                            curr_sales = df_curr['Sales'].sum() if 'Sales' in df_curr.columns else 0
+                            roas_curr = curr_sales / curr_spend if curr_spend > 0 else 0
+                            
+                            if not df_prev.empty:
+                                prev_spend = df_prev['Spend'].sum() if 'Spend' in df_prev.columns else 0
+                                prev_sales = df_prev['Sales'].sum() if 'Sales' in df_prev.columns else 0
+                                roas_prev = prev_sales / prev_spend if prev_spend > 0 else 0
+                                roas_delta = ((roas_curr - roas_prev) / roas_prev * 100) if roas_prev > 0 else 0
+                        
+                        # Spend Efficiency (Ad Group aggregation)
+                        def calc_efficiency(df):
+                            if 'Ad Group Name' in df.columns:
+                                agg = df.groupby('Ad Group Name').agg({'Spend': 'sum', 'Sales': 'sum'}).reset_index()
+                                agg['ROAS'] = (agg['Sales'] / agg['Spend']).replace([np.inf, -np.inf], 0).fillna(0)
+                                eff_spend = agg[agg['ROAS'] >= 2.5]['Spend'].sum()
+                                total = agg['Spend'].sum()
+                                return (eff_spend / total * 100) if total > 0 else 0
+                            return 0
+                        
+                        efficiency_current = calc_efficiency(df_curr)
+                        if not df_prev.empty:
+                            eff_prev = calc_efficiency(df_prev)
+                            efficiency_delta = efficiency_current - eff_prev
+
+                    if not df_curr.empty:
+                        # ROAS Trend
+                        curr_spend = df_curr['Spend'].sum() if 'Spend' in df_curr.columns else 0
+                        curr_sales = df_curr['Sales'].sum() if 'Sales' in df_curr.columns else 0
+                        roas_curr = curr_sales / curr_spend if curr_spend > 0 else 0
+                        
+                        if not df_prev.empty:
+                            prev_spend = df_prev['Spend'].sum() if 'Spend' in df_prev.columns else 0
+                            prev_sales = df_prev['Sales'].sum() if 'Sales' in df_prev.columns else 0
+                            roas_prev = prev_sales / prev_spend if prev_spend > 0 else 0
+                            roas_delta = ((roas_curr - roas_prev) / roas_prev * 100) if roas_prev > 0 else 0
+                    
+                    # Spend Efficiency (Ad Group aggregation)
+                    def calc_efficiency(df):
+                        if 'Ad Group Name' in df.columns:
+                            agg = df.groupby('Ad Group Name').agg({'Spend': 'sum', 'Sales': 'sum'}).reset_index()
+                            agg['ROAS'] = (agg['Sales'] / agg['Spend']).replace([np.inf, -np.inf], 0).fillna(0)
+                            eff_spend = agg[agg['ROAS'] >= 2.5]['Spend'].sum()
+                            total = agg['Spend'].sum()
+                            return (eff_spend / total * 100) if total > 0 else 0
+                        return 0
+                    
+                    efficiency_current = calc_efficiency(df_curr)
+                    if not df_prev.empty:
+                        eff_prev = calc_efficiency(df_prev)
+                        efficiency_delta = efficiency_current - eff_prev
+                    
+
+                    
+                    # Top Growing Campaign
+                    if not df_prev.empty and 'Campaign Name' in df_curr.columns:
+                        camp_curr = df_curr.groupby('Campaign Name')['Sales'].sum()
+                        camp_prev = df_prev.groupby('Campaign Name')['Sales'].sum()
+                        camp_delta = camp_curr.subtract(camp_prev, fill_value=0)
+                        if not camp_delta.empty and camp_delta.max() > 0:
+                            top_campaign = camp_delta.idxmax()
+                            top_campaign_delta = camp_delta.max()
+        except Exception as e:
+            # Silently handle errors for production
+            pass
+    
+    # Build Row 1 insights
+    arrow_up = "↑"
+    arrow_down = "↓"
+    
+    # 1. ROAS Trend
+    if roas_delta >= 0:
+        insights.append({
+            "title": f"ROAS {arrow_up} {abs(roas_delta):.1f}%",
+            "subtitle": "vs prior 14 days",
+            "icon_type": "success" if roas_delta > 3 else "info",
+            "tooltip": f"ROAS (Return on Ad Spend) changed by {roas_delta:+.1f}% compared to the previous 14-day period. Higher is better."
+        })
+    else:
+        insights.append({
+            "title": f"ROAS {arrow_down} {abs(roas_delta):.1f}%",
+            "subtitle": "vs prior 14 days",
+            "icon_type": "warning",
+            "tooltip": f"ROAS (Return on Ad Spend) changed by {roas_delta:.1f}% compared to the previous 14-day period. Consider reviewing campaigns."
+        })
+    
+    # 2. Spend Efficiency Trend
+    if efficiency_delta >= 0:
+        insights.append({
+            "title": f"Efficiency {arrow_up} {abs(efficiency_delta):.1f}%",
+            "subtitle": f"Now {efficiency_current:.0f}% efficient",
+            "icon_type": "success" if efficiency_delta > 3 else "info",
+            "tooltip": f"Spend Efficiency measures % of spend going to ad groups with ROAS >= 2.5x. Currently {efficiency_current:.0f}% of spend is efficient."
+        })
+    else:
+        insights.append({
+            "title": f"Efficiency {arrow_down} {abs(efficiency_delta):.1f}%",
+            "subtitle": f"Now {efficiency_current:.0f}% efficient",
+            "icon_type": "warning",
+            "tooltip": f"Spend Efficiency measures % of spend going to ad groups with ROAS >= 2.5x. Currently {efficiency_current:.0f}% of spend is efficient, down from prior period."
+        })
+    
+    # 3. Top Growing Campaign
+    if top_campaign != "—" and top_campaign_delta > 0:
+        display_name = top_campaign[:18] + "..." if len(top_campaign) > 18 else top_campaign
+        insights.append({
+            "title": display_name,
+            "subtitle": f"{arrow_up} {currency} {top_campaign_delta:,.0f} sales",
+            "icon_type": "success",
+            "tooltip": f"Campaign '{top_campaign}' showed the largest sales increase (+{currency}{top_campaign_delta:,.0f}) compared to the prior 14-day period."
+        })
+    else:
+        insights.append({
+            "title": "No Growth Leader",
+            "subtitle": "All campaigns stable",
+            "icon_type": "info",
+            "tooltip": "No single campaign showed significant growth compared to the prior period. Performance is stable across campaigns."
+        })
+    
+    # ========================================
+    # ROW 2: DECISION METRICS (from get_recent_impact_summary)
+    # ========================================
+    impact_data = get_recent_impact_summary()
+    decision_impact = impact_data.get('sales', 0) if impact_data else 0
+    win_rate = impact_data.get('win_rate', 0) if impact_data else 0
+    
+    # 4. Win Rate (win_rate is a ratio 0-1, convert to percentage)
+    win_rate_pct = win_rate * 100
+    if win_rate_pct > 0:
+        insights.append({
+            "title": f"{win_rate_pct:.0f}% Win Rate",
+            "subtitle": "actions beating baseline",
+            "icon_type": "success" if win_rate_pct > 50 else "info",
+            "tooltip": f"Win Rate measures the percentage of optimizer actions that resulted in positive impact. {win_rate_pct:.0f}% of your actions improved performance."
+        })
+    else:
+        insights.append({
+            "title": "0% Win Rate",
+            "subtitle": "run optimizer to track",
+            "icon_type": "note",
+            "tooltip": "Win Rate measures the percentage of optimizer actions with positive impact. Run the optimizer to start tracking."
+        })
+    
+    # 5. Quality Score (Decision Impact is already shown in hero tile, not duplicating)
+    quality = impact_data.get('quality_score', 0) if impact_data else 0
+    if quality > 0:
+        insights.append({
+            "title": f"+{quality:.0f} Quality",
+            "subtitle": "net positive actions",
+            "icon_type": "success",
+            "tooltip": f"Quality Score = % of good actions minus % of bad actions. A score of +{quality:.0f} means your action mix is net positive."
+        })
+    elif quality < 0:
+        insights.append({
+            "title": f"{quality:.0f} Quality",
+            "subtitle": "review action mix",
+            "icon_type": "warning",
+            "tooltip": f"Quality Score = % of good actions minus % of bad actions. A score of {quality:.0f} indicates more underperforming actions in the mix."
+        })
+    else:
+        insights.append({
+            "title": "Neutral Quality", 
+            "subtitle": "balanced action mix",
+            "icon_type": "info",
+            "tooltip": "Quality Score = % of good actions minus % of bad actions. A neutral score means your action mix is balanced."
+        })
+    
+    # ========================================
+    # RENDER 5 TILES (3 top + 2 bottom)
+    # ========================================
     theme_mode = st.session_state.get('theme_mode', 'dark')
     
-    # Get dynamic insights from knowledge graph (same data as AI assistant)
-    # Show loading state to improve perceived performance
-    from features.assistant import get_dynamic_key_insights
-    with st.spinner(""):  # Empty spinner to avoid text, just shows loading indicator
-        insights = get_dynamic_key_insights()
-    
-    # Icon definitions
     def get_insight_icon(icon_type):
         colors = {
             "success": "#22c55e" if theme_mode == 'dark' else "#16a34a",
@@ -405,19 +645,30 @@ def render_home():
         else:  # info
             return f'<svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="{c}" stroke-width="2.5"><circle cx="12" cy="12" r="10"></circle><line x1="12" y1="16" x2="12" y2="12"></line><line x1="12" y1="8" x2="12.01" y2="8"></line></svg>'
     
+    # Row 1
+    i1, i2, i3 = st.columns(3)
     with i1:
         icon = get_insight_icon(insights[0]["icon_type"])
-        st.markdown(f'<div class="insight-tile"><div class="insight-icon">{icon}</div><div><div style="font-weight:700; font-size:1.1rem">{insights[0]["title"]}</div><div style="font-size:0.85rem; color:#94a3b8">{insights[0]["subtitle"]}</div></div></div>', unsafe_allow_html=True)
+        tooltip = insights[0].get("tooltip", "")
+        st.markdown(f'<div class="insight-tile" title="{tooltip}"><div class="insight-icon">{icon}</div><div><div style="font-weight:700; font-size:1.1rem">{insights[0]["title"]}</div><div style="font-size:0.85rem; color:#94a3b8">{insights[0]["subtitle"]}</div></div></div>', unsafe_allow_html=True)
     with i2:
         icon = get_insight_icon(insights[1]["icon_type"])
-        st.markdown(f'<div class="insight-tile"><div class="insight-icon">{icon}</div><div><div style="font-weight:700; font-size:1.1rem">{insights[1]["title"]}</div><div style="font-size:0.85rem; color:#94a3b8">{insights[1]["subtitle"]}</div></div></div>', unsafe_allow_html=True)
+        tooltip = insights[1].get("tooltip", "")
+        st.markdown(f'<div class="insight-tile" title="{tooltip}"><div class="insight-icon">{icon}</div><div><div style="font-weight:700; font-size:1.1rem">{insights[1]["title"]}</div><div style="font-size:0.85rem; color:#94a3b8">{insights[1]["subtitle"]}</div></div></div>', unsafe_allow_html=True)
     with i3:
         icon = get_insight_icon(insights[2]["icon_type"])
-        st.markdown(f'<div class="insight-tile"><div class="insight-icon">{icon}</div><div><div style="font-weight:700; font-size:1.1rem">{insights[2]["title"]}</div><div style="font-size:0.85rem; color:#94a3b8">{insights[2]["subtitle"]}</div></div></div>', unsafe_allow_html=True)
-
-
+        tooltip = insights[2].get("tooltip", "")
+        st.markdown(f'<div class="insight-tile" title="{tooltip}"><div class="insight-icon">{icon}</div><div><div style="font-weight:700; font-size:1.1rem">{insights[2]["title"]}</div><div style="font-size:0.85rem; color:#94a3b8">{insights[2]["subtitle"]}</div></div></div>', unsafe_allow_html=True)
     
-    
-
-
-
+    # Row 2 (with spacing) - aligned with Row 1, 3rd spot empty
+    st.markdown("<div style='margin-top: 16px;'></div>", unsafe_allow_html=True)
+    i4, i5, i6 = st.columns(3)
+    with i4:
+        icon = get_insight_icon(insights[3]["icon_type"])
+        tooltip = insights[3].get("tooltip", "")
+        st.markdown(f'<div class="insight-tile" title="{tooltip}"><div class="insight-icon">{icon}</div><div><div style="font-weight:700; font-size:1.1rem">{insights[3]["title"]}</div><div style="font-size:0.85rem; color:#94a3b8">{insights[3]["subtitle"]}</div></div></div>', unsafe_allow_html=True)
+    with i5:
+        icon = get_insight_icon(insights[4]["icon_type"])
+        tooltip = insights[4].get("tooltip", "")
+        st.markdown(f'<div class="insight-tile" title="{tooltip}"><div class="insight-icon">{icon}</div><div><div style="font-weight:700; font-size:1.1rem">{insights[4]["title"]}</div><div style="font-size:0.85rem; color:#94a3b8">{insights[4]["subtitle"]}</div></div></div>', unsafe_allow_html=True)
+    # i6 intentionally left empty
