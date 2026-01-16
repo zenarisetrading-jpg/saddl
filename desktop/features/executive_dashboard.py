@@ -417,86 +417,19 @@ class ExecutiveDashboard:
     
     def render_ai_widget(self):
         """
-        Render collapsible AI assistant widget with real insights and chat.
-        Uses Streamlit popover for native collapse/expand behavior.
+        Render collapsible glassmorphic AI widget with real insights and chat.
+        Uses session state to toggle between collapsed button and expanded panel.
         """
         import html
         
-        # Inject CSS for the floating button
-        st.markdown("""
-        <style>
-        /* Floating AI button - fixed position */
-        .ai-float-btn-container {
-            position: fixed;
-            bottom: 24px;
-            right: 24px;
-            z-index: 9999;
-        }
+        # Initialize widget state
+        if 'ai_widget_expanded' not in st.session_state:
+            st.session_state.ai_widget_expanded = False
+        if 'ai_widget_chat' not in st.session_state:
+            st.session_state.ai_widget_chat = []
         
-        /* Override popover button style */
-        .ai-float-btn-container [data-testid="stPopover"] > button {
-            background: linear-gradient(135deg, #06B6D4 0%, #0891B2 100%) !important;
-            border: 1px solid rgba(255, 255, 255, 0.2) !important;
-            border-radius: 16px !important;
-            padding: 14px 20px !important;
-            color: white !important;
-            font-weight: 600 !important;
-            font-size: 0.95rem !important;
-            box-shadow: 0 4px 20px rgba(6, 182, 212, 0.4) !important;
-            transition: all 0.3s ease !important;
-        }
-        
-        .ai-float-btn-container [data-testid="stPopover"] > button:hover {
-            transform: translateY(-3px) !important;
-            box-shadow: 0 8px 30px rgba(6, 182, 212, 0.5) !important;
-        }
-        
-        /* Popover content styling */
-        [data-testid="stPopoverBody"] {
-            background: linear-gradient(135deg, rgba(30, 41, 59, 0.98) 0%, rgba(15, 23, 42, 0.98) 100%) !important;
-            border: 1px solid rgba(6, 182, 212, 0.3) !important;
-            border-radius: 16px !important;
-            padding: 0 !important;
-            min-width: 380px !important;
-            max-width: 420px !important;
-        }
-        
-        /* AI Insight Card in popover */
-        .ai-insight-card {
-            padding: 12px 16px;
-            margin: 8px 12px;
-            background: rgba(30, 41, 59, 0.5);
-            border-left: 3px solid;
-            border-radius: 8px;
-        }
-        
-        .ai-insight-card.success { border-left-color: #10B981; background: rgba(16, 185, 129, 0.1); }
-        .ai-insight-card.warning { border-left-color: #F59E0B; background: rgba(245, 158, 11, 0.1); }
-        .ai-insight-card.info { border-left-color: #06B6D4; background: rgba(6, 182, 212, 0.1); }
-        .ai-insight-card.note { border-left-color: #64748B; background: rgba(100, 116, 139, 0.1); }
-        
-        .ai-insight-title {
-            color: #F5F5F7;
-            font-weight: 600;
-            font-size: 0.9rem;
-            margin-bottom: 4px;
-        }
-        
-        .ai-insight-subtitle {
-            color: #94a3b8;
-            font-size: 0.8rem;
-        }
-        
-        .ai-section-header {
-            color: #94a3b8;
-            font-size: 0.7rem;
-            text-transform: uppercase;
-            letter-spacing: 1px;
-            padding: 12px 16px 8px;
-            border-bottom: 1px solid rgba(255,255,255,0.08);
-        }
-        </style>
-        """, unsafe_allow_html=True)
+        # Inject glassmorphic CSS (from original _inject_ai_widget_css)
+        self._inject_ai_widget_css()
         
         # Get real insights
         try:
@@ -504,58 +437,119 @@ class ExecutiveDashboard:
         except Exception:
             raw_insights = []
         
-        # Create floating container
-        st.markdown('<div class="ai-float-btn-container">', unsafe_allow_html=True)
+        # ===== COLLAPSED STATE: Just a floating button =====
+        if not st.session_state.ai_widget_expanded:
+            # Floating button CSS
+            st.markdown("""
+            <style>
+            .ai-fab-container {
+                position: fixed;
+                bottom: 24px;
+                right: 24px;
+                z-index: 9999;
+            }
+            .ai-fab {
+                background: linear-gradient(135deg, #06B6D4 0%, #0891B2 100%);
+                border: 1px solid rgba(255, 255, 255, 0.2);
+                border-radius: 16px;
+                padding: 14px 24px;
+                color: white;
+                font-weight: 600;
+                font-size: 0.95rem;
+                cursor: pointer;
+                box-shadow: 0 4px 20px rgba(6, 182, 212, 0.4);
+                transition: all 0.3s ease;
+                display: flex;
+                align-items: center;
+                gap: 8px;
+            }
+            .ai-fab:hover {
+                transform: translateY(-3px);
+                box-shadow: 0 8px 30px rgba(6, 182, 212, 0.5);
+            }
+            </style>
+            """, unsafe_allow_html=True)
+            
+            # Use a column trick to get a button that can toggle state
+            _, _, _, fab_col = st.columns([10, 10, 10, 1])
+            with fab_col:
+                if st.button("✨ Ask AI", key="ai_widget_fab", help="Open AI Assistant"):
+                    st.session_state.ai_widget_expanded = True
+                    st.rerun()
         
-        with st.popover("✨ Ask AI", use_container_width=False):
-            # Section: Key Insights
-            st.markdown('<div class="ai-section-header">📊 KEY INSIGHTS</div>', unsafe_allow_html=True)
-            
-            if raw_insights:
-                for insight in raw_insights[:3]:  # Limit to 3 insights
-                    icon_type = insight.get('icon_type', 'info')
-                    title = html.escape(insight.get('title', ''))
-                    subtitle = html.escape(insight.get('subtitle', ''))
-                    
-                    # Map icon_type to CSS class
-                    css_class = icon_type if icon_type in ['success', 'warning', 'info', 'note'] else 'info'
-                    
-                    st.markdown(f'''
-                    <div class="ai-insight-card {css_class}">
-                        <div class="ai-insight-title">{title}</div>
-                        <div class="ai-insight-subtitle">{subtitle}</div>
-                    </div>
-                    ''', unsafe_allow_html=True)
-            else:
-                st.info("📭 Run optimizer to see AI insights")
-            
-            st.markdown("---")
-            
-            # Section: Chat
-            st.markdown('<div class="ai-section-header">💬 ASK A QUESTION</div>', unsafe_allow_html=True)
-            
-            # Initialize chat history in session state
-            if 'ai_widget_chat' not in st.session_state:
-                st.session_state.ai_widget_chat = []
-            
-            # Display recent chat messages (last 3)
-            for msg in st.session_state.ai_widget_chat[-3:]:
-                role_icon = "👤" if msg['role'] == 'user' else "🤖"
-                st.markdown(f"**{role_icon}** {msg['content'][:100]}{'...' if len(msg['content']) > 100 else ''}")
-            
-            # Chat input
-            user_input = st.text_input(
-                "Ask about your campaigns...",
-                key="ai_widget_input",
-                placeholder="e.g., Which campaigns should I scale?",
-                label_visibility="collapsed"
-            )
-            
-            if user_input:
-                # Add user message
-                st.session_state.ai_widget_chat.append({'role': 'user', 'content': user_input})
+        # ===== EXPANDED STATE: Full glassmorphic panel =====
+        else:
+            # Build insights HTML
+            insights_html = ""
+            for insight in raw_insights[:4]:
+                icon_type = insight.get('icon_type', 'info')
+                title = html.escape(insight.get('title', ''))
+                subtitle = html.escape(insight.get('subtitle', ''))
+                icon = {'success': '✓', 'warning': '⚠', 'info': '💡', 'note': 'ℹ'}.get(icon_type, '💡')
+                css_type = icon_type if icon_type in ['success', 'warning', 'info'] else 'info'
                 
-                # Get AI response
+                insights_html += f'''<div class="ai-insight type-{css_type}">
+                    <div class="ai-insight-label">{insight.get('category', 'INSIGHT')}</div>
+                    <div class="ai-insight-text"><span class="ai-insight-icon">{icon}</span> {title}</div>
+                </div>'''
+            
+            if not raw_insights:
+                insights_html = '<div style="padding:16px;color:#94a3b8;text-align:center;">📭 Run optimizer to see AI insights</div>'
+            
+            # Build chat HTML
+            chat_html = ""
+            for msg in st.session_state.ai_widget_chat[-4:]:
+                role_icon = "👤" if msg['role'] == 'user' else "🤖"
+                role_class = "user" if msg['role'] == 'user' else "assistant"
+                content = html.escape(msg['content'][:150])
+                chat_html += f'<div class="chat-msg {role_class}"><span>{role_icon}</span> {content}</div>'
+            
+            # Render the full glassmorphic widget
+            widget_html = f'''
+            <div class="ai-widget-container" id="aiWidget">
+                <div class="ai-widget-header">
+                    <div class="ai-icon">
+                        <svg viewBox="0 0 24 24" width="16" height="16" fill="white">
+                            <path d="M12 2L2 7v10c0 5.55 3.84 10.74 9 12 5.16-1.26 9-6.45 9-12V7l-10-5z"/>
+                        </svg>
+                    </div>
+                    <div style="flex: 1;">
+                        <div class="ai-widget-title">AI Assistant</div>
+                        <div class="ai-widget-subtitle">{len(raw_insights)} insights • Real-time</div>
+                    </div>
+                </div>
+                <div class="ai-widget-content">
+                    <div style="padding:8px 0 4px 16px;color:#94a3b8;font-size:0.7rem;text-transform:uppercase;letter-spacing:1px;">📊 Key Insights</div>
+                    {insights_html}
+                    <div style="border-top:1px solid rgba(255,255,255,0.08);margin:12px 0;"></div>
+                    <div style="padding:4px 0 4px 16px;color:#94a3b8;font-size:0.7rem;text-transform:uppercase;letter-spacing:1px;">💬 Chat</div>
+                    <div style="padding:0 16px;max-height:120px;overflow-y:auto;">{chat_html}</div>
+                </div>
+            </div>
+            <style>
+            .chat-msg {{ padding:6px 0; font-size:0.85rem; color:#E2E8F0; }}
+            .chat-msg.user {{ color:#06B6D4; }}
+            </style>
+            '''
+            st.markdown(widget_html, unsafe_allow_html=True)
+            
+            # Chat input and close button (using Streamlit components)
+            col1, col2 = st.columns([8, 1])
+            with col1:
+                user_input = st.text_input(
+                    "Ask a question...",
+                    key="ai_chat_input",
+                    placeholder="e.g., Which campaigns should I scale?",
+                    label_visibility="collapsed"
+                )
+            with col2:
+                if st.button("✕", key="ai_widget_close", help="Close"):
+                    st.session_state.ai_widget_expanded = False
+                    st.rerun()
+            
+            # Process chat input
+            if user_input:
+                st.session_state.ai_widget_chat.append({'role': 'user', 'content': user_input})
                 try:
                     assistant = AssistantModule()
                     response = assistant._call_llm([
@@ -563,11 +557,9 @@ class ExecutiveDashboard:
                         {"role": "user", "content": user_input}
                     ])
                     st.session_state.ai_widget_chat.append({'role': 'assistant', 'content': response})
-                    st.rerun()
                 except Exception as e:
-                    st.error(f"AI unavailable: {str(e)[:50]}")
-        
-        st.markdown('</div>', unsafe_allow_html=True)
+                    st.session_state.ai_widget_chat.append({'role': 'assistant', 'content': f"Sorry, I couldn't process that: {str(e)[:50]}"})
+                st.rerun()
     
     def _hex_to_rgba(self, hex_code: str, opacity: float) -> str:
         """Convert hex color to rgba string."""
