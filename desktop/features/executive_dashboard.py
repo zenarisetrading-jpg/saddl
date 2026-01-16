@@ -144,6 +144,362 @@ class ExecutiveDashboard:
         </style>
         """, unsafe_allow_html=True)
     
+    def _inject_ai_widget_css(self):
+        """Premium floating AI widget styling - AESTHETIC ONLY."""
+        st.markdown("""
+        <style>
+        /* ═══════════════════════════════════════════════════════ */
+        /* FLOATING AI WIDGET - PREMIUM STYLING */
+        /* ═══════════════════════════════════════════════════════ */
+        
+        .ai-widget-container {
+            position: fixed;
+            bottom: 24px;
+            right: 24px;
+            z-index: 9999;
+            width: 400px;
+            max-width: calc(100vw - 48px);
+            
+            /* Premium card styling */
+            background: linear-gradient(135deg, rgba(30, 41, 59, 0.98) 0%, rgba(15, 23, 42, 0.98) 100%);
+            backdrop-filter: blur(20px);
+            border: 1px solid rgba(6, 182, 212, 0.3);
+            border-radius: 16px;
+            box-shadow: 
+                0 8px 32px rgba(0, 0, 0, 0.4),
+                0 0 0 1px rgba(255, 255, 255, 0.05) inset,
+                0 0 24px rgba(6, 182, 212, 0.15);
+            
+            /* Smooth transitions */
+            transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+            animation: slideInUp 0.5s ease-out;
+        }
+        
+        .ai-widget-container:hover {
+            transform: translateY(-4px);
+            box-shadow: 
+                0 12px 40px rgba(0, 0, 0, 0.5),
+                0 0 0 1px rgba(255, 255, 255, 0.08) inset,
+                0 0 32px rgba(6, 182, 212, 0.25);
+            border-color: rgba(6, 182, 212, 0.5);
+        }
+        
+        /* Header with AI icon */
+        .ai-widget-header {
+            display: flex;
+            align-items: center;
+            gap: 12px;
+            padding: 16px 20px;
+            background: linear-gradient(90deg, rgba(6, 182, 212, 0.15) 0%, rgba(8, 145, 178, 0.05) 100%);
+            border-bottom: 1px solid rgba(255, 255, 255, 0.08);
+            border-radius: 16px 16px 0 0;
+            cursor: pointer;
+            transition: background 0.2s ease;
+        }
+        
+        .ai-widget-header:hover {
+            background: linear-gradient(90deg, rgba(6, 182, 212, 0.2) 0%, rgba(8, 145, 178, 0.1) 100%);
+        }
+        
+        .ai-icon {
+            width: 28px;
+            height: 28px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            background: linear-gradient(135deg, #06B6D4 0%, #0891B2 100%);
+            border-radius: 8px;
+            box-shadow: 0 2px 8px rgba(6, 182, 212, 0.4);
+            animation: pulse 2s ease-in-out infinite;
+        }
+        
+        .ai-icon svg {
+            width: 16px;
+            height: 16px;
+            fill: white;
+        }
+        
+        .ai-widget-title {
+            flex: 1;
+            color: #F5F5F7;
+            font-size: 0.95rem;
+            font-weight: 600;
+            letter-spacing: 0.3px;
+        }
+        
+        .ai-widget-subtitle {
+            color: #94a3b8;
+            font-size: 0.75rem;
+            margin-top: 2px;
+        }
+        
+        /* Content area */
+        .ai-widget-content {
+            padding: 20px;
+            max-height: 400px;
+            overflow-y: auto;
+            
+            /* Custom scrollbar */
+            scrollbar-width: thin;
+            scrollbar-color: rgba(6, 182, 212, 0.3) transparent;
+        }
+        
+        .ai-widget-content::-webkit-scrollbar {
+            width: 6px;
+        }
+        
+        .ai-widget-content::-webkit-scrollbar-track {
+            background: transparent;
+        }
+        
+        .ai-widget-content::-webkit-scrollbar-thumb {
+            background: rgba(6, 182, 212, 0.3);
+            border-radius: 3px;
+        }
+        
+        .ai-widget-content::-webkit-scrollbar-thumb:hover {
+            background: rgba(6, 182, 212, 0.5);
+        }
+        
+        /* AI Insight Card */
+        .ai-insight {
+            padding: 14px 16px;
+            margin-bottom: 12px;
+            background: rgba(30, 41, 59, 0.4);
+            border-left: 3px solid;
+            border-radius: 8px;
+            transition: all 0.2s ease;
+        }
+        
+        .ai-insight:hover {
+            background: rgba(30, 41, 59, 0.6);
+            transform: translateX(4px);
+        }
+        
+        .ai-insight:last-child {
+            margin-bottom: 0;
+        }
+        
+        /* Insight types */
+        .ai-insight.type-success {
+            border-left-color: #10B981;
+            background: rgba(16, 185, 129, 0.08);
+        }
+        
+        .ai-insight.type-warning {
+            border-left-color: #F59E0B;
+            background: rgba(245, 158, 11, 0.08);
+        }
+        
+        .ai-insight.type-danger {
+            border-left-color: #EF4444;
+            background: rgba(239, 68, 68, 0.08);
+        }
+        
+        .ai-insight.type-info {
+            border-left-color: #06B6D4;
+            background: rgba(6, 182, 212, 0.08);
+        }
+        
+        .ai-insight-icon {
+            font-size: 1rem;
+            margin-right: 8px;
+        }
+        
+        .ai-insight-text {
+            color: #E2E8F0;
+            font-size: 0.85rem;
+            line-height: 1.5;
+        }
+        
+        .ai-insight-label {
+            color: #94a3b8;
+            font-size: 0.7rem;
+            text-transform: uppercase;
+            letter-spacing: 0.5px;
+            margin-bottom: 6px;
+            font-weight: 600;
+        }
+        
+        /* Collapse/Expand button */
+        .ai-widget-toggle {
+            background: none;
+            border: none;
+            color: #94a3b8;
+            cursor: pointer;
+            padding: 4px;
+            border-radius: 4px;
+            transition: all 0.2s ease;
+        }
+        
+        .ai-widget-toggle:hover {
+            color: #06B6D4;
+            background: rgba(6, 182, 212, 0.1);
+        }
+        
+        .ai-widget-toggle svg {
+            width: 20px;
+            height: 20px;
+            transition: transform 0.3s ease;
+        }
+        
+        .ai-widget-container.collapsed .ai-widget-toggle svg {
+            transform: rotate(180deg);
+        }
+        
+        .ai-widget-container.collapsed .ai-widget-content {
+            max-height: 0;
+            padding: 0 20px;
+            overflow: hidden;
+        }
+        
+        /* Loading state */
+        .ai-widget-loading {
+            text-align: center;
+            padding: 32px 20px;
+            color: #94a3b8;
+        }
+        
+        .ai-loading-spinner {
+            width: 32px;
+            height: 32px;
+            border: 3px solid rgba(6, 182, 212, 0.2);
+            border-top-color: #06B6D4;
+            border-radius: 50%;
+            animation: spin 0.8s linear infinite;
+            margin: 0 auto 12px;
+        }
+        
+        /* Animations */
+        @keyframes slideInUp {
+            from {
+                opacity: 0;
+                transform: translateY(20px);
+            }
+            to {
+                opacity: 1;
+                transform: translateY(0);
+            }
+        }
+        
+        @keyframes pulse {
+            0%, 100% {
+                box-shadow: 0 2px 8px rgba(6, 182, 212, 0.4);
+            }
+            50% {
+                box-shadow: 0 2px 16px rgba(6, 182, 212, 0.6);
+            }
+        }
+        
+        @keyframes spin {
+            to {
+                transform: rotate(360deg);
+            }
+        }
+        
+        /* Mobile responsive */
+        @media (max-width: 768px) {
+            .ai-widget-container {
+                bottom: 16px;
+                right: 16px;
+                left: 16px;
+                width: auto;
+                max-width: none;
+            }
+            
+            .ai-widget-content {
+                max-height: 300px;
+            }
+        }
+        </style>
+        """, unsafe_allow_html=True)
+    
+    def render_ai_widget(self, insights: list):
+        """
+        Render AI insights in premium floating widget.
+        
+        IMPORTANT: This method ONLY handles visual presentation.
+        It does NOT generate, calculate, or process insights.
+        
+        Args:
+            insights: List of dicts with keys: 'type', 'label', 'text'
+                      Example: [
+                          {'type': 'success', 'label': 'OPPORTUNITY', 'text': 'Campaign X has scale potential'},
+                          {'type': 'warning', 'label': 'ALERT', 'text': 'Budget capping at 11 AM daily'}
+                      ]
+        """
+        # Inject CSS first
+        self._inject_ai_widget_css()
+        
+        # Build insights HTML (PRESENTATION ONLY)
+        insights_html = ""
+        for insight in insights:
+            insight_type = insight.get('type', 'info')  # success, warning, danger, info
+            icon = {
+                'success': '✓',
+                'warning': '⚠',
+                'danger': '✗',
+                'info': '💡'
+            }.get(insight_type, '💡')
+            
+            label = insight.get('label', 'INSIGHT')
+            text = insight.get('text', '')
+            
+            insights_html += f"""
+            <div class="ai-insight type-{insight_type}">
+                <div class="ai-insight-label">{label}</div>
+                <div class="ai-insight-text">
+                    <span class="ai-insight-icon">{icon}</span>
+                    {text}
+                </div>
+            </div>
+            """
+        
+        # If no insights, show loading state
+        if not insights:
+            content_html = """
+            <div class="ai-widget-loading">
+                <div class="ai-loading-spinner"></div>
+                <div style="font-size: 0.85rem;">Analyzing your data...</div>
+            </div>
+            """
+        else:
+            content_html = insights_html
+        
+        # Render widget (HTML ONLY - no logic)
+        st.markdown(f"""
+        <div class="ai-widget-container" id="aiWidget">
+            <div class="ai-widget-header" onclick="toggleAIWidget()">
+                <div class="ai-icon">
+                    <svg viewBox="0 0 24 24">
+                        <path d="M12 2L2 7v10c0 5.55 3.84 10.74 9 12 5.16-1.26 9-6.45 9-12V7l-10-5zm0 18c-3.18-.85-6-4.5-6-9V7.89l6-3.11 6 3.11V11c0 4.5-2.82 8.15-6 9z"/>
+                        <path d="M12 6c-1.1 0-2 .9-2 2s.9 2 2 2 2-.9 2-2-.9-2-2-2zm0 9c-2.67 0-8 1.34-8 4v1h16v-1c0-2.66-5.33-4-8-4z" opacity="0.6"/>
+                    </svg>
+                </div>
+                <div style="flex: 1;">
+                    <div class="ai-widget-title">AI Insights</div>
+                    <div class="ai-widget-subtitle">{len(insights)} insights • Real-time</div>
+                </div>
+                <button class="ai-widget-toggle">
+                    <svg viewBox="0 0 24 24" fill="currentColor">
+                        <path d="M7 10l5 5 5-5z"/>
+                    </svg>
+                </button>
+            </div>
+            
+            <div class="ai-widget-content">
+                {content_html}
+            </div>
+        </div>
+        
+        <script>
+        function toggleAIWidget() {{
+            const widget = document.getElementById('aiWidget');
+            widget.classList.toggle('collapsed');
+        }}
+        </script>
+        """, unsafe_allow_html=True)
+    
     def _hex_to_rgba(self, hex_code: str, opacity: float) -> str:
         """Convert hex color to rgba string."""
         hex_code = hex_code.lstrip('#')
@@ -268,8 +624,33 @@ class ExecutiveDashboard:
         with col2:
             with st.container(border=True):
                 self._render_spend_breakdown(data)
-
-    
+        
+        # === RENDER AI WIDGET (AESTHETIC ONLY) ===
+        # TODO: Replace with real AI insights once backend is ready
+        mock_insights = [
+            {
+                'type': 'success',
+                'label': 'OPPORTUNITY DETECTED',
+                'text': 'Campaign "Best Sellers" has ROAS 4.2x with 60% impression share. Scale opportunity: +$2.3K/week.'
+            },
+            {
+                'type': 'warning',
+                'label': 'BLEEDING DETECTED',
+                'text': '12 targets in "Brand Defense" spent $340 with 0 orders in last 7 days. Recommend pause.'
+            },
+            {
+                'type': 'danger',
+                'label': 'CRITICAL ALERT',
+                'text': 'Daily budget hit at 11 AM for 3 consecutive days. Missing 8 hours of high-intent traffic.'
+            },
+            {
+                'type': 'info',
+                'label': 'MARKET INSIGHT',
+                'text': 'CVR increased 18% week-over-week. Likely seasonal lift detected.'
+            }
+        ]
+        
+        self.render_ai_widget(mock_insights)
     
     def _fetch_data(self) -> Optional[Dict[str, Any]]:
         """Fetch all data."""
