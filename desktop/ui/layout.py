@@ -239,7 +239,7 @@ def render_home():
         }
         
         /* Fix for plotly height adjustment */
-        .js-plotly-plot { margin-top: -30px; }
+        .js-plotly-plot { margin-top: 10px; }
         
         /* Hide the marker itself */
         .cockpit-marker { display: none; }
