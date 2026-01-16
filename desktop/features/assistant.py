@@ -1528,369 +1528,65 @@ PLATFORM METHODOLOGY & ENGINE LOGIC (UPDATED JAN 2, 2026)
     # UI RENDERING
     # =========================================================================
 
-    def _inject_widget_css(self):
-        """Inject CSS for the glassmorphic AI widget."""
+    def render_floating_interface(self):
+        """Standard styling for a prominent Assistant button."""
         st.markdown("""
         <style>
-        /* ═══════════════════════════════════════════════════════ */
-        /* FLOATING AI WIDGET - PREMIUM STYLING */
-        /* ═══════════════════════════════════════════════════════ */
-        
-        .ai-widget-container {
-            position: fixed;
-            bottom: 24px;
-            right: 24px;
-            z-index: 9999;
-            width: 400px;
-            max-width: calc(100vw - 48px);
-            
-            /* Premium card styling */
-            background: linear-gradient(135deg, rgba(30, 41, 59, 0.98) 0%, rgba(15, 23, 42, 0.98) 100%);
-            backdrop-filter: blur(20px);
-            border: 1px solid rgba(6, 182, 212, 0.3);
-            border-radius: 16px;
-            box-shadow: 
-                0 8px 32px rgba(0, 0, 0, 0.4),
-                0 0 0 1px rgba(255, 255, 255, 0.05) inset,
-                0 0 24px rgba(6, 182, 212, 0.15);
-            
-            /* Smooth transitions */
-            transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
-            animation: slideInUp 0.5s ease-out;
+        /* Standard positioning - not floating fixed */
+        [data-testid="stPopover"] {
+            margin: 20px 0;
+            display: inline-block;
         }
         
-        .ai-widget-container:hover {
-            transform: translateY(-4px);
-            box-shadow: 
-                0 12px 40px rgba(0, 0, 0, 0.5),
-                0 0 0 1px rgba(255, 255, 255, 0.08) inset,
-                0 0 32px rgba(6, 182, 212, 0.25);
-            border-color: rgba(6, 182, 212, 0.5);
-        }
-        
-        /* Header with AI icon */
-        .ai-widget-header {
-            display: flex;
-            align-items: center;
-            gap: 12px;
-            padding: 16px 20px;
-            background: linear-gradient(90deg, rgba(6, 182, 212, 0.15) 0%, rgba(8, 145, 178, 0.05) 100%);
-            border-bottom: 1px solid rgba(255, 255, 255, 0.08);
-            border-radius: 16px 16px 0 0;
-            cursor: pointer;
-            transition: background 0.2s ease;
-        }
-        
-        .ai-widget-header:hover {
-            background: linear-gradient(90deg, rgba(6, 182, 212, 0.2) 0%, rgba(8, 145, 178, 0.1) 100%);
-        }
-        
-        .ai-icon {
-            width: 28px;
-            height: 28px;
-            display: flex;
-            align-items: center;
-            justify-content: center;
-            background: linear-gradient(135deg, #06B6D4 0%, #0891B2 100%);
-            border-radius: 8px;
-            box-shadow: 0 2px 8px rgba(6, 182, 212, 0.4);
-            animation: pulse 2s ease-in-out infinite;
-        }
-        
-        .ai-icon svg {
-            width: 16px;
-            height: 16px;
-            fill: white;
-        }
-        
-        .ai-widget-title {
-            flex: 1;
-            color: #F5F5F7;
-            font-size: 0.95rem;
-            font-weight: 600;
-            letter-spacing: 0.3px;
-        }
-        
-        .ai-widget-subtitle {
-            color: #94a3b8;
-            font-size: 0.75rem;
-            margin-top: 2px;
-        }
-        
-        /* Content area */
-        .ai-widget-content {
-            padding: 20px;
-            max-height: 400px;
-            overflow-y: auto;
-            
-            /* Custom scrollbar */
-            scrollbar-width: thin;
-            scrollbar-color: rgba(6, 182, 212, 0.3) transparent;
-        }
-        
-        .ai-widget-content::-webkit-scrollbar {
-            width: 6px;
-        }
-        
-        .ai-widget-content::-webkit-scrollbar-track {
-            background: transparent;
-        }
-        
-        .ai-widget-content::-webkit-scrollbar-thumb {
-            background: rgba(6, 182, 212, 0.3);
-            border-radius: 3px;
-        }
-        
-        .ai-widget-content::-webkit-scrollbar-thumb:hover {
-            background: rgba(6, 182, 212, 0.5);
-        }
-        
-        /* AI Insight Card */
-        .ai-insight {
-            padding: 14px 16px;
-            margin-bottom: 12px;
-            background: rgba(30, 41, 59, 0.4);
-            border-left: 3px solid;
-            border-radius: 8px;
-            transition: all 0.2s ease;
-        }
-        
-        .ai-insight:hover {
-            background: rgba(30, 41, 59, 0.6);
-            transform: translateX(4px);
-        }
-        
-        .ai-insight:last-child {
-            margin-bottom: 0;
-        }
-        
-        /* Insight types */
-        .ai-insight.type-success {
-            border-left-color: #10B981;
-            background: rgba(16, 185, 129, 0.08);
-        }
-        
-        .ai-insight.type-warning {
-            border-left-color: #F59E0B;
-            background: rgba(245, 158, 11, 0.08);
-        }
-        
-        .ai-insight.type-danger {
-            border-left-color: #EF4444;
-            background: rgba(239, 68, 68, 0.08);
-        }
-        
-        .ai-insight.type-info {
-            border-left-color: #06B6D4;
-            background: rgba(6, 182, 212, 0.08);
-        }
-        
-        .ai-insight-icon {
-            font-size: 1rem;
-            margin-right: 8px;
-        }
-        
-        .ai-insight-text {
-            color: #E2E8F0;
-            font-size: 0.85rem;
-            line-height: 1.5;
-        }
-        
-        .ai-insight-label {
-            color: #94a3b8;
-            font-size: 0.7rem;
-            text-transform: uppercase;
-            letter-spacing: 0.5px;
-            margin-bottom: 6px;
-            font-weight: 600;
-        }
-        
-        /* Floating Button */
-        .ai-fab-container {
-            position: fixed;
-            bottom: 24px;
-            right: 24px;
-            z-index: 9999;
-        }
-        .ai-fab {
-            background: linear-gradient(135deg, #06B6D4 0%, #0891B2 100%);
-            border: 1px solid rgba(255, 255, 255, 0.2);
-            border-radius: 16px;
-            padding: 14px 24px;
-            color: white;
-            font-weight: 600;
-            font-size: 0.95rem;
-            cursor: pointer;
-            box-shadow: 0 4px 20px rgba(6, 182, 212, 0.4);
-            transition: all 0.3s ease;
-            display: flex;
-            align-items: center;
-            gap: 8px;
-        }
-        .ai-fab:hover {
-            transform: translateY(-3px);
-            box-shadow: 0 8px 30px rgba(6, 182, 212, 0.5);
-        }
-        
-        /* Chat Styling */
-        .chat-msg { padding:6px 0; font-size:0.85rem; color:#E2E8F0; }
-        .chat-msg.user { color:#06B6D4; }
-        
-        /* Loading & Animations */
-        @keyframes slideInUp {
-            from { opacity: 0; transform: translateY(20px); }
-            to { opacity: 1; transform: translateY(0); }
-        }
-        @keyframes pulse {
-            0%, 100% { box-shadow: 0 2px 8px rgba(6, 182, 212, 0.4); }
-            50% { box-shadow: 0 2px 16px rgba(6, 182, 212, 0.6); }
-        }
-        
-        /* Mobile responsive */
-        @media (max-width: 768px) {
-            .ai-widget-container {
-                bottom: 16px;
-                right: 16px;
-                left: 16px;
-                width: auto;
-                max-width: none;
-            }
-            .ai-widget-content {
-                max-height: 300px;
-            }
+        /* Prominent Action Button Style */
+    [data-testid="stPopover"] > button {
+        background: linear-gradient(135deg, #06b6d4 0%, #3b82f6 100%) !important;
+        border: 1px solid rgba(255, 255, 255, 0.2) !important;
+        border-radius: 12px !important;
+        padding: 14px 28px !important;
+        color: #ffffff !important;
+        font-weight: 700 !important;
+        font-size: 1.05rem !important;
+        box-shadow: 0 4px 20px rgba(6, 182, 212, 0.4) !important;
+        transition: all 0.3s cubic-bezier(0.175, 0.885, 0.32, 1.275) !important;
+        text-shadow: 0 1px 2px rgba(0,0,0,0.2) !important;
+        min-width: 220px !important;
+    }
+    
+    [data-testid="stPopover"] > button:hover {
+        transform: translateY(-3px) scale(1.02) !important;
+        box-shadow: 0 8px 25px rgba(6, 182, 212, 0.5) !important;
+        border-color: #ffffff !important;
+        background: linear-gradient(135deg, #0891b2 0%, #2563eb 100%) !important;
+    }
+    
+    /* Animation for sparkle */
+    @keyframes sparkle-pulse {
+        0% { transform: scale(1); opacity: 1; }
+        50% { transform: scale(1.2); opacity: 0.8; }
+        100% { transform: scale(1); opacity: 1; }
+    }
+    
+    [data-testid="stPopover"] button span:first-child {
+        animation: sparkle-pulse 2s infinite ease-in-out;
+        display: inline-block;
+    }
+    
+        /* Pulse for the icon */
+        [data-testid="stPopover"] button div[data-testid="stMarkdownContainer"] {
+            display: flex !important;
+            align-items: center !important;
+            gap: 10px !important;
         }
         </style>
         """, unsafe_allow_html=True)
-
-    def render_floating_interface(self):
-        """
-        Render the centralized glassmorphic AI widget.
-        Appears on all pages unless 'current_module' is 'assistant' (handled by render_interface).
-        """
-        import html
         
-        # Don't render floating widget if we are on the dedicated Assistant page
-        if st.session_state.get('current_module') == 'assistant':
-            return
-
-        # Initialize widget state
-        if 'ai_widget_expanded' not in st.session_state:
-            st.session_state.ai_widget_expanded = False
-        if 'ai_widget_chat' not in st.session_state:
-            st.session_state.ai_widget_chat = []
-        
-        # Inject CSS
-        self._inject_widget_css()
-        
-        # Get real insights
-        try:
-            raw_insights = get_dynamic_key_insights()
-        except Exception:
-            raw_insights = []
-        
-        # ===== COLLAPSED STATE: Just a floating button =====
-        if not st.session_state.ai_widget_expanded:
-            # Use a column trick to get a button that can toggle state
-            # Render empty div to hold position
-            st.markdown('<div class="ai-fab-container"></div>', unsafe_allow_html=True)
-            
-            # Use Streamlit columns to position button roughly in bottom right
-            # Note: Fixed positioning allows it to overlay, but we need the button to trigger python
-            _, _, _, fab_col = st.columns([10, 10, 10, 1])
-            with fab_col:
-                if st.button("✨ Ask AI", key="ai_widget_fab", help="Open AI Assistant"):
-                    st.session_state.ai_widget_expanded = True
-                    st.rerun()
-        
-        # ===== EXPANDED STATE: Full glassmorphic panel =====
-        else:
-            # Build insights HTML
-            insights_html = ""
-            for insight in raw_insights[:4]:
-                icon_type = insight.get('icon_type', 'info')
-                title = html.escape(insight.get('title', ''))
-                subtitle = html.escape(insight.get('subtitle', ''))
-                icon = {'success': '✓', 'warning': '⚠', 'info': '💡', 'note': 'ℹ'}.get(icon_type, '💡')
-                css_type = icon_type if icon_type in ['success', 'warning', 'info'] else 'info'
-                
-                insights_html += f'''<div class="ai-insight type-{css_type}">
-                    <div class="ai-insight-label">{insight.get('category', 'INSIGHT')}</div>
-                    <div class="ai-insight-text"><span class="ai-insight-icon">{icon}</span> {title}</div>
-                </div>'''
-            
-            if not raw_insights:
-                insights_html = '<div style="padding:16px;color:#94a3b8;text-align:center;">📭 Run optimizer for insights</div>'
-            
-            # Build chat HTML
-            chat_html = ""
-            for msg in st.session_state.ai_widget_chat[-4:]:
-                role_icon = "👤" if msg['role'] == 'user' else "🤖"
-                role_class = "user" if msg['role'] == 'user' else "assistant"
-                content = html.escape(msg['content'][:150])
-                chat_html += f'<div class="chat-msg {role_class}"><span>{role_icon}</span> {content}</div>'
-            
-            # Render the full glassmorphic widget
-            widget_html = f'''
-            <div class="ai-widget-container" id="aiWidget">
-                <div class="ai-widget-header">
-                    <div class="ai-icon">
-                        <svg viewBox="0 0 24 24" width="16" height="16" fill="white">
-                            <path d="M12 2L2 7v10c0 5.55 3.84 10.74 9 12 5.16-1.26 9-6.45 9-12V7l-10-5z"/>
-                        </svg>
-                    </div>
-                    <div style="flex: 1;">
-                        <div class="ai-widget-title">AI Assistant</div>
-                        <div class="ai-widget-subtitle">{len(raw_insights)} insights • Real-time</div>
-                    </div>
-                </div>
-                <div class="ai-widget-content">
-                    <div style="padding:8px 0 4px 16px;color:#94a3b8;font-size:0.7rem;text-transform:uppercase;letter-spacing:1px;">📊 Key Insights</div>
-                    {insights_html}
-                    <div style="border-top:1px solid rgba(255,255,255,0.08);margin:12px 0;"></div>
-                    <div style="padding:4px 0 4px 16px;color:#94a3b8;font-size:0.7rem;text-transform:uppercase;letter-spacing:1px;">💬 Chat</div>
-                    <div style="padding:0 16px;max-height:120px;overflow-y:auto;">{chat_html}</div>
-                </div>
-            </div>
-            '''
-            st.markdown(widget_html, unsafe_allow_html=True)
-            
-            # Chat input and close button
-            # We use a container to try and align with the fixed widget visual
-            # This is tricky in Streamlit, so we place controls nearby
-            col1, col2 = st.columns([8, 1])
-            with col1:
-                user_input = st.text_input(
-                    "Ask a question...",
-                    key="ai_chat_input",
-                    placeholder="e.g., Which campaigns should I scale?",
-                    label_visibility="collapsed"
-                )
-            with col2:
-                if st.button("✕", key="ai_widget_close", help="Close"):
-                    st.session_state.ai_widget_expanded = False
-                    st.rerun()
-            
-            # Process chat input
-            if user_input:
-                st.session_state.ai_widget_chat.append({'role': 'user', 'content': user_input})
-                try:
-                    # Self-call for LLM
-                    response = self._call_llm([
-                        {"role": "system", "content": "You are a helpful Amazon PPC strategist. Keep responses brief (2-3 sentences)."},
-                        {"role": "user", "content": user_input}
-                    ])
-                    st.session_state.ai_widget_chat.append({'role': 'assistant', 'content': response})
-                except Exception as e:
-                    st.session_state.ai_widget_chat.append({'role': 'assistant', 'content': f"Sorry, I couldn't process that: {str(e)[:50]}"})
-                st.rerun()
-
     def render_interface(self):
         """
         Render the Ask Zenny interface.
-        Handles Full Page mode. Floating mode is handled by render_floating_interface().
         """
         is_full_page = st.session_state.get('current_module') == 'assistant'
-        # Note: render_floating_interface is called by the main app loop
+        self.render_floating_interface()
         
         if is_full_page:
             # === FULL PAGE MODE ===
@@ -1901,6 +1597,14 @@ PLATFORM METHODOLOGY & ENGINE LOGIC (UPDATED JAN 2, 2026)
                 st.title("AI Campaign Strategist")
             st.caption("Strategic insights and real-time optimization guidance powered by Zenny.")
             self._render_chat_content(height=600)
+            
+        else:
+            # === COMPACT MODE (Standard Button) ===
+            # Prominent branding label
+            with st.popover("✨ Ask your AI strategist", use_container_width=False):
+                st.subheader("Ask Zenny")
+                st.markdown('<div style="margin-bottom: 10px; color: #8F8CA3; font-size: 0.9em;">AI Campaign Strategist</div>', unsafe_allow_html=True)
+                self._render_chat_content(height=400)
 
     def _render_chat_content(self, height=400):
         """
