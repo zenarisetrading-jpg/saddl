@@ -243,11 +243,6 @@ def render_home():
         
         /* Hide the marker itself */
         .cockpit-marker { display: none; }
-        
-        /* Center content for Health Score card */
-        [data-testid="stColumn"]:has(.health-marker) > div {
-            justify-content: center;
-        }
         </style>
     """, unsafe_allow_html=True)
 
@@ -474,7 +469,7 @@ def render_home():
             st.session_state['active_perf_tab'] = 'Account Health'
             st.rerun()
 
-    st.markdown("<br><br>", unsafe_allow_html=True)
+
     # ========================================
     # COMPUTE 6 KEY INSIGHTS
     # ========================================
@@ -741,8 +736,6 @@ def render_home():
             # Empty slot placeholder
             cards_html += '<div style="height: 1px;"></div>'
 
-    st.markdown("<br>", unsafe_allow_html=True)
-    
     # Render Container with Header and Grid
     st.markdown(f"""
     <div style="
