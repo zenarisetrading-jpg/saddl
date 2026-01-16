@@ -115,24 +115,29 @@ def render_home():
     st.markdown("""
         <style>
         /* Specific card targeting via markers */
+        /* Premium Card Styling (Cockpit) */
         [data-testid="stColumn"]:has(.cockpit-marker) > div {
-            background: var(--card-bg, #ffffff);
-            border: 1px solid var(--border-color, #e2e8f0);
-            border-radius: 12px;
-            padding: 20px;
-            box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.05);
-            min-height: 220px;
+            background: linear-gradient(135deg, rgba(30, 41, 59, 0.95) 0%, rgba(15, 23, 42, 0.95) 100%);
+            backdrop-filter: blur(10px);
+            border: 1px solid rgba(148, 163, 184, 0.15);
+            border-radius: 16px;
+            padding: 24px;
+            box-shadow: 0 4px 16px rgba(0, 0, 0, 0.3), inset 0 1px 0 rgba(255, 255, 255, 0.05);
+            transition: all 0.3s ease;
             display: flex;
             flex-direction: column;
+            min-height: 220px;
         }
-        [data-theme="dark"] [data-testid="stColumn"]:has(.cockpit-marker) > div {
-            background: #1e293b;
-            border-color: #334155;
+
+        [data-testid="stColumn"]:has(.cockpit-marker) > div:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 8px 24px rgba(0, 0, 0, 0.4), inset 0 1px 0 rgba(255, 255, 255, 0.08);
+            border-color: rgba(6, 182, 212, 0.3);
         }
         
         .cockpit-label {
             font-size: 0.75rem;
-            color: #64748b;
+            color: #94a3b8;
             font-weight: 700;
             margin-bottom: 12px;
             text-transform: uppercase;
@@ -150,23 +155,44 @@ def render_home():
             line-height: 1.2;
         }
         
+        .drama-text {
+            font-size: 3rem;
+            font-weight: 800;
+            color: #22d3ee;
+            text-shadow: 0 0 20px rgba(6, 182, 212, 0.3);
+            line-height: 1.1;
+        }
+        
         .cockpit-subtext {
             font-size: 0.8rem;
             color: #94a3b8;
             margin-top: 4px;
         }
 
-        /* Insight Tiles - Horizontal and slimmer */
+        /* Insight Tiles (Card Upgrade) */
         .insight-tile {
-            background: rgba(148, 163, 184, 0.08);
-            border: 1px solid rgba(148, 163, 184, 0.15);
-            border-radius: 10px;
-            padding: 10px 14px;
+            background: rgba(30, 41, 59, 0.6);
+            border-left: 3px solid transparent;
+            border-radius: 8px;
+            padding: 16px;
+            transition: all 0.2s ease;
             display: flex;
             align-items: center;
             gap: 12px;
             width: 100%;
         }
+
+        .insight-tile:hover {
+            background: rgba(30, 41, 59, 0.8);
+            border-left-color: #06B6D4;
+            transform: translateX(4px);
+        }
+        
+        /* Insight border coloring helpers */
+        .insight-tile[data-type="success"] { border-left-color: #10B981; }
+        .insight-tile[data-type="warning"] { border-left-color: #F59E0B; }
+        .insight-tile[data-type="info"] { border-left-color: #06B6D4; }
+        
         .insight-icon {
             font-size: 1.1rem;
             min-width: 36px;
@@ -188,7 +214,7 @@ def render_home():
         </style>
     """, unsafe_allow_html=True)
 
-    st.markdown('<h2 style="font-family: Inter, sans-serif; font-weight: 700; letter-spacing: 0.02em;">DECISION COCKPIT</h2>', unsafe_allow_html=True)
+    st.markdown('<h2 style="font-family: Inter, sans-serif; font-weight: 700; letter-spacing: 0.02em; background: linear-gradient(135deg, #F5F5F7 0%, #22D3EE 100%); -webkit-background-clip: text; -webkit-text-fill-color: transparent; font-size: 2rem;">DECISION COCKPIT</h2>', unsafe_allow_html=True)
     st.caption("Strategic overview of your account performance")
     st.markdown("<br>", unsafe_allow_html=True)
 
@@ -288,7 +314,7 @@ def render_home():
             from utils.formatters import get_account_currency
             home_currency = get_account_currency()
             st.markdown('<div style="flex-grow:1; display:flex; flex-direction:column; justify-content:center;">', unsafe_allow_html=True)
-            st.markdown(f'<div class="cockpit-value" style="text-align:center;">{f"+{home_currency}{impact:,.0f}" if impact >= 0 else f"-{home_currency}{abs(impact):,.0f}"}</div>', unsafe_allow_html=True)
+            st.markdown(f'<div class="drama-text" style="text-align:center;">{f"+{home_currency}{impact:,.0f}" if impact >= 0 else f"-{home_currency}{abs(impact):,.0f}"}</div>', unsafe_allow_html=True)
             st.markdown('<div class="cockpit-subtext" style="text-align:center;">Net Change Last 14 Days</div>', unsafe_allow_html=True)
             st.markdown('</div>', unsafe_allow_html=True)
             

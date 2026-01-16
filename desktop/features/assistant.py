@@ -1534,49 +1534,49 @@ PLATFORM METHODOLOGY & ENGINE LOGIC (UPDATED JAN 2, 2026)
         <style>
         /* Standard positioning - not floating fixed */
         [data-testid="stPopover"] {
-            margin: 20px 0;
             display: inline-block;
+            margin-top: 20px;
         }
         
-        /* Prominent Action Button Style */
-    [data-testid="stPopover"] > button {
-        background: linear-gradient(135deg, #06b6d4 0%, #3b82f6 100%) !important;
-        border: 1px solid rgba(255, 255, 255, 0.2) !important;
-        border-radius: 12px !important;
-        padding: 14px 28px !important;
-        color: #ffffff !important;
-        font-weight: 700 !important;
-        font-size: 1.05rem !important;
-        box-shadow: 0 4px 20px rgba(6, 182, 212, 0.4) !important;
-        transition: all 0.3s cubic-bezier(0.175, 0.885, 0.32, 1.275) !important;
-        text-shadow: 0 1px 2px rgba(0,0,0,0.2) !important;
-        min-width: 220px !important;
-    }
-    
-    [data-testid="stPopover"] > button:hover {
-        transform: translateY(-3px) scale(1.02) !important;
-        box-shadow: 0 8px 25px rgba(6, 182, 212, 0.5) !important;
-        border-color: #ffffff !important;
-        background: linear-gradient(135deg, #0891b2 0%, #2563eb 100%) !important;
-    }
-    
-    /* Animation for sparkle */
-    @keyframes sparkle-pulse {
-        0% { transform: scale(1); opacity: 1; }
-        50% { transform: scale(1.2); opacity: 0.8; }
-        100% { transform: scale(1); opacity: 1; }
-    }
-    
-    [data-testid="stPopover"] button span:first-child {
-        animation: sparkle-pulse 2s infinite ease-in-out;
-        display: inline-block;
-    }
-    
-        /* Pulse for the icon */
-        [data-testid="stPopover"] button div[data-testid="stMarkdownContainer"] {
+        /* Premium CTA Button Style - Dark with Glow */
+        [data-testid="stPopover"] > button {
+            background: linear-gradient(135deg, rgba(30, 41, 59, 1) 0%, rgba(15, 23, 42, 1) 100%) !important;
+            border: 1px solid rgba(6, 182, 212, 0.5) !important;
+            border-radius: 12px !important;
+            padding: 16px 32px !important;
+            color: #ffffff !important;
+            font-family: 'Inter', sans-serif !important;
+            font-weight: 600 !important;
+            font-size: 1.1rem !important;
+            letter-spacing: 0.5px !important;
+            box-shadow: 0 4px 20px rgba(0, 0, 0, 0.3), 0 0 0 1px rgba(255, 255, 255, 0.05) inset !important;
+            transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1) !important;
+            min-width: 280px !important;
+            text-align: left !important;
             display: flex !important;
             align-items: center !important;
-            gap: 10px !important;
+            justify-content: space-between !important;
+        }
+        
+        [data-testid="stPopover"] > button:hover {
+            transform: translateY(-2px) !important;
+            box-shadow: 0 8px 30px rgba(6, 182, 212, 0.25), 0 0 0 1px rgba(6, 182, 212, 0.5) inset !important;
+            border-color: #22d3ee !important;
+            background: linear-gradient(135deg, rgba(30, 41, 59, 1) 0%, rgba(15, 23, 42, 1) 100%) !important;
+        }
+        
+        /* Icon animation */
+        [data-testid="stPopover"] > button span:first-child {
+            display: inline-flex !important;
+            align-items: center !important;
+            gap: 12px !important;
+        }
+        
+        /* Add a subtle glow/pulse animation */
+        @keyframes border-pulse {
+            0% { border-color: rgba(6, 182, 212, 0.3); }
+            50% { border-color: rgba(6, 182, 212, 0.8); }
+            100% { border-color: rgba(6, 182, 212, 0.3); }
         }
         </style>
         """, unsafe_allow_html=True)
