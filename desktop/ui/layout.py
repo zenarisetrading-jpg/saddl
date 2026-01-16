@@ -459,7 +459,7 @@ def render_home():
         st.markdown('<div class="cockpit-label">Next Step</div>', unsafe_allow_html=True)
         st.markdown('<div style="font-weight: 700; font-size: 1rem; margin-bottom: 4px;">Optimization Ready</div>', unsafe_allow_html=True)
         st.markdown('<div class="cockpit-subtext" style="margin-bottom: 20px;">Review your optimization recommendations.</div>', unsafe_allow_html=True)
-        if st.button("Review Actions", use_container_width=True, type="primary"):
+        if st.button("Review Optimization Recommendations", use_container_width=True, type="primary"):
             st.session_state['current_module'] = 'optimizer'
             st.rerun()
             
