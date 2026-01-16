@@ -432,6 +432,7 @@ class ExecutiveDashboard:
         self._inject_ai_widget_css()
         
         # Build insights HTML (PRESENTATION ONLY)
+        import html
         insights_html = ""
         for insight in insights:
             insight_type = insight.get('type', 'info')  # success, warning, danger, info
@@ -442,33 +443,19 @@ class ExecutiveDashboard:
                 'info': '💡'
             }.get(insight_type, '💡')
             
-            label = insight.get('label', 'INSIGHT')
-            text = insight.get('text', '')
+            label = html.escape(insight.get('label', 'INSIGHT'))
+            text = html.escape(insight.get('text', ''))
             
-            insights_html += f"""
-            <div class="ai-insight type-{insight_type}">
-                <div class="ai-insight-label">{label}</div>
-                <div class="ai-insight-text">
-                    <span class="ai-insight-icon">{icon}</span>
-                    {text}
-                </div>
-            </div>
-            """
+            insights_html += f'<div class="ai-insight type-{insight_type}"><div class="ai-insight-label">{label}</div><div class="ai-insight-text"><span class="ai-insight-icon">{icon}</span> {text}</div></div>'
         
         # If no insights, show loading state
         if not insights:
-            content_html = """
-            <div class="ai-widget-loading">
-                <div class="ai-loading-spinner"></div>
-                <div style="font-size: 0.85rem;">Analyzing your data...</div>
-            </div>
-            """
+            content_html = '<div class="ai-widget-loading"><div class="ai-loading-spinner"></div><div style="font-size: 0.85rem;">Analyzing your data...</div></div>'
         else:
             content_html = insights_html
         
         # Render widget (HTML ONLY - no logic)
-        st.markdown(f"""
-        <div class="ai-widget-container" id="aiWidget">
+        widget_html = f'''<div class="ai-widget-container" id="aiWidget">
             <div class="ai-widget-header" onclick="toggleAIWidget()">
                 <div class="ai-icon">
                     <svg viewBox="0 0 24 24">
@@ -486,19 +473,16 @@ class ExecutiveDashboard:
                     </svg>
                 </button>
             </div>
-            
-            <div class="ai-widget-content">
-                {content_html}
-            </div>
+            <div class="ai-widget-content">{content_html}</div>
         </div>
-        
         <script>
         function toggleAIWidget() {{
             const widget = document.getElementById('aiWidget');
             widget.classList.toggle('collapsed');
         }}
-        </script>
-        """, unsafe_allow_html=True)
+        </script>'''
+        
+        st.markdown(widget_html, unsafe_allow_html=True)
     
     def _hex_to_rgba(self, hex_code: str, opacity: float) -> str:
         """Convert hex color to rgba string."""
