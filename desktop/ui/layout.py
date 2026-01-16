@@ -464,9 +464,8 @@ def render_home():
             st.rerun()
             
         # Secondary CTA
-        if st.button("View Account Health", use_container_width=True):
-            st.session_state['current_module'] = 'performance'
-            st.session_state['active_perf_tab'] = 'Account Health'
+        if st.button("Executive Summary", use_container_width=True):
+            st.session_state['current_module'] = 'executive'
             st.rerun()
 
 
