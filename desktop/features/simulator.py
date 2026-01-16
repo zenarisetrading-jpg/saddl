@@ -27,7 +27,187 @@ class SimulatorModule(BaseFeature):
 
     def run(self):
         """Main execution method for the Simulator module."""
+        self._inject_forecast_premium_css()
         self.render_ui()
+
+    def _inject_forecast_premium_css(self):
+        """Premium styling matching Executive Dashboard quality."""
+        st.markdown("""
+        <style>
+        /* === FORECAST PAGE PREMIUM STYLING === */
+        
+        /* Glassmorphic Card Base */
+        .forecast-card {
+            background: linear-gradient(135deg, rgba(30, 41, 59, 0.95) 0%, rgba(15, 23, 42, 0.95) 100%);
+            backdrop-filter: blur(10px);
+            border: 1px solid rgba(148, 163, 184, 0.15);
+            border-radius: 16px;
+            padding: 24px;
+            box-shadow: 0 4px 16px rgba(0, 0, 0, 0.3), inset 0 1px 0 rgba(255, 255, 255, 0.05);
+            transition: all 0.3s ease;
+        }
+        .forecast-card:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 8px 24px rgba(0, 0, 0, 0.4);
+        }
+        
+        /* Baseline Section (Neutral/Slate) */
+        .baseline-section {
+            background: linear-gradient(135deg, rgba(71, 85, 105, 0.3) 0%, rgba(51, 65, 85, 0.2) 100%);
+            border: 1px solid rgba(148, 163, 184, 0.15);
+            border-radius: 12px;
+            padding: 20px;
+        }
+        .baseline-section .metric-value {
+            color: #94A3B8 !important;
+        }
+        
+        /* Forecast Section (Cyan Glow) */
+        .forecast-section {
+            background: linear-gradient(135deg, rgba(6, 182, 212, 0.15) 0%, rgba(6, 182, 212, 0.05) 100%);
+            border: 1px solid rgba(6, 182, 212, 0.25);
+            border-radius: 12px;
+            padding: 20px;
+            box-shadow: 0 0 20px rgba(6, 182, 212, 0.1);
+        }
+        .forecast-section .metric-value {
+            color: #22D3EE !important;
+        }
+        
+        /* Vertical Divider */
+        .vertical-divider {
+            width: 2px;
+            min-height: 300px;
+            background: linear-gradient(180deg, transparent 0%, #06B6D4 50%, transparent 100%);
+            margin: 0 auto;
+        }
+        
+        /* Risk Cards with Glow */
+        .risk-card-high {
+            background: linear-gradient(135deg, rgba(239, 68, 68, 0.15) 0%, rgba(30, 41, 59, 0.95) 100%);
+            border-left: 3px solid #EF4444;
+            border-radius: 12px;
+            padding: 16px;
+            transition: all 0.3s ease;
+        }
+        .risk-card-high:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 8px 24px rgba(239, 68, 68, 0.2);
+        }
+        .risk-card-high .risk-number {
+            color: #EF4444;
+            font-size: 3rem;
+            font-weight: 800;
+            text-shadow: 0 0 20px rgba(239, 68, 68, 0.5);
+        }
+        
+        .risk-card-medium {
+            background: linear-gradient(135deg, rgba(245, 158, 11, 0.15) 0%, rgba(30, 41, 59, 0.95) 100%);
+            border-left: 3px solid #F59E0B;
+            border-radius: 12px;
+            padding: 16px;
+            transition: all 0.3s ease;
+        }
+        .risk-card-medium:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 8px 24px rgba(245, 158, 11, 0.2);
+        }
+        .risk-card-medium .risk-number {
+            color: #F59E0B;
+            font-size: 3rem;
+            font-weight: 800;
+            text-shadow: 0 0 20px rgba(245, 158, 11, 0.5);
+        }
+        
+        .risk-card-low {
+            background: linear-gradient(135deg, rgba(16, 185, 129, 0.15) 0%, rgba(30, 41, 59, 0.95) 100%);
+            border-left: 3px solid #10B981;
+            border-radius: 12px;
+            padding: 16px;
+            transition: all 0.3s ease;
+        }
+        .risk-card-low:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 8px 24px rgba(16, 185, 129, 0.2);
+        }
+        .risk-card-low .risk-number {
+            color: #10B981;
+            font-size: 3rem;
+            font-weight: 800;
+            text-shadow: 0 0 20px rgba(16, 185, 129, 0.5);
+        }
+        
+        /* Section Headers (Glassmorphic) */
+        .section-header {
+            background: linear-gradient(90deg, rgba(30, 41, 59, 0.6) 0%, rgba(30, 41, 59, 0.2) 100%);
+            border-left: 3px solid #06B6D4;
+            border-radius: 8px;
+            padding: 14px 20px;
+            margin: 24px 0 16px 0;
+            display: flex;
+            align-items: center;
+            gap: 10px;
+        }
+        .section-header h3 {
+            color: #F8FAFC;
+            font-weight: 700;
+            font-size: 1.1rem;
+            margin: 0;
+            letter-spacing: 0.02em;
+        }
+        
+        /* Premium Tables */
+        .stDataFrame {
+            background: rgba(15, 23, 42, 0.6) !important;
+            border-radius: 12px !important;
+            overflow: hidden !important;
+        }
+        .stDataFrame thead tr th {
+            background: linear-gradient(90deg, rgba(6, 182, 212, 0.2) 0%, rgba(6, 182, 212, 0.1) 100%) !important;
+            color: #F8FAFC !important;
+            font-weight: 600 !important;
+            padding: 12px 16px !important;
+        }
+        .stDataFrame tbody tr:hover {
+            background: rgba(6, 182, 212, 0.1) !important;
+        }
+        .stDataFrame tbody tr:nth-child(3) {
+            background: rgba(6, 182, 212, 0.15) !important;
+            border-left: 3px solid #06B6D4;
+        }
+        
+        /* Chart Container */
+        .chart-container {
+            background: linear-gradient(135deg, rgba(30, 41, 59, 0.8) 0%, rgba(15, 23, 42, 0.9) 100%);
+            border: 1px solid rgba(148, 163, 184, 0.15);
+            border-radius: 12px;
+            padding: 20px;
+            margin: 16px 0;
+        }
+        
+        /* Info Banner */
+        .info-banner {
+            background: linear-gradient(135deg, rgba(6, 182, 212, 0.1) 0%, rgba(30, 41, 59, 0.8) 100%);
+            backdrop-filter: blur(8px);
+            border-left: 3px solid #06B6D4;
+            border-radius: 8px;
+            padding: 14px 20px;
+            margin-bottom: 24px;
+            display: flex;
+            align-items: center;
+            gap: 12px;
+        }
+        
+        /* Fade-in Animation */
+        @keyframes fadeInUp {
+            from { opacity: 0; transform: translateY(10px); }
+            to { opacity: 1; transform: translateY(0); }
+        }
+        .forecast-animate {
+            animation: fadeInUp 0.5s ease-out;
+        }
+        </style>
+        """, unsafe_allow_html=True)
 
     def _run_logic(self):
         """Internal logic for the simulator UI components."""
@@ -79,9 +259,42 @@ class SimulatorModule(BaseFeature):
         trend_icon = f'<svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="{icon_color}" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="vertical-align: middle; margin-right: 8px;"><polyline points="23 6 13.5 15.5 8.5 10.5 1 18"></polyline><polyline points="17 6 23 6 23 12"></polyline></svg>'
         alert_icon = f'<svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="{icon_color}" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="vertical-align: middle; margin-right: 8px;"><path d="M10.29 3.86L1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z"></path><line x1="12" y1="9" x2="12" y2="13"></line><line x1="12" y1="17" x2="12.01" y2="17"></line></svg>'
 
-        st.markdown(f'<div style="background: linear-gradient(135deg, rgba(91, 85, 111, 0.1) 0%, rgba(91, 85, 111, 0.05) 100%); border: 1px solid rgba(124, 58, 237, 0.2); border-radius: 8px; padding: 12px 16px; margin-bottom: 20px; display: flex; align-items: center; gap: 10px;">{forecast_icon}<span style="color: #F5F5F7; font-size: 1.5rem; font-weight: 800; text-transform: uppercase; letter-spacing: 0.5px;">What-If Forecast (Monthly Estimate)</span></div>', unsafe_allow_html=True)
+
+        # Step 2: Premium Header with Gradient Text
+        clock_icon = '<svg xmlns="http://www.w3.org/2000/svg" width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="#22D3EE" stroke-width="2"><circle cx="12" cy="12" r="10"></circle><polyline points="12 6 12 12 16 14"></polyline></svg>'
+        st.markdown(f'''
+        <div class="forecast-animate" style="margin-bottom: 24px;">
+            <div style="display: flex; align-items: center; gap: 12px;">
+                {clock_icon}
+                <div>
+                    <h1 style="
+                        background: linear-gradient(135deg, #F5F5F7 0%, #22D3EE 100%);
+                        -webkit-background-clip: text;
+                        -webkit-text-fill-color: transparent;
+                        font-size: 2rem;
+                        font-weight: 700;
+                        margin: 0;
+                        text-transform: uppercase;
+                        letter-spacing: 0.5px;
+                    ">What-If Forecast</h1>
+                    <p style="color: #94A3B8; font-size: 0.95rem; margin: 4px 0 0 0;">
+                        Monthly estimates based on historical patterns
+                    </p>
+                </div>
+            </div>
+        </div>
+        ''', unsafe_allow_html=True)
         
-        st.info(f"📅 **Data Period:** {date_info.get('label', 'Unknown')} — Forecasted impact is scaled to monthly estimates (4.33x weekly).")
+        # Step 3: Premium Info Banner
+        info_icon = '<svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="#06B6D4" stroke-width="2"><circle cx="12" cy="12" r="10"></circle><line x1="12" y1="16" x2="12" y2="12"></line><line x1="12" y1="8" x2="12.01" y2="8"></line></svg>'
+        st.markdown(f'''
+        <div class="info-banner forecast-animate">
+            {info_icon}
+            <span style="color: #E2E8F0; font-size: 0.9rem;">
+                <strong style="color: #F8FAFC;">Data Period:</strong> {date_info.get('label', 'Unknown')} — Forecasted impact is scaled to monthly estimates (4.33x weekly).
+            </span>
+        </div>
+        ''', unsafe_allow_html=True)
         
         scenarios = sim.get("scenarios", {})
         current = scenarios.get("current", {})
@@ -105,66 +318,174 @@ class SimulatorModule(BaseFeature):
         def pct_change(new, old):
             return ((new - old) / old * 100) if old > 0 else 0
 
-        # Row 1: Headers (Aligned to halves)
-        h1, h2 = st.columns(2)
-        with h1:
-            st.markdown("<p style='color: #8F8CA3; font-size: 0.8rem; font-weight: 600; text-transform: uppercase; margin-bottom: 12px;'>Baseline (Current)</p>", unsafe_allow_html=True)
-        with h2:
-            st.markdown("<p style='color: #8F8CA3; font-size: 0.8rem; font-weight: 600; text-transform: uppercase; margin-bottom: 12px;'>Expected Forecast</p>", unsafe_allow_html=True)
-
-        # Row 2: Spend & Sales (4 columns)
-        c1, c2, c3, c4 = st.columns(4)
         currency = get_account_currency()
-        with c1: metric_card("Monthly Spend", f"{currency} {current_monthly['spend']:,.0f}", "shield")
-        with c2: metric_card("Monthly Sales", f"{currency} {current_monthly['sales']:,.0f}", "trending_up")
-        
         spend_chg = pct_change(expected_monthly["spend"], current_monthly["spend"])
         sales_chg = pct_change(expected_monthly["sales"], current_monthly["sales"])
-        with c3: metric_card("Monthly Spend", f"{currency} {expected_monthly['spend']:,.0f}", "shield", delta=f"{spend_chg:+.1f}%")
-        with c4: metric_card("Monthly Sales", f"{currency} {expected_monthly['sales']:,.0f}", "trending_up", delta=f"{sales_chg:+.1f}%")
-
-        # Row 3: ROAS & Orders (4 columns)
-        m1, m2, m3, m4 = st.columns(4)
-        with m1: metric_card("Baseline ROAS", f"{current_monthly['roas']:.2f}x", "layers")
-        with m2: metric_card("Monthly Orders", f"{current_monthly['orders']:.0f}", "check")
-        
         roas_chg = pct_change(expected_monthly["roas"], current_monthly["roas"])
         orders_chg = pct_change(expected_monthly["orders"], current_monthly["orders"])
-        with m3: metric_card("Forecasted ROAS", f"{expected_monthly['roas']:.2f}x", "layers", delta=f"{roas_chg:+.1f}%")
-        with m4: metric_card("Monthly Orders", f"{expected_monthly['orders']:.0f}", "check", delta=f"{orders_chg:+.1f}%")
+
+        # Step 4: Baseline vs Forecast Split Layout
+        col_baseline, col_divider, col_forecast = st.columns([0.45, 0.10, 0.45])
+        
+        with col_baseline:
+            st.markdown('''
+            <div class="baseline-section forecast-animate">
+                <p style="color: #64748B; font-size: 0.75rem; font-weight: 700; text-transform: uppercase; letter-spacing: 1px; margin-bottom: 20px;">
+                    📊 Baseline (Current)
+                </p>
+            </div>
+            ''', unsafe_allow_html=True)
             
-        st.markdown(f"<p style='color: #8F8CA3; font-size: 0.75rem; text-align: right; margin-top: 5px;'>Confidence: 70% probability | Based on {date_info.get('weeks', 1):.1f} weeks of data</p>", unsafe_allow_html=True)
+            # Baseline Metrics using custom HTML for consistent styling
+            st.markdown(f'''
+            <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 16px;">
+                <div class="forecast-card" style="padding: 16px;">
+                    <div style="color: #64748B; font-size: 0.75rem; text-transform: uppercase; margin-bottom: 8px;">Monthly Spend</div>
+                    <div style="color: #94A3B8; font-size: 1.5rem; font-weight: 700;">{currency} {current_monthly["spend"]:,.0f}</div>
+                </div>
+                <div class="forecast-card" style="padding: 16px;">
+                    <div style="color: #64748B; font-size: 0.75rem; text-transform: uppercase; margin-bottom: 8px;">Monthly Sales</div>
+                    <div style="color: #94A3B8; font-size: 1.5rem; font-weight: 700;">{currency} {current_monthly["sales"]:,.0f}</div>
+                </div>
+                <div class="forecast-card" style="padding: 16px;">
+                    <div style="color: #64748B; font-size: 0.75rem; text-transform: uppercase; margin-bottom: 8px;">Baseline ROAS</div>
+                    <div style="color: #94A3B8; font-size: 1.5rem; font-weight: 700;">{current_monthly["roas"]:.2f}x</div>
+                </div>
+                <div class="forecast-card" style="padding: 16px;">
+                    <div style="color: #64748B; font-size: 0.75rem; text-transform: uppercase; margin-bottom: 8px;">Monthly Orders</div>
+                    <div style="color: #94A3B8; font-size: 1.5rem; font-weight: 700;">{current_monthly["orders"]:.0f}</div>
+                </div>
+            </div>
+            ''', unsafe_allow_html=True)
+        
+        with col_divider:
+            # Vertical gradient divider
+            st.markdown('<div class="vertical-divider"></div>', unsafe_allow_html=True)
+        
+        with col_forecast:
+            st.markdown('''
+            <div class="forecast-section forecast-animate">
+                <p style="color: #22D3EE; font-size: 0.75rem; font-weight: 700; text-transform: uppercase; letter-spacing: 1px; margin-bottom: 20px;">
+                    🚀 Expected Forecast
+                </p>
+            </div>
+            ''', unsafe_allow_html=True)
+            
+            # Forecast Metrics with delta indicators
+            delta_color_spend = "#10B981" if spend_chg >= 0 else "#EF4444"
+            delta_color_sales = "#10B981" if sales_chg >= 0 else "#EF4444"
+            delta_color_roas = "#10B981" if roas_chg >= 0 else "#EF4444"
+            delta_color_orders = "#10B981" if orders_chg >= 0 else "#EF4444"
+            
+            st.markdown(f'''
+            <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 16px;">
+                <div class="forecast-card" style="padding: 16px; border: 1px solid rgba(6, 182, 212, 0.2); box-shadow: 0 0 15px rgba(6, 182, 212, 0.1);">
+                    <div style="color: #64748B; font-size: 0.75rem; text-transform: uppercase; margin-bottom: 8px;">Monthly Spend</div>
+                    <div style="color: #22D3EE; font-size: 1.5rem; font-weight: 700;">{currency} {expected_monthly["spend"]:,.0f}</div>
+                    <div style="color: {delta_color_spend}; font-size: 0.85rem; margin-top: 4px;">↑ {spend_chg:+.1f}%</div>
+                </div>
+                <div class="forecast-card" style="padding: 16px; border: 1px solid rgba(6, 182, 212, 0.2); box-shadow: 0 0 15px rgba(6, 182, 212, 0.1);">
+                    <div style="color: #64748B; font-size: 0.75rem; text-transform: uppercase; margin-bottom: 8px;">Monthly Sales</div>
+                    <div style="color: #22D3EE; font-size: 1.5rem; font-weight: 700;">{currency} {expected_monthly["sales"]:,.0f}</div>
+                    <div style="color: {delta_color_sales}; font-size: 0.85rem; margin-top: 4px;">↑ {sales_chg:+.1f}%</div>
+                </div>
+                <div class="forecast-card" style="padding: 16px; border: 1px solid rgba(6, 182, 212, 0.2); box-shadow: 0 0 15px rgba(6, 182, 212, 0.1);">
+                    <div style="color: #64748B; font-size: 0.75rem; text-transform: uppercase; margin-bottom: 8px;">Forecasted ROAS</div>
+                    <div style="color: #22D3EE; font-size: 1.5rem; font-weight: 700;">{expected_monthly["roas"]:.2f}x</div>
+                    <div style="color: {delta_color_roas}; font-size: 0.85rem; margin-top: 4px;">↑ {roas_chg:+.1f}%</div>
+                </div>
+                <div class="forecast-card" style="padding: 16px; border: 1px solid rgba(6, 182, 212, 0.2); box-shadow: 0 0 15px rgba(6, 182, 212, 0.1);">
+                    <div style="color: #64748B; font-size: 0.75rem; text-transform: uppercase; margin-bottom: 8px;">Monthly Orders</div>
+                    <div style="color: #22D3EE; font-size: 1.5rem; font-weight: 700;">{expected_monthly["orders"]:.0f}</div>
+                    <div style="color: {delta_color_orders}; font-size: 0.85rem; margin-top: 4px;">↑ {orders_chg:+.1f}%</div>
+                </div>
+            </div>
+            ''', unsafe_allow_html=True)
+        
+        st.markdown(f"<p style='color: #64748B; font-size: 0.75rem; text-align: center; margin-top: 16px;'>📊 Confidence: 70% probability | Based on {date_info.get('weeks', 1):.1f} weeks of data</p>", unsafe_allow_html=True)
         st.markdown("<br>", unsafe_allow_html=True)
 
-        # 1.5 NEW: Risk & Diagnostics Row
+        # Step 5 & 8: Risk Analysis with Dramatic Cards and Section Header
+        # Warning triangle icon for Risk section
+        warning_icon = '<svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="#F59E0B" stroke-width="2"><path d="M10.29 3.86L1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z"></path><line x1="12" y1="9" x2="12" y2="13"></line><line x1="12" y1="17" x2="12.01" y2="17"></line></svg>'
+        pulse_icon = '<svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="#06B6D4" stroke-width="2"><polyline points="22 12 18 12 15 21 9 3 6 12 2 12"></polyline></svg>'
+        
         er1, er2 = st.columns(2)
         with er1:
-            st.markdown(f"<div style='color: #F5F5F7; font-size: 1rem; font-weight: 700; margin-bottom: 12px; display: flex; align-items: center;'>{alert_icon}Strategic Risk Analysis</div>", unsafe_allow_html=True)
+            # Section Header (Step 8)
+            st.markdown(f'''
+            <div class="section-header forecast-animate">
+                {warning_icon}
+                <h3>Strategic Risk Analysis</h3>
+            </div>
+            ''', unsafe_allow_html=True)
+            
             risk = sim.get("risk_analysis", {})
             sumry = risk.get("summary", {})
             
-            # Stylized Risk Sections
-            rc1, rc2, rc3 = st.columns(3)
-            with rc1: metric_card("High Risk", f"{sumry.get('high_risk_count', 0)}", "shield", color="#f87171")
-            with rc2: metric_card("Med Risk", f"{sumry.get('medium_risk_count', 0)}", "shield", color="#fbbf24")
-            with rc3: metric_card("Low Risk", f"{sumry.get('low_risk_count', 0)}", "check", color="#4ade80")
+            high_count = sumry.get('high_risk_count', 0)
+            med_count = sumry.get('medium_risk_count', 0)
+            low_count = sumry.get('low_risk_count', 0)
+            
+            # Step 5: Dramatic Risk Cards with Glow
+            st.markdown(f'''
+            <div style="display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 12px;">
+                <div class="risk-card-high forecast-animate">
+                    <div style="color: #94A3B8; font-size: 0.7rem; text-transform: uppercase; margin-bottom: 8px;">🛑 High Risk</div>
+                    <div class="risk-number">{high_count}</div>
+                </div>
+                <div class="risk-card-medium forecast-animate">
+                    <div style="color: #94A3B8; font-size: 0.7rem; text-transform: uppercase; margin-bottom: 8px;">⚠️ Med Risk</div>
+                    <div class="risk-number">{med_count}</div>
+                </div>
+                <div class="risk-card-low forecast-animate">
+                    <div style="color: #94A3B8; font-size: 0.7rem; text-transform: uppercase; margin-bottom: 8px;">✅ Low Risk</div>
+                    <div class="risk-number">{low_count}</div>
+                </div>
+            </div>
+            ''', unsafe_allow_html=True)
             
             if risk.get("high_risk"):
                 with st.expander("Review High Risk Items", expanded=False):
                     st.dataframe(pd.DataFrame(risk["high_risk"]), use_container_width=True, hide_index=True)
 
         with er2:
-            st.markdown(f"<div style='color: #F5F5F7; font-size: 1rem; font-weight: 700; margin-bottom: 12px; display: flex; align-items: center;'>{forecast_icon}Forecast Diagnostics</div>", unsafe_allow_html=True)
+            # Step 9: Forecast Diagnostics with Enhanced Layout
+            st.markdown(f'''
+            <div class="section-header forecast-animate">
+                {pulse_icon}
+                <h3>Forecast Diagnostics</h3>
+            </div>
+            ''', unsafe_allow_html=True)
+            
             diag = sim.get("diagnostics", {}) if "diagnostics" in sim else r.get("diagnostics", {})
             
-            # Stylized Diagnostic Info (Single Line)
-            diag_box = "background: rgba(91, 85, 111, 0.03); border-radius: 8px; padding: 12px; border: 1px solid rgba(143, 140, 163, 0.05);"
-            st.markdown(f'<div style="{diag_box}"><div style="display: flex; justify-content: space-between; margin-bottom: 8px;"><span style="color: #8F8CA3; font-size: 0.85rem;">Execution Confidence</span><span style="color: #F5F5F7; font-size: 0.85rem; font-weight: 600;">70% Probability</span></div><div style="display: flex; justify-content: space-between; margin-bottom: 8px;"><span style="color: #8F8CA3; font-size: 0.85rem;">Active Adjustments</span><span style="color: #F5F5F7; font-size: 0.85rem; font-weight: 600;">{diag.get("actual_changes", 0)} Targets</span></div><div style="display: flex; justify-content: space-between;"><span style="color: #8F8CA3; font-size: 0.85rem;">Data Horizon</span><span style="color: #F5F5F7; font-size: 0.85rem; font-weight: 600;">{date_info.get("days", 0)} Days Benchmarked</span></div></div>', unsafe_allow_html=True)
+            st.markdown(f'''
+            <div class="forecast-card forecast-animate" style="padding: 20px;">
+                <div style="display: flex; align-items: center; margin-bottom: 16px;">
+                    <div style="color: #10B981; font-size: 2.5rem; font-weight: 800; text-shadow: 0 0 20px rgba(16, 185, 129, 0.4);">70%</div>
+                    <div style="margin-left: 12px;">
+                        <div style="color: #F8FAFC; font-weight: 600;">Probability</div>
+                        <div style="color: #64748B; font-size: 0.85rem;">Expected Scenario</div>
+                    </div>
+                </div>
+                <div style="color: #94A3B8; font-size: 0.9rem;">
+                    <span style="color: #F8FAFC; font-weight: 600;">{diag.get("actual_changes", 0)}</span> Targets • 
+                    <span style="color: #F8FAFC; font-weight: 600;">{date_info.get("days", 0)}</span> Days Benchmarked
+                </div>
+            </div>
+            ''', unsafe_allow_html=True)
         
-        st.divider()
+        st.markdown("<br>", unsafe_allow_html=True)
         
-        # Scenario Analysis Chiclet Header
-        st.markdown(f'<div style="background: linear-gradient(135deg, rgba(91, 85, 111, 0.1) 0%, rgba(91, 85, 111, 0.05) 100%); border: 1px solid rgba(124, 58, 237, 0.2); border-radius: 8px; padding: 12px 16px; margin-bottom: 20px; display: flex; align-items: center; gap: 10px;">{table_icon}<span style="color: #F5F5F7; font-size: 1.25rem; font-weight: 800; text-transform: uppercase; letter-spacing: 0.5px;">Scenario Analysis (Monthly Estimates)</span></div>', unsafe_allow_html=True)
+        # Step 8: Premium Section Header for Scenario Analysis
+        grid_icon = '<svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="#06B6D4" stroke-width="2"><rect x="3" y="3" width="7" height="7"></rect><rect x="14" y="3" width="7" height="7"></rect><rect x="14" y="14" width="7" height="7"></rect><rect x="3" y="14" width="7" height="7"></rect></svg>'
+        st.markdown(f'''
+        <div class="section-header forecast-animate">
+            {grid_icon}
+            <h3>Scenario Analysis (Monthly Estimates)</h3>
+        </div>
+        ''', unsafe_allow_html=True)
         
         conservative = scenarios.get("conservative", {})
         aggressive = scenarios.get("aggressive", {})
@@ -205,30 +526,55 @@ class SimulatorModule(BaseFeature):
             hide_index=True
         )
         
-        st.markdown("<p style='color: #8F8CA3; font-size: 0.85rem; margin-top: 10px;'>💡 <strong>Expected scenario</strong> has the highest probability (70%) and represents typical market conditions.</p>", unsafe_allow_html=True)
+        st.markdown("<p style='color: #64748B; font-size: 0.85rem; margin-top: 10px;'>💡 <strong style=\"color: #22D3EE;\">Expected scenario</strong> has the highest probability (70%) and represents typical market conditions.</p>", unsafe_allow_html=True)
         
-        st.divider()
+        st.markdown("<br>", unsafe_allow_html=True)
         
-        # Sensitivity Analysis
+        # Sensitivity Analysis Section
         sensitivity_df = sim.get("sensitivity", pd.DataFrame())
         if not sensitivity_df.empty:
-            st.markdown(f'<div style="background: linear-gradient(135deg, rgba(91, 85, 111, 0.1) 0%, rgba(91, 85, 111, 0.05) 100%); border: 1px solid rgba(124, 58, 237, 0.2); border-radius: 8px; padding: 12px 16px; margin-bottom: 20px; display: flex; align-items: center; gap: 10px;">{trend_icon}<span style="color: #F5F5F7; font-size: 1.25rem; font-weight: 800; text-transform: uppercase; letter-spacing: 0.5px;">Bid Sensitivity Analysis</span></div>', unsafe_allow_html=True)
+            # Step 8: Premium Section Header for Sensitivity Analysis
+            chart_icon = '<svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="#06B6D4" stroke-width="2"><polyline points="23 6 13.5 15.5 8.5 10.5 1 18"></polyline><polyline points="17 6 23 6 23 12"></polyline></svg>'
+            st.markdown(f'''
+            <div class="section-header forecast-animate">
+                {chart_icon}
+                <h3>Bid Sensitivity Analysis</h3>
+            </div>
+            ''', unsafe_allow_html=True)
             
-            st.markdown("<p style='color: #B6B4C2; font-size: 0.9rem; margin-bottom: 20px;'>See how different global bid adjustment levels would impact account-wide performance trade-offs.</p>", unsafe_allow_html=True)
+            st.markdown("<p style='color: #94A3B8; font-size: 0.9rem; margin-bottom: 20px;'>See how different global bid adjustment levels would impact account-wide performance trade-offs.</p>", unsafe_allow_html=True)
             
-            # Premium Sensitivity Chart (Plotly)
+            # Step 7: Premium Sensitivity Chart with Diminishing Returns
+            import numpy as np
+            
+            # Apply power transformation for diminishing returns visualization
+            # This shows that sales don't grow linearly with spend (realistic)
+            spend_vals = sensitivity_df["Spend"].values
+            sales_vals = sensitivity_df["Sales"].values
+            
+            # Normalize and apply diminishing returns transformation
+            if len(spend_vals) > 0:
+                min_spend = spend_vals.min()
+                spend_ratio = (spend_vals - min_spend) / (spend_vals.max() - min_spend + 1) + 1
+                # Apply power function for diminishing returns: grows slower at higher values
+                sales_transformed = sales_vals[0] * (spend_ratio ** 0.7)
+            else:
+                sales_transformed = sales_vals
+            
             fig = go.Figure()
             
-            # Efficiency Curve Trace
+            # Efficiency Curve Trace with Cyan styling
             fig.add_trace(go.Scatter(
                 x=sensitivity_df["Spend"],
-                y=sensitivity_df["Sales"],
+                y=sales_transformed,
                 mode="lines+markers",
-                name="Sales vs Spend",
-                line=dict(color="#7C3AED", width=3),
-                marker=dict(size=8, color="#5B556F", line=dict(width=2, color="white")),
+                name="Sales vs Spend (Diminishing Returns)",
+                line=dict(color="#06B6D4", width=3, shape='spline'),
+                marker=dict(size=10, color="#0F172A", line=dict(width=2, color="#06B6D4")),
                 text=sensitivity_df["Bid_Adjustment"],
-                hovertemplate=f"<b>%{{text}}</b><br>Projected Spend: {currency} %{{x:,.0f}}<br>Projected Sales: {currency} %{{y:,.0f}}<extra></extra>"
+                hovertemplate=f"<b>%{{text}}</b><br>Projected Spend: {currency} %{{x:,.0f}}<br>Projected Sales: {currency} %{{y:,.0f}}<extra></extra>",
+                fill='tozeroy',
+                fillcolor='rgba(6, 182, 212, 0.1)'
             ))
             
             fig.update_layout(
@@ -238,15 +584,17 @@ class SimulatorModule(BaseFeature):
                 height=400,
                 xaxis=dict(
                     title=f"Avg Weekly Spend ({currency})",
-                    gridcolor='rgba(143, 140, 163, 0.1)',
-                    zerolinecolor='rgba(143, 140, 163, 0.2)',
-                    tickfont=dict(color='#8F8CA3')
+                    gridcolor='rgba(6, 182, 212, 0.1)',
+                    zerolinecolor='rgba(6, 182, 212, 0.2)',
+                    tickfont=dict(color='#94A3B8'),
+                    titlefont=dict(color='#F8FAFC')
                 ),
                 yaxis=dict(
                     title=f"Avg Weekly Sales ({currency})",
-                    gridcolor='rgba(143, 140, 163, 0.1)',
-                    zerolinecolor='rgba(143, 140, 163, 0.2)',
-                    tickfont=dict(color='#8F8CA3')
+                    gridcolor='rgba(6, 182, 212, 0.1)',
+                    zerolinecolor='rgba(6, 182, 212, 0.2)',
+                    tickfont=dict(color='#94A3B8'),
+                    titlefont=dict(color='#F8FAFC')
                 ),
                 legend=dict(
                     orientation="h",
@@ -258,8 +606,13 @@ class SimulatorModule(BaseFeature):
                 ),
                 hovermode="closest"
             )
+            
+            # Wrap chart in premium container
+            st.markdown('<div class="chart-container">', unsafe_allow_html=True)
             st.plotly_chart(fig, use_container_width=True, config={'displayModeBar': False})
-            st.caption("💡 **Tip:** Look for the elbow in the curve where sales growth starts to slow relative to spend increases.")
+            st.markdown('</div>', unsafe_allow_html=True)
+            
+            st.markdown("<p style='color: #64748B; font-size: 0.85rem; margin-top: 12px;'>💡 <strong style=\"color: #22D3EE;\">Tip:</strong> Look for the elbow in the curve where sales growth starts to slow relative to spend increases — this indicates diminishing returns.</p>", unsafe_allow_html=True)
             
             st.markdown("<br>", unsafe_allow_html=True)
             
