@@ -14,6 +14,8 @@ from typing import Dict, Any, Optional
 from utils.formatters import get_account_currency
 from features.impact_metrics import ImpactMetrics
 from features.report_card import get_account_health_score
+from features.constants import classify_match_type
+from ui.theme import ThemeManager
 from features.impact_dashboard import get_maturity_status
 
 
