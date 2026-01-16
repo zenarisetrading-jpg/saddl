@@ -729,17 +729,14 @@ def render_home():
             icon_char = "✓" if cls_ == "insight-positive" else "!" if cls_ == "insight-warning" else "i"
             tooltip = insight.get("tooltip", "")
             
-            cards_html += f'''
-            <div class="{cls_} insight-card" title="{tooltip}" style="margin-bottom: 0;">
-                <div style="display:flex; align-items:center;">
-                    <div class="insight-icon">{icon_char}</div>
-                    <div>
-                        <div style="font-weight:700; font-size:1.05rem; color:#f1f5f9;">{insight["title"]}</div>
-                        <div style="font-size:0.85rem; color:#94a3b8;">{insight["subtitle"]}</div>
-                    </div>
-                </div>
-            </div>
-            '''
+            # Construct card HTML on single lines to prevent Markdown code block interpretation from indentation
+            cards_html += f'<div class="{cls_} insight-card" title="{tooltip}" style="margin-bottom: 0;">'
+            cards_html += f'<div style="display:flex; align-items:center;">'
+            cards_html += f'<div class="insight-icon">{icon_char}</div>'
+            cards_html += f'<div>'
+            cards_html += f'<div style="font-weight:700; font-size:1.05rem; color:#f1f5f9;">{insight["title"]}</div>'
+            cards_html += f'<div style="font-size:0.85rem; color:#94a3b8;">{insight["subtitle"]}</div>'
+            cards_html += f'</div></div></div>'
         else:
             # Empty slot placeholder
             cards_html += '<div style="height: 1px;"></div>'
