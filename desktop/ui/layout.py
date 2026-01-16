@@ -243,6 +243,11 @@ def render_home():
         
         /* Hide the marker itself */
         .cockpit-marker { display: none; }
+        
+        /* Center content for Health Score card */
+        [data-testid="stColumn"]:has(.health-marker) > div {
+            justify-content: center;
+        }
         </style>
     """, unsafe_allow_html=True)
 
@@ -266,7 +271,7 @@ def render_home():
     t1, t2, t3 = st.columns(3)
     
     with t1:
-        st.markdown('<div class="cockpit-marker"></div>', unsafe_allow_html=True)
+        st.markdown('<div class="cockpit-marker health-marker"></div>', unsafe_allow_html=True)
         # Determine source badge
         source = st.session_state.get('_cockpit_data_source', 'db')
         sync_badge = '<span style="font-size: 0.55rem; background: rgba(34, 197, 94, 0.15); color: #22c55e; padding: 2px 6px; border-radius: 4px; font-weight: 800;">LIVE SYNC</span>' if source == 'live' else ''
@@ -470,20 +475,6 @@ def render_home():
             st.rerun()
 
     st.markdown("<br><br>", unsafe_allow_html=True)
-    st.markdown("""
-    <div style="
-        background: linear-gradient(90deg, rgba(30, 41, 59, 0.6) 0%, rgba(30, 41, 59, 0.2) 100%);
-        border-left: 3px solid #06B6D4;
-        border-radius: 8px;
-        padding: 12px 20px;
-        margin: 32px 0 20px 0;
-    ">
-        <h2 style="color: #F5F5F7; font-size: 1.3rem; font-weight: 700; margin: 0;">
-            KEY INSIGHTS
-        </h2>
-    </div>
-    """, unsafe_allow_html=True)
-    
     # ========================================
     # COMPUTE 6 KEY INSIGHTS
     # ========================================
@@ -492,6 +483,7 @@ def render_home():
     from core.account_utils import get_active_account_id
     from features.impact_dashboard import get_recent_impact_summary
     import numpy as np
+    import pandas as pd
     
     currency = get_account_currency()
     insights = []
@@ -720,44 +712,25 @@ def render_home():
         })
     
     # ========================================
-    # RENDER 5 TILES (3 top + 2 bottom)
     # ========================================
-    theme_mode = st.session_state.get('theme_mode', 'dark')
+    # RENDER KEY INSIGHTS CONTAINER
+    # ========================================
+    # Construct HTML for all insights
+    cards_html = ""
     
-    def get_insight_icon(icon_type):
-        colors = {
-            "success": "#22c55e" if theme_mode == 'dark' else "#16a34a",
-            "info": "#60a5fa" if theme_mode == 'dark' else "#2563eb",
-            "warning": "#fbbf24" if theme_mode == 'dark' else "#f59e0b",
-            "note": "#94a3b8"
-        }
-        c = colors.get(icon_type, colors["info"])
-        
-        if icon_type == "success":
-            return f'<svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="{c}" stroke-width="2.5"><polyline points="20 6 9 17 4 12"></polyline></svg>'
-        elif icon_type == "warning":
-            return f'<svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="{c}" stroke-width="2.5"><path d="M10.29 3.86L1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z"></path><line x1="12" y1="9" x2="12" y2="13"></line><line x1="12" y1="17" x2="12.01" y2="17"></line></svg>'
-        elif icon_type == "note":
-            return f'<svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="{c}" stroke-width="2.5"><circle cx="12" cy="12" r="10"></circle><line x1="12" y1="8" x2="12" y2="12"></line><line x1="12" y1="16" x2="12.01" y2="16"></line></svg>'
-        else:  # info
-            return f'<svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="{c}" stroke-width="2.5"><circle cx="12" cy="12" r="10"></circle><line x1="12" y1="16" x2="12" y2="12"></line><line x1="12" y1="8" x2="12.01" y2="8"></line></svg>'
+    # Map icon type to class
+    cls_map = {"success": "insight-positive", "warning": "insight-warning", "info": "insight-info", "note": "insight-info"}
     
-    # Row 1
-    i1, i2, i3 = st.columns(3)
-    
-    def render_premium_insight(col, insight):
-        with col:
-            # Map icon type to class
-            cls_map = {"success": "insight-positive", "warning": "insight-warning", "info": "insight-info", "note": "insight-info"}
+    for i in range(6): # Ensure 6 slots even if empty
+        if i < len(insights):
+            insight = insights[i]
             cls_ = cls_map.get(insight.get("icon_type", "info"), "insight-info")
-            
             # Icon symbol
             icon_char = "✓" if cls_ == "insight-positive" else "!" if cls_ == "insight-warning" else "i"
-            
             tooltip = insight.get("tooltip", "")
             
-            st.markdown(f'''
-            <div class="{cls_} insight-card" title="{tooltip}">
+            cards_html += f'''
+            <div class="{cls_} insight-card" title="{tooltip}" style="margin-bottom: 0;">
                 <div style="display:flex; align-items:center;">
                     <div class="insight-icon">{icon_char}</div>
                     <div>
@@ -766,15 +739,39 @@ def render_home():
                     </div>
                 </div>
             </div>
-            ''', unsafe_allow_html=True)
+            '''
+        else:
+            # Empty slot placeholder
+            cards_html += '<div style="height: 1px;"></div>'
 
-    render_premium_insight(i1, insights[0])
-    render_premium_insight(i2, insights[1])
-    render_premium_insight(i3, insights[2])
+    st.markdown("<br>", unsafe_allow_html=True)
     
-    # Row 2 (with spacing)
-    st.markdown("<div style='margin-top: 16px;'></div>", unsafe_allow_html=True)
-    i4, i5, i6 = st.columns(3)
-    render_premium_insight(i4, insights[3])
-    render_premium_insight(i5, insights[4])
-    # i6 intentionally left empty
+    # Render Container with Header and Grid
+    st.markdown(f"""
+    <div style="
+        border: 1px solid rgba(148, 163, 184, 0.15); 
+        border-radius: 12px; 
+        overflow: hidden; 
+        background: rgba(15, 23, 42, 0.4); 
+        margin-top: 10px;
+        box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.1);
+    ">
+        <div style="
+            background: linear-gradient(90deg, rgba(30, 41, 59, 0.4) 0%, rgba(30, 41, 59, 0.2) 100%);
+            padding: 14px 24px;
+            border-bottom: 1px solid rgba(148, 163, 184, 0.15);
+            display: flex;
+            align-items: center;
+        ">
+            <span style="color: #F8FAFC; font-weight: 700; font-size: 1.1rem; letter-spacing: 0.02em;">KEY INSIGHTS</span>
+        </div>
+        <div style="
+            padding: 24px; 
+            display: grid; 
+            grid-template-columns: repeat(3, 1fr); 
+            gap: 20px;
+        ">
+            {cards_html}
+        </div>
+    </div>
+    """, unsafe_allow_html=True)
