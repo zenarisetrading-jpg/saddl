@@ -17,6 +17,7 @@ from features.report_card import get_account_health_score
 from features.constants import classify_match_type
 from ui.theme import ThemeManager
 from features.impact_dashboard import get_maturity_status
+from features.assistant import get_dynamic_key_insights, AssistantModule
 
 
 class ExecutiveDashboard:
@@ -414,75 +415,159 @@ class ExecutiveDashboard:
         </style>
         """, unsafe_allow_html=True)
     
-    def render_ai_widget(self, insights: list):
+    def render_ai_widget(self):
         """
-        Render AI insights in premium floating widget.
-        
-        IMPORTANT: This method ONLY handles visual presentation.
-        It does NOT generate, calculate, or process insights.
-        
-        Args:
-            insights: List of dicts with keys: 'type', 'label', 'text'
-                      Example: [
-                          {'type': 'success', 'label': 'OPPORTUNITY', 'text': 'Campaign X has scale potential'},
-                          {'type': 'warning', 'label': 'ALERT', 'text': 'Budget capping at 11 AM daily'}
-                      ]
+        Render collapsible AI assistant widget with real insights and chat.
+        Uses Streamlit popover for native collapse/expand behavior.
         """
-        # Inject CSS first
-        self._inject_ai_widget_css()
-        
-        # Build insights HTML (PRESENTATION ONLY)
         import html
-        insights_html = ""
-        for insight in insights:
-            insight_type = insight.get('type', 'info')  # success, warning, danger, info
-            icon = {
-                'success': '✓',
-                'warning': '⚠',
-                'danger': '✗',
-                'info': '💡'
-            }.get(insight_type, '💡')
+        
+        # Inject CSS for the floating button
+        st.markdown("""
+        <style>
+        /* Floating AI button - fixed position */
+        .ai-float-btn-container {
+            position: fixed;
+            bottom: 24px;
+            right: 24px;
+            z-index: 9999;
+        }
+        
+        /* Override popover button style */
+        .ai-float-btn-container [data-testid="stPopover"] > button {
+            background: linear-gradient(135deg, #06B6D4 0%, #0891B2 100%) !important;
+            border: 1px solid rgba(255, 255, 255, 0.2) !important;
+            border-radius: 16px !important;
+            padding: 14px 20px !important;
+            color: white !important;
+            font-weight: 600 !important;
+            font-size: 0.95rem !important;
+            box-shadow: 0 4px 20px rgba(6, 182, 212, 0.4) !important;
+            transition: all 0.3s ease !important;
+        }
+        
+        .ai-float-btn-container [data-testid="stPopover"] > button:hover {
+            transform: translateY(-3px) !important;
+            box-shadow: 0 8px 30px rgba(6, 182, 212, 0.5) !important;
+        }
+        
+        /* Popover content styling */
+        [data-testid="stPopoverBody"] {
+            background: linear-gradient(135deg, rgba(30, 41, 59, 0.98) 0%, rgba(15, 23, 42, 0.98) 100%) !important;
+            border: 1px solid rgba(6, 182, 212, 0.3) !important;
+            border-radius: 16px !important;
+            padding: 0 !important;
+            min-width: 380px !important;
+            max-width: 420px !important;
+        }
+        
+        /* AI Insight Card in popover */
+        .ai-insight-card {
+            padding: 12px 16px;
+            margin: 8px 12px;
+            background: rgba(30, 41, 59, 0.5);
+            border-left: 3px solid;
+            border-radius: 8px;
+        }
+        
+        .ai-insight-card.success { border-left-color: #10B981; background: rgba(16, 185, 129, 0.1); }
+        .ai-insight-card.warning { border-left-color: #F59E0B; background: rgba(245, 158, 11, 0.1); }
+        .ai-insight-card.info { border-left-color: #06B6D4; background: rgba(6, 182, 212, 0.1); }
+        .ai-insight-card.note { border-left-color: #64748B; background: rgba(100, 116, 139, 0.1); }
+        
+        .ai-insight-title {
+            color: #F5F5F7;
+            font-weight: 600;
+            font-size: 0.9rem;
+            margin-bottom: 4px;
+        }
+        
+        .ai-insight-subtitle {
+            color: #94a3b8;
+            font-size: 0.8rem;
+        }
+        
+        .ai-section-header {
+            color: #94a3b8;
+            font-size: 0.7rem;
+            text-transform: uppercase;
+            letter-spacing: 1px;
+            padding: 12px 16px 8px;
+            border-bottom: 1px solid rgba(255,255,255,0.08);
+        }
+        </style>
+        """, unsafe_allow_html=True)
+        
+        # Get real insights
+        try:
+            raw_insights = get_dynamic_key_insights()
+        except Exception:
+            raw_insights = []
+        
+        # Create floating container
+        st.markdown('<div class="ai-float-btn-container">', unsafe_allow_html=True)
+        
+        with st.popover("✨ Ask AI", use_container_width=False):
+            # Section: Key Insights
+            st.markdown('<div class="ai-section-header">📊 KEY INSIGHTS</div>', unsafe_allow_html=True)
             
-            label = html.escape(insight.get('label', 'INSIGHT'))
-            text = html.escape(insight.get('text', ''))
+            if raw_insights:
+                for insight in raw_insights[:3]:  # Limit to 3 insights
+                    icon_type = insight.get('icon_type', 'info')
+                    title = html.escape(insight.get('title', ''))
+                    subtitle = html.escape(insight.get('subtitle', ''))
+                    
+                    # Map icon_type to CSS class
+                    css_class = icon_type if icon_type in ['success', 'warning', 'info', 'note'] else 'info'
+                    
+                    st.markdown(f'''
+                    <div class="ai-insight-card {css_class}">
+                        <div class="ai-insight-title">{title}</div>
+                        <div class="ai-insight-subtitle">{subtitle}</div>
+                    </div>
+                    ''', unsafe_allow_html=True)
+            else:
+                st.info("📭 Run optimizer to see AI insights")
             
-            insights_html += f'<div class="ai-insight type-{insight_type}"><div class="ai-insight-label">{label}</div><div class="ai-insight-text"><span class="ai-insight-icon">{icon}</span> {text}</div></div>'
+            st.markdown("---")
+            
+            # Section: Chat
+            st.markdown('<div class="ai-section-header">💬 ASK A QUESTION</div>', unsafe_allow_html=True)
+            
+            # Initialize chat history in session state
+            if 'ai_widget_chat' not in st.session_state:
+                st.session_state.ai_widget_chat = []
+            
+            # Display recent chat messages (last 3)
+            for msg in st.session_state.ai_widget_chat[-3:]:
+                role_icon = "👤" if msg['role'] == 'user' else "🤖"
+                st.markdown(f"**{role_icon}** {msg['content'][:100]}{'...' if len(msg['content']) > 100 else ''}")
+            
+            # Chat input
+            user_input = st.text_input(
+                "Ask about your campaigns...",
+                key="ai_widget_input",
+                placeholder="e.g., Which campaigns should I scale?",
+                label_visibility="collapsed"
+            )
+            
+            if user_input:
+                # Add user message
+                st.session_state.ai_widget_chat.append({'role': 'user', 'content': user_input})
+                
+                # Get AI response
+                try:
+                    assistant = AssistantModule()
+                    response = assistant._call_llm([
+                        {"role": "system", "content": "You are a helpful Amazon PPC strategist. Keep responses brief (2-3 sentences)."},
+                        {"role": "user", "content": user_input}
+                    ])
+                    st.session_state.ai_widget_chat.append({'role': 'assistant', 'content': response})
+                    st.rerun()
+                except Exception as e:
+                    st.error(f"AI unavailable: {str(e)[:50]}")
         
-        # If no insights, show loading state
-        if not insights:
-            content_html = '<div class="ai-widget-loading"><div class="ai-loading-spinner"></div><div style="font-size: 0.85rem;">Analyzing your data...</div></div>'
-        else:
-            content_html = insights_html
-        
-        # Render widget (HTML ONLY - no logic)
-        widget_html = f'''<div class="ai-widget-container" id="aiWidget">
-            <div class="ai-widget-header" onclick="toggleAIWidget()">
-                <div class="ai-icon">
-                    <svg viewBox="0 0 24 24">
-                        <path d="M12 2L2 7v10c0 5.55 3.84 10.74 9 12 5.16-1.26 9-6.45 9-12V7l-10-5zm0 18c-3.18-.85-6-4.5-6-9V7.89l6-3.11 6 3.11V11c0 4.5-2.82 8.15-6 9z"/>
-                        <path d="M12 6c-1.1 0-2 .9-2 2s.9 2 2 2 2-.9 2-2-.9-2-2-2zm0 9c-2.67 0-8 1.34-8 4v1h16v-1c0-2.66-5.33-4-8-4z" opacity="0.6"/>
-                    </svg>
-                </div>
-                <div style="flex: 1;">
-                    <div class="ai-widget-title">AI Insights</div>
-                    <div class="ai-widget-subtitle">{len(insights)} insights • Real-time</div>
-                </div>
-                <button class="ai-widget-toggle">
-                    <svg viewBox="0 0 24 24" fill="currentColor">
-                        <path d="M7 10l5 5 5-5z"/>
-                    </svg>
-                </button>
-            </div>
-            <div class="ai-widget-content">{content_html}</div>
-        </div>
-        <script>
-        function toggleAIWidget() {{
-            const widget = document.getElementById('aiWidget');
-            widget.classList.toggle('collapsed');
-        }}
-        </script>'''
-        
-        st.markdown(widget_html, unsafe_allow_html=True)
+        st.markdown('</div>', unsafe_allow_html=True)
     
     def _hex_to_rgba(self, hex_code: str, opacity: float) -> str:
         """Convert hex color to rgba string."""
@@ -609,32 +694,9 @@ class ExecutiveDashboard:
             with st.container(border=True):
                 self._render_spend_breakdown(data)
         
-        # === RENDER AI WIDGET (AESTHETIC ONLY) ===
-        # TODO: Replace with real AI insights once backend is ready
-        mock_insights = [
-            {
-                'type': 'success',
-                'label': 'OPPORTUNITY DETECTED',
-                'text': 'Campaign "Best Sellers" has ROAS 4.2x with 60% impression share. Scale opportunity: +$2.3K/week.'
-            },
-            {
-                'type': 'warning',
-                'label': 'BLEEDING DETECTED',
-                'text': '12 targets in "Brand Defense" spent $340 with 0 orders in last 7 days. Recommend pause.'
-            },
-            {
-                'type': 'danger',
-                'label': 'CRITICAL ALERT',
-                'text': 'Daily budget hit at 11 AM for 3 consecutive days. Missing 8 hours of high-intent traffic.'
-            },
-            {
-                'type': 'info',
-                'label': 'MARKET INSIGHT',
-                'text': 'CVR increased 18% week-over-week. Likely seasonal lift detected.'
-            }
-        ]
-        
-        self.render_ai_widget(mock_insights)
+        # === RENDER AI WIDGET ===
+        # Collapsible widget with real insights + chat
+        self.render_ai_widget()
     
     def _fetch_data(self) -> Optional[Dict[str, Any]]:
         """Fetch all data."""
