@@ -114,24 +114,27 @@ def render_home():
     from features.impact_dashboard import get_recent_impact_summary
     st.markdown("""
         <style>
-        /* Specific card targeting via markers */
-        /* Premium Card Styling (Cockpit) */
+        /* Premium Cards */
         [data-testid="stColumn"]:has(.cockpit-marker) > div {
             background: linear-gradient(135deg, rgba(30, 41, 59, 0.95) 0%, rgba(15, 23, 42, 0.95) 100%);
             backdrop-filter: blur(10px);
             border: 1px solid rgba(148, 163, 184, 0.15);
             border-radius: 16px;
             padding: 24px;
-            box-shadow: 0 4px 16px rgba(0, 0, 0, 0.3), inset 0 1px 0 rgba(255, 255, 255, 0.05);
+            box-shadow: 
+                0 4px 16px rgba(0, 0, 0, 0.3),
+                0 0 0 1px rgba(255, 255, 255, 0.05) inset;
             transition: all 0.3s ease;
             display: flex;
             flex-direction: column;
             min-height: 220px;
         }
-
+        
         [data-testid="stColumn"]:has(.cockpit-marker) > div:hover {
             transform: translateY(-2px);
-            box-shadow: 0 8px 24px rgba(0, 0, 0, 0.4), inset 0 1px 0 rgba(255, 255, 255, 0.08);
+            box-shadow: 
+                0 8px 24px rgba(0, 0, 0, 0.4),
+                0 0 0 1px rgba(255, 255, 255, 0.08) inset;
             border-color: rgba(6, 182, 212, 0.3);
         }
         
@@ -147,64 +150,93 @@ def render_home():
             justify-content: space-between;
         }
         
-        .cockpit-value {
-            font-size: 2rem;
-            font-weight: 800;
-            color: var(--text-color);
-            margin: 0;
-            line-height: 1.2;
-        }
-        
-        .drama-text {
-            font-size: 3rem;
-            font-weight: 800;
-            color: #22d3ee;
-            text-shadow: 0 0 20px rgba(6, 182, 212, 0.3);
-            line-height: 1.1;
-        }
-        
         .cockpit-subtext {
             font-size: 0.8rem;
             color: #94a3b8;
             margin-top: 4px;
         }
-
-        /* Insight Tiles (Card Upgrade) */
-        .insight-tile {
-            background: rgba(30, 41, 59, 0.6);
-            border-left: 3px solid transparent;
-            border-radius: 8px;
-            padding: 16px;
-            transition: all 0.2s ease;
-            display: flex;
-            align-items: center;
-            gap: 12px;
-            width: 100%;
-        }
-
-        .insight-tile:hover {
-            background: rgba(30, 41, 59, 0.8);
-            border-left-color: #06B6D4;
-            transform: translateX(4px);
+        
+        /* Key Insights Cards */
+        .insight-card {
+            background: linear-gradient(135deg, rgba(30, 41, 59, 0.6) 0%, rgba(15, 23, 42, 0.6) 100%);
+            backdrop-filter: blur(8px);
+            border-radius: 12px;
+            padding: 18px 20px !important;
+            transition: all 0.25s ease;
+            box-shadow: 0 2px 8px rgba(0, 0, 0, 0.2);
+            margin-bottom: 10px;
         }
         
-        /* Insight border coloring helpers */
-        .insight-tile[data-type="success"] { border-left-color: #10B981; }
-        .insight-tile[data-type="warning"] { border-left-color: #F59E0B; }
-        .insight-tile[data-type="info"] { border-left-color: #06B6D4; }
+        .insight-card:hover {
+            transform: translateX(4px) translateY(-2px);
+            box-shadow: 0 6px 16px rgba(0, 0, 0, 0.3);
+        }
         
+        /* Key Insights - Type Colors */
+        [data-testid="column"]:has(.insight-positive), [data-testid="stColumn"]:has(.insight-positive) {
+            border-left: 3px solid #10B981 !important;
+        }
+
+        [data-testid="column"]:has(.insight-positive):hover, [data-testid="stColumn"]:has(.insight-positive):hover {
+            box-shadow: 
+                0 6px 16px rgba(0, 0, 0, 0.3),
+                -3px 0 12px rgba(16, 185, 129, 0.3) !important;
+        }
+
+        [data-testid="column"]:has(.insight-warning), [data-testid="stColumn"]:has(.insight-warning) {
+            border-left: 3px solid #F59E0B !important;
+        }
+
+        [data-testid="column"]:has(.insight-warning):hover, [data-testid="stColumn"]:has(.insight-warning):hover {
+            box-shadow: 
+                0 6px 16px rgba(0, 0, 0, 0.3),
+                -3px 0 12px rgba(245, 158, 11, 0.3) !important;
+        }
+
+        [data-testid="column"]:has(.insight-info), [data-testid="stColumn"]:has(.insight-info) {
+            border-left: 3px solid #06B6D4 !important;
+        }
+
+        /* Icon glow */
         .insight-icon {
-            font-size: 1.1rem;
-            min-width: 36px;
-            height: 36px;
-            display: flex;
+            width: 40px;
+            height: 40px;
+            border-radius: 10px;
+            display: inline-flex;
             align-items: center;
             justify-content: center;
-            background: white;
-            border-radius: 6px;
-            box-shadow: 0 2px 4px rgba(0,0,0,0.05);
+            font-size: 1.2rem;
+            margin-right: 12px;
+            background: rgba(255,255,255,0.05); /* fallback */
         }
-        [data-theme="dark"] .insight-icon { background: #0f172a; }
+
+        .insight-positive .insight-icon {
+            background: rgba(16, 185, 129, 0.15);
+            color: #10B981;
+            box-shadow: 0 0 12px rgba(16, 185, 129, 0.2);
+        }
+
+        .insight-warning .insight-icon {
+            background: rgba(245, 158, 11, 0.15);
+            color: #F59E0B;
+            box-shadow: 0 0 12px rgba(245, 158, 11, 0.2);
+        }
+
+        .insight-info .insight-icon {
+            background: rgba(6, 182, 212, 0.15);
+            color: #06B6D4;
+            box-shadow: 0 0 12px rgba(6, 182, 212, 0.2);
+        }
+        
+        /* Smooth page load */
+        [data-testid="stVerticalBlock"] > div {
+            animation: fadeIn 0.5s ease-out;
+        }
+        
+        @keyframes fadeIn {
+            from { opacity: 0; transform: translateY(10px); }
+            to { opacity: 1; transform: translateY(0); }
+        }
         
         /* Fix for plotly height adjustment */
         .js-plotly-plot { margin-top: -30px; }
@@ -214,8 +246,21 @@ def render_home():
         </style>
     """, unsafe_allow_html=True)
 
-    st.markdown('<h2 style="font-family: Inter, sans-serif; font-weight: 700; letter-spacing: 0.02em; background: linear-gradient(135deg, #F5F5F7 0%, #22D3EE 100%); -webkit-background-clip: text; -webkit-text-fill-color: transparent; font-size: 2rem;">DECISION COCKPIT</h2>', unsafe_allow_html=True)
-    st.caption("Strategic overview of your account performance")
+    st.markdown("""
+    <h1 style="
+        background: linear-gradient(135deg, #F5F5F7 0%, #22D3EE 100%);
+        -webkit-background-clip: text;
+        -webkit-text-fill-color: transparent;
+        font-size: 2rem;
+        font-weight: 700;
+        margin-bottom: 8px;
+    ">
+        DECISION COCKPIT
+    </h1>
+    <p style="color: #94a3b8; font-size: 0.95rem; margin-bottom: 24px;">
+        Strategic overview of your account performance
+    </p>
+    """, unsafe_allow_html=True)
     st.markdown("<br>", unsafe_allow_html=True)
 
     t1, t2, t3 = st.columns(3)
@@ -314,9 +359,23 @@ def render_home():
             from utils.formatters import get_account_currency
             home_currency = get_account_currency()
             st.markdown('<div style="flex-grow:1; display:flex; flex-direction:column; justify-content:center;">', unsafe_allow_html=True)
-            st.markdown(f'<div class="drama-text" style="text-align:center;">{f"+{home_currency}{impact:,.0f}" if impact >= 0 else f"-{home_currency}{abs(impact):,.0f}"}</div>', unsafe_allow_html=True)
-            st.markdown('<div class="cockpit-subtext" style="text-align:center;">Net Change Last 14 Days</div>', unsafe_allow_html=True)
-            st.markdown('</div>', unsafe_allow_html=True)
+            st.markdown(f"""
+            <div style="text-align: center; padding: 32px 0;">
+                <div style="
+                    color: #06B6D4;
+                    font-size: 3.2rem;
+                    font-weight: 800;
+                    text-shadow: 0 0 24px rgba(6, 182, 212, 0.4);
+                    margin-bottom: 8px;
+                    letter-spacing: -1px;
+                ">
+                    {f"+{home_currency}{impact:,.0f}" if impact >= 0 else f"-{home_currency}{abs(impact):,.0f}"}
+                </div>
+                <div style="color: #94a3b8; font-size: 0.85rem; text-transform: uppercase; letter-spacing: 1px;">
+                    Net Change Last 14 Days
+                </div>
+            </div>
+            """, unsafe_allow_html=True)
             
             # Bottom row callouts - at absolute bottom
             action_display = ""
@@ -411,7 +470,19 @@ def render_home():
             st.rerun()
 
     st.markdown("<br><br>", unsafe_allow_html=True)
-    st.markdown("### KEY INSIGHTS")
+    st.markdown("""
+    <div style="
+        background: linear-gradient(90deg, rgba(30, 41, 59, 0.6) 0%, rgba(30, 41, 59, 0.2) 100%);
+        border-left: 3px solid #06B6D4;
+        border-radius: 8px;
+        padding: 12px 20px;
+        margin: 32px 0 20px 0;
+    ">
+        <h2 style="color: #F5F5F7; font-size: 1.3rem; font-weight: 700; margin: 0;">
+            KEY INSIGHTS
+        </h2>
+    </div>
+    """, unsafe_allow_html=True)
     
     # ========================================
     # COMPUTE 6 KEY INSIGHTS
@@ -673,28 +744,37 @@ def render_home():
     
     # Row 1
     i1, i2, i3 = st.columns(3)
-    with i1:
-        icon = get_insight_icon(insights[0]["icon_type"])
-        tooltip = insights[0].get("tooltip", "")
-        st.markdown(f'<div class="insight-tile" title="{tooltip}"><div class="insight-icon">{icon}</div><div><div style="font-weight:700; font-size:1.1rem">{insights[0]["title"]}</div><div style="font-size:0.85rem; color:#94a3b8">{insights[0]["subtitle"]}</div></div></div>', unsafe_allow_html=True)
-    with i2:
-        icon = get_insight_icon(insights[1]["icon_type"])
-        tooltip = insights[1].get("tooltip", "")
-        st.markdown(f'<div class="insight-tile" title="{tooltip}"><div class="insight-icon">{icon}</div><div><div style="font-weight:700; font-size:1.1rem">{insights[1]["title"]}</div><div style="font-size:0.85rem; color:#94a3b8">{insights[1]["subtitle"]}</div></div></div>', unsafe_allow_html=True)
-    with i3:
-        icon = get_insight_icon(insights[2]["icon_type"])
-        tooltip = insights[2].get("tooltip", "")
-        st.markdown(f'<div class="insight-tile" title="{tooltip}"><div class="insight-icon">{icon}</div><div><div style="font-weight:700; font-size:1.1rem">{insights[2]["title"]}</div><div style="font-size:0.85rem; color:#94a3b8">{insights[2]["subtitle"]}</div></div></div>', unsafe_allow_html=True)
     
-    # Row 2 (with spacing) - aligned with Row 1, 3rd spot empty
+    def render_premium_insight(col, insight):
+        with col:
+            # Map icon type to class
+            cls_map = {"success": "insight-positive", "warning": "insight-warning", "info": "insight-info", "note": "insight-info"}
+            cls_ = cls_map.get(insight.get("icon_type", "info"), "insight-info")
+            
+            # Icon symbol
+            icon_char = "✓" if cls_ == "insight-positive" else "!" if cls_ == "insight-warning" else "i"
+            
+            tooltip = insight.get("tooltip", "")
+            
+            st.markdown(f'''
+            <div class="{cls_} insight-card" title="{tooltip}">
+                <div style="display:flex; align-items:center;">
+                    <div class="insight-icon">{icon_char}</div>
+                    <div>
+                        <div style="font-weight:700; font-size:1.05rem; color:#f1f5f9;">{insight["title"]}</div>
+                        <div style="font-size:0.85rem; color:#94a3b8;">{insight["subtitle"]}</div>
+                    </div>
+                </div>
+            </div>
+            ''', unsafe_allow_html=True)
+
+    render_premium_insight(i1, insights[0])
+    render_premium_insight(i2, insights[1])
+    render_premium_insight(i3, insights[2])
+    
+    # Row 2 (with spacing)
     st.markdown("<div style='margin-top: 16px;'></div>", unsafe_allow_html=True)
     i4, i5, i6 = st.columns(3)
-    with i4:
-        icon = get_insight_icon(insights[3]["icon_type"])
-        tooltip = insights[3].get("tooltip", "")
-        st.markdown(f'<div class="insight-tile" title="{tooltip}"><div class="insight-icon">{icon}</div><div><div style="font-weight:700; font-size:1.1rem">{insights[3]["title"]}</div><div style="font-size:0.85rem; color:#94a3b8">{insights[3]["subtitle"]}</div></div></div>', unsafe_allow_html=True)
-    with i5:
-        icon = get_insight_icon(insights[4]["icon_type"])
-        tooltip = insights[4].get("tooltip", "")
-        st.markdown(f'<div class="insight-tile" title="{tooltip}"><div class="insight-icon">{icon}</div><div><div style="font-weight:700; font-size:1.1rem">{insights[4]["title"]}</div><div style="font-size:0.85rem; color:#94a3b8">{insights[4]["subtitle"]}</div></div></div>', unsafe_allow_html=True)
+    render_premium_insight(i4, insights[3])
+    render_premium_insight(i5, insights[4])
     # i6 intentionally left empty
