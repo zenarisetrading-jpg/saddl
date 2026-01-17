@@ -2023,7 +2023,88 @@ class OptimizerModule(BaseFeature):
                 st.session_state[key] = default
     
     def render_ui(self):
-        self.render_header("PPC Optimizer", "optimizer")
+        # Premium Global CSS Injection
+        st.markdown("""
+        <style>
+            /* Premium Tab Styling */
+            .stTabs [data-baseweb="tab-list"] {
+                gap: 24px;
+                background-color: transparent;
+                border-bottom: 1px solid rgba(255, 255, 255, 0.05);
+                padding-bottom: 0px;
+            }
+            .stTabs [data-baseweb="tab"] {
+                height: 50px;
+                white-space: pre-wrap;
+                background-color: transparent;
+                border-radius: 4px 4px 0px 0px;
+                gap: 0px;
+                padding-top: 10px;
+                padding-bottom: 10px;
+                border-bottom: 2px solid transparent;
+                color: #8F8CA3;
+                font-weight: 500;
+                transition: color 0.2s ease;
+            }
+            .stTabs [data-baseweb="tab"]:hover {
+                color: #B6B4C2;
+            }
+            .stTabs [aria-selected="true"] {
+                background-color: transparent;
+                border-bottom: 2px solid #7C3AED;
+                color: #F5F5F7;
+                font-weight: 600;
+            }
+            
+            /* Glassmorphic Metric Containers - INTENSIFIED */
+            div[data-testid="metric-container"], .custom-metric-card {
+                background: rgba(255, 255, 255, 0.05) !important;
+                border: 1px solid rgba(255, 255, 255, 0.1) !important;
+                border-radius: 12px !important;
+                padding: 16px !important;
+                box-shadow: 0 4px 16px rgba(0, 0, 0, 0.2) !important;
+                backdrop-filter: blur(16px) !important;
+                -webkit-backdrop-filter: blur(16px) !important;
+                transition: transform 0.2s ease, border-color 0.2s ease, box-shadow 0.2s ease !important;
+            }
+            div[data-testid="metric-container"]:hover, .custom-metric-card:hover {
+                transform: translateY(-2px) !important;
+                border-color: rgba(124, 58, 237, 0.5) !important;
+                box-shadow: 0 8px 24px rgba(124, 58, 237, 0.2) !important;
+            }
+            div[data-testid="metric-container"] label {
+                color: #8F8CA3 !important;
+                font-size: 0.85rem !important;
+            }
+            div[data-testid="metric-container"] div[data-testid="stMetricValue"] {
+                color: #F5F5F7 !important;
+                font-weight: 600 !important;
+            }
+        </style>
+        """, unsafe_allow_html=True)
+
+        # Custom Premium Header
+        header_icon = """<svg xmlns="http://www.w3.org/2000/svg" width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="url(#wine-gradient)" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+            <defs>
+                <linearGradient id="wine-gradient" x1="0%" y1="0%" x2="100%" y2="100%">
+                    <stop offset="0%" stop-color="#7C3AED" />
+                    <stop offset="100%" stop-color="#5B21B6" />
+                </linearGradient>
+            </defs>
+            <polyline points="22 12 18 12 15 21 9 3 6 12 2 12"></polyline>
+        </svg>"""
+        
+        st.markdown(f"""
+        <div style="display: flex; align-items: center; margin-bottom: 32px;">
+            <div style="background: linear-gradient(135deg, rgba(124, 58, 237, 0.1) 0%, rgba(91, 33, 182, 0.1) 100%); padding: 12px; border-radius: 12px; border: 1px solid rgba(124, 58, 237, 0.2); margin-right: 16px; box-shadow: 0 4px 12px rgba(0,0,0,0.1);">
+                {header_icon}
+            </div>
+            <div>
+                <h1 style="font-size: 1.8rem; font-weight: 700; margin: 0; background: linear-gradient(90deg, #F5F5F7 0%, #B6B4C2 100%); -webkit-background-clip: text; -webkit-text-fill-color: transparent; letter-spacing: -0.02em;">Optimization Engine</h1>
+                <p style="color: #8F8CA3; margin: 4px 0 0 0; font-size: 0.95rem; font-weight: 400;">AI-Driven Bid Management & Harvest Intelligence</p>
+            </div>
+        </div>
+        """, unsafe_allow_html=True)
         hub = DataHub()
         if not hub.is_loaded("search_term_report"):
             st.warning("⚠️ Please upload a Search Term Report first.")

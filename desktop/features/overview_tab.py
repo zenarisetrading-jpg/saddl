@@ -26,16 +26,20 @@ def render_overview_tab(results: Dict) -> None:
     overview_icon = f'<svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="{icon_color}" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="vertical-align: middle; margin-right: 8px;"><rect width="18" height="18" x="3" y="3" rx="2"/><path d="M7 12v5"/><path d="M12 9v8"/><path d="M17 11v6"/></svg>'
     
     st.markdown(f"""
-    <div style="background: linear-gradient(135deg, rgba(91, 85, 111, 0.1) 0%, rgba(91, 85, 111, 0.05) 100%); 
-                border: 1px solid rgba(124, 58, 237, 0.2); 
-                border-radius: 8px; 
-                padding: 12px 16px; 
-                margin-bottom: 20px;
-                display: flex; 
-                align-items: center; 
-                gap: 10px;">
+    <div style="background: linear-gradient(135deg, rgba(124, 58, 237, 0.05) 0%, rgba(91, 33, 182, 0.05) 100%);
+                border: 1px solid rgba(124, 58, 237, 0.1);
+                border-radius: 12px;
+                padding: 16px 20px;
+                margin-bottom: 24px;
+                display: flex;
+                align-items: center;
+                gap: 12px;
+                box-shadow: 0 4px 12px rgba(0,0,0,0.05);">
         {overview_icon}
-        <span style="color: #F5F5F7; font-size: 1rem; font-weight: 700; text-transform: uppercase; letter-spacing: 1px;">Optimization Overview</span>
+        <div>
+            <span style="color: #F5F5F7; font-size: 1.1rem; font-weight: 700; letter-spacing: 0.5px; display: block;">Optimization Overview</span>
+            <span style="color: #8F8CA3; font-size: 0.85rem; font-weight: 400;">Performance snapshot & recommended actions</span>
+        </div>
     </div>
     """, unsafe_allow_html=True)
     
@@ -70,8 +74,15 @@ def render_overview_tab(results: Dict) -> None:
         summary = simulation.get('summary', {})
         
         st.markdown("""
-        <div style="background: rgba(91, 85, 111, 0.05); border-left: 4px solid #5B556F; padding: 12px 20px; border-radius: 0 8px 8px 0; margin-bottom: 20px;">
-            <p style="color: #B6B4C2; font-size: 0.9rem; margin: 0;">
+        <div style="background: rgba(255, 255, 255, 0.03); 
+                    border: 1px solid rgba(255, 255, 255, 0.05); 
+                    border-left: 4px solid #7C3AED; 
+                    padding: 16px 24px; 
+                    border-radius: 8px; 
+                    margin-bottom: 24px;
+                    backdrop-filter: blur(10px);">
+            <p style="color: #B6B4C2; font-size: 0.95rem; margin: 0; display: flex; align-items: center; gap: 8px;">
+                <span>📈</span>
                 <strong>Projected Impact</strong>: Based on historical performance and bid elasticity modeling
             </p>
         </div>
@@ -117,14 +128,37 @@ def render_overview_tab(results: Dict) -> None:
     
     qa1, qa2, qa3 = st.columns(3)
     
+    def render_card(icon, title, subtitle, border_color="#7C3AED"):
+        st.markdown(f"""
+        <div class="custom-metric-card" style="background: linear-gradient(135deg, rgba(255, 255, 255, 0.03) 0%, rgba(255, 255, 255, 0.01) 100%);
+                    border: 1px solid rgba(255, 255, 255, 0.05);
+                    border-radius: 12px;
+                    padding: 20px;
+                    height: 100%;
+                    position: relative;
+                    overflow: hidden;">
+            <div style="position: absolute; top: 0; left: 0; width: 4px; height: 100%; background: {border_color}; opacity: 0.8;"></div>
+            <div style="font-size: 1.8rem; margin-bottom: 12px;">{icon}</div>
+            <div style="font-weight: 700; font-size: 1.1rem; color: #F5F5F7; margin-bottom: 6px;">{title}</div>
+            <div style="font-size: 0.85rem; color: #8F8CA3; line-height: 1.4;">{subtitle}</div>
+        </div>
+        """, unsafe_allow_html=True)
+
     with qa1:
         if total_negatives > 0:
-            st.info(f"🛡️ **{total_negatives}** negatives identified - Review in Defence tab")
-    
+            render_card("🛡️", f"{total_negatives} Negatives", "Identified for removal to preserve budget. Review in Defence tab.", "#EF4444")
+        else:
+             render_card("🛡️", "No Negatives", "Your defence is optimized.", "#10B981")
+
+
     with qa2:
         if total_bids > 0:
-            st.info(f"📊 **{total_bids}** bid adjustments ready - Review in Bids tab")
+            render_card("📊", f"{total_bids} Bid Updates", "Adjustments ready to optimize spend efficiency. Review in Bids tab.", "#3B82F6")
+        else:
+             render_card("📊", "Bids Optimized", "No bid changes recommended.", "#10B981")
     
     with qa3:
         if total_harvests > 0:
-            st.info(f"🌱 **{total_harvests}** harvest candidates - Review in Harvest tab")
+            render_card("🌱", f"{total_harvests} Harvests", "New high-performing targets found. Review in Harvest tab.", "#10B981")
+        else:
+             render_card("🌱", "No Harvests", "No new harvest candidates found.", "#8F8CA3")

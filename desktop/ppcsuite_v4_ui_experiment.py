@@ -145,36 +145,33 @@ def run_performance_hub():
     """, unsafe_allow_html=True)
     
     if 'active_perf_tab' not in st.session_state:
-        st.session_state['active_perf_tab'] = "Account Health"
+        st.session_state['active_perf_tab'] = "Executive Dashboard"
         
-    c1, c2, c3 = st.columns(3)
+    c1, c2 = st.columns(2)
     with c1:
-        is_active = st.session_state['active_perf_tab'] == "Account Health"
-        if st.button("🛡️ ACCOUNT HEALTH", key="btn_tab_report", use_container_width=True, type="primary" if is_active else "secondary"):
-            st.session_state['active_perf_tab'] = "Account Health"
-            st.rerun()
-    with c2:
-        is_active = st.session_state['active_perf_tab'] == "Performance Overview"
-        if st.button("🧭 PERFORMANCE OVERVIEW", key="btn_tab_perf", use_container_width=True, type="primary" if is_active else "secondary"):
-            st.session_state['active_perf_tab'] = "Performance Overview"
-            st.rerun()
-    with c3:
         is_active = st.session_state['active_perf_tab'] == "Executive Dashboard"
         if st.button("📊 EXECUTIVE DASHBOARD", key="btn_tab_exec", use_container_width=True, type="primary" if is_active else "secondary"):
             st.session_state['active_perf_tab'] = "Executive Dashboard"
             st.rerun()
+    with c2:
+        is_active = st.session_state['active_perf_tab'] == "Account Health"
+        if st.button("🛡️ ACCOUNT HEALTH", key="btn_tab_report", use_container_width=True, type="primary" if is_active else "secondary"):
+            st.session_state['active_perf_tab'] = "Account Health"
+            st.rerun()
             
     st.markdown("<br>", unsafe_allow_html=True)
     
-    if st.session_state['active_perf_tab'] == "Account Health":
-        from features.report_card import ReportCardModule
-        ReportCardModule().run()
-    elif st.session_state['active_perf_tab'] == "Executive Dashboard":
+    if st.session_state['active_perf_tab'] == "Executive Dashboard":
         from features.executive_dashboard import ExecutiveDashboard
         ExecutiveDashboard().run()
+    elif st.session_state['active_perf_tab'] == "Account Health":
+        from features.report_card import ReportCardModule
+        ReportCardModule().run()
     else:
-        from features.performance_snapshot import PerformanceSnapshotModule
-        PerformanceSnapshotModule().run()
+        # Default fallback
+        from features.executive_dashboard import ExecutiveDashboard
+        ExecutiveDashboard().run()
+
 
 # ==========================================
 # CONSOLIDATED V4 OPTIMIZER
@@ -354,100 +351,101 @@ def run_consolidated_optimizer():
         if not st.session_state.get("run_optimizer"):
             ts_info = f" • STR Upload: {upload_ts.strftime('%H:%M')}" if upload_ts else ""
             
-            # Consistent icons for baseline metrics
-            icon_color = "#8F8CA3"
-            rows_icon = f'<svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="{icon_color}" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="vertical-align: middle; margin-right: 6px;"><path d="M21 16V8a2 2 0 0 0-1-1.73l-7-4a2 2 0 0 0-2 0l-7 4A2 2 0 0 0 3 8v8a2 2 0 0 0 1 1.73l7 4a2 2 0 0 0 2 0l7-4A2 2 0 0 0 21 16z"></path><polyline points="3.27 6.96 12 12.01 20.73 6.96"></polyline><line x1="12" y1="22.08" x2="12" y2="12"></line></svg>'
-            spend_icon = f'<svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="{icon_color}" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="vertical-align: middle; margin-right: 6px;"><line x1="12" y1="1" x2="12" y2="23"></line><path d="M17 5H9.5a3.5 3.5 0 0 0 0 7h5a3.5 3.5 0 0 1 0 7H6"></path></svg>'
-            roas_icon = f'<svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="{icon_color}" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="vertical-align: middle; margin-right: 6px;"><polyline points="23 6 13.5 15.5 8.5 10.5 1 18"></polyline><polyline points="17 6 23 6 23 12"></polyline></svg>'
-            acos_icon = f'<svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="{icon_color}" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="vertical-align: middle; margin-right: 6px;"><circle cx="12" cy="12" r="10"></circle><circle cx="12" cy="12" r="6"></circle><circle cx="12" cy="12" r="2"></circle></svg>'
+            # Premium Component-based Rendering using metric_card
+            from ui.components import metric_card
             
-            # Shared styling for Section 1 (Flatter, Background feel)
-            context_tile_style = """
-                background: rgba(143, 140, 163, 0.05);
-                border: 1px solid rgba(143, 140, 163, 0.1);
-                border-radius: 8px;
-                padding: 12px;
-                text-align: center;
-            """
-            context_label_style = "color: #8F8CA3; font-size: 0.7rem; text-transform: uppercase; font-weight: 500; letter-spacing: 0.5px; margin-bottom: 4px;"
-            context_value_style = "color: #B6B4C2; font-size: 1.1rem; font-weight: 600;"
-
             st.markdown(f"""
-            <div style="background: rgba(143, 140, 163, 0.02); border: 1px solid rgba(143, 140, 163, 0.05); border-radius: 12px; padding: 20px; margin-bottom: 40px; margin-top: 10px;">
-                <div style="color: #8F8CA3; font-size: 0.8rem; margin-bottom: 16px; opacity: 0.8; padding-left: 4px; text-transform: uppercase; letter-spacing: 1px;">
-                    Analyzing <strong>{start_date.strftime('%b %d')} – {end_date.strftime('%b %d, %Y')}</strong> ({days_selected} days){ts_info}
-                </div>
-                <div style="display: grid; grid-template-columns: repeat(4, 1fr); gap: 12px;">
-                    <div style="{context_tile_style}">
-                        <div style="{context_label_style}">{rows_icon}Rows</div>
-                        <div style="{context_value_style}">{total_rows:,}</div>
-                    </div>
-                    <div style="{context_tile_style}">
-                        <div style="{context_label_style}">{spend_icon}Total Spend</div>
-                        <div style="{context_value_style}">{format_currency(total_spend)}</div>
-                    </div>
-                    <div style="{context_tile_style}">
-                        <div style="{context_label_style}">{roas_icon}ROAS</div>
-                        <div style="{context_value_style}">{roas:.2f}x</div>
-                    </div>
-                    <div style="{context_tile_style}">
-                        <div style="{context_label_style}">{acos_icon}ACoS</div>
-                        <div style="{context_value_style}">{acos:.1f}%</div>
-                    </div>
-                </div>
+            <div style="margin-bottom: 24px; color: #8F8CA3; font-size: 0.8rem; text-transform: uppercase; letter-spacing: 1px; font-weight: 500;">
+                Analyzing Data: <span style="color: #F5F5F7; font-weight: 600;">{start_date.strftime('%b %d')} – {end_date.strftime('%b %d, %Y')}</span> • {days_selected} days {ts_info}
             </div>
             """, unsafe_allow_html=True)
+            
+            c1, c2, c3, c4 = st.columns(4)
+            with c1: metric_card("Rows", f"{total_rows:,}", icon_name="layers")
+            with c2: metric_card("Total Spend", format_currency(total_spend), icon_name="spend")
+            with c3: metric_card("ROAS", f"{roas:.2f}x", icon_name="roas")
+            with c4: metric_card("ACoS", f"{acos:.1f}%", icon_name="acos")
+            
+            st.markdown("<div style='margin-bottom: 40px;'></div>", unsafe_allow_html=True)
         
     # 1. Configuration - render in main panel BEFORE run, sidebar AFTER run
     opt = OptimizerModule()
     
     if not st.session_state.get("run_optimizer"):
         # === PRE-RUN STATE: PRIMARY ACTION PANEL ===
-        st.subheader("Ready to optimize")
-        
-        st.markdown(
-            "The system will adjust bids, add negatives, and harvest high-performing terms "
-            "based on current account performance."
-        )
+        # Premium Gradient Header
+        st.markdown("""
+        <div style="margin-bottom: 20px;">
+            <h2 style="font-size: 1.8rem; font-weight: 700; background: linear-gradient(90deg, #F5F5F7 0%, #B6B4C2 100%); -webkit-background-clip: text; -webkit-text-fill-color: transparent; margin: 0;">Ready to optimize</h2>
+            <p style="color: #94A3B8; margin-top: 8px; font-size: 1rem;">The system will adjust bids, add negatives, and harvest high-performing terms based on account performance.</p>
+        </div>
+        """, unsafe_allow_html=True)
         
         # Brand purple/wine palette: #5B556F (Wine/Slate Purple)
         st.markdown("""
         <style>
-        /* Primary CTA Button - Brand Wine */
+        /* Glassmorphic Metric Cards */
+        .custom-metric-card {
+            background: rgba(255, 255, 255, 0.05) !important;
+            border: 1px solid rgba(255, 255, 255, 0.1) !important;
+            border-radius: 12px !important;
+            padding: 16px !important;
+            box-shadow: 0 4px 16px rgba(0, 0, 0, 0.2) !important;
+            backdrop-filter: blur(16px) !important;
+            -webkit-backdrop-filter: blur(16px) !important;
+            transition: transform 0.2s ease, border-color 0.2s ease, box-shadow 0.2s ease !important;
+        }
+        .custom-metric-card:hover {
+            transform: translateY(-2px) !important;
+            border-color: rgba(124, 58, 237, 0.5) !important;
+            box-shadow: 0 8px 24px rgba(124, 58, 237, 0.2) !important;
+        }
+
+        /* Primary CTA Button - Brand Wine Gradient */
         div[data-testid="stButton"] > button[kind="primary"] {
-            background: linear-gradient(135deg, #5B556F 0%, #464156 100%) !important;
-            border: none !important;
+            background: linear-gradient(135deg, #7C3AED 0%, #5B21B6 100%) !important;
+            border: 1px solid rgba(255, 255, 255, 0.1) !important;
             font-size: 1.1rem !important;
             padding: 0.75rem 2rem !important;
             color: #F5F5F7 !important;
             font-weight: 600 !important;
             letter-spacing: 0.5px !important;
-            box-shadow: 0 4px 15px rgba(0, 0, 0, 0.2) !important;
+            box-shadow: 0 4px 15px rgba(124, 58, 237, 0.3) !important;
+            border-radius: 8px !important;
         }
         div[data-testid="stButton"] > button[kind="primary"]:hover {
-            background: linear-gradient(135deg, #6A6382 0%, #5B556F 100%) !important;
+            background: linear-gradient(135deg, #8B5CF6 0%, #6D28D9 100%) !important;
             transform: translateY(-1px);
-            box-shadow: 0 6px 20px rgba(0, 0, 0, 0.25) !important;
+            box-shadow: 0 6px 20px rgba(124, 58, 237, 0.4) !important;
             color: #ffffff !important;
         }
 
         /* Slider Styling - Brand Wine */
         div[data-testid="stSlider"] div[data-baseweb="slider"] > div:first-child > div:nth-child(2) {
-            background: #5B556F !important;
+            background: #7C3AED !important;
         }
         div[data-testid="stSlider"] div[role="slider"] {
-            background-color: #5B556F !important;
+            background-color: #7C3AED !important;
             border: 2px solid #F5F5F7 !important;
         }
         div[data-testid="stSlider"] span[data-baseweb="typography"] {
-            color: #5B556F !important;
+            color: #A78BFA !important;
             font-weight: 700 !important;
         }
         </style>
         """, unsafe_allow_html=True)
         
         # === QUICK PRESETS ===
-        st.markdown("**Quick Presets**")
+        icon_color = "#8F8CA3"
+        zap_icon = f'<svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="{icon_color}" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="vertical-align: middle; margin-right: 8px;"><polygon points="13 2 3 14 12 14 11 22 21 10 12 10 13 2"></polygon></svg>'
+        
+        st.markdown(f"""
+        <div style="display: flex; align-items: center; margin-bottom: 12px; margin-top: 10px;">
+            {zap_icon}
+            <span style="font-size: 0.9rem; font-weight: 600; color: #F5F5F7; text-transform: uppercase; letter-spacing: 1px;">Quick Presets</span>
+        </div>
+        """, unsafe_allow_html=True)
+
         preset_options = ["Conservative", "Balanced", "Aggressive"]
         
         preset = st.radio(
@@ -884,16 +882,36 @@ def run_consolidated_optimizer():
         </div>
         """, unsafe_allow_html=True)
 
+        # Inject Premium CSS for metric cards
+        st.markdown("""
+        <style>
+            .custom-metric-card {
+                background: rgba(255, 255, 255, 0.05) !important;
+                border: 1px solid rgba(255, 255, 255, 0.1) !important;
+                border-radius: 12px !important;
+                padding: 16px !important;
+                box-shadow: 0 4px 16px rgba(0, 0, 0, 0.2) !important;
+                backdrop-filter: blur(16px) !important;
+                -webkit-backdrop-filter: blur(16px) !important;
+                transition: transform 0.2s ease, border-color 0.2s ease, box-shadow 0.2s ease !important;
+            }
+            .custom-metric-card:hover {
+                transform: translateY(-2px) !important;
+                border-color: rgba(124, 58, 237, 0.5) !important;
+                box-shadow: 0 8px 24px rgba(124, 58, 237, 0.2) !important;
+            }
+        </style>
+        """, unsafe_allow_html=True)
+
+        from ui.components import metric_card
+
         # Summary Tiles
         c1, c2, c3, c4 = st.columns(4)
-        tile_style = "background: linear-gradient(135deg, rgba(91, 85, 111, 0.15) 0%, rgba(91, 85, 111, 0.08) 100%); border: 1px solid rgba(91, 85, 111, 0.3); border-radius: 12px; padding: 18px; text-align: center; backdrop-filter: blur(10px); box-shadow: 0 4px 24px rgba(0,0,0,0.06); transition: all 0.3s ease;"
-        label_style = "color: #8F8CA3; font-size: 0.75rem; text-transform: uppercase; font-weight: 600; letter-spacing: 0.7px; margin-bottom: 8px;"
-        value_style = "color: #F5F5F7; font-size: 1.25rem; font-weight: 700;"
-
-        with c1: st.markdown(f'<div style="{tile_style}"><div style="{label_style}">{search_icon}Search Terms</div><div style="{value_style}">{total_search_terms:,}</div></div>', unsafe_allow_html=True)
-        with c2: st.markdown(f'<div style="{tile_style}"><div style="{label_style}">{sliders_icon}Bids</div><div style="{value_style}">{total_bid_changes}</div></div>', unsafe_allow_html=True)
-        with c3: st.markdown(f'<div style="{tile_style}"><div style="{label_style}">{shield_icon}Negatives</div><div style="{value_style}">{total_negatives}</div></div>', unsafe_allow_html=True)
-        with c4: st.markdown(f'<div style="{tile_style}"><div style="{label_style}">{leaf_icon}Harvest</div><div style="{value_style}">{total_harvests}</div></div>', unsafe_allow_html=True)
+        
+        with c1: metric_card("Search Terms", f"{total_search_terms:,}", icon_name="search")
+        with c2: metric_card("Bids", f"{total_bid_changes}", icon_name="sliders")
+        with c3: metric_card("Negatives", f"{total_negatives}", icon_name="shield")
+        with c4: metric_card("Harvest", f"{total_harvests}", icon_name="leaf")
 
         # === SAVE RUN CTA ===
         # Brand guidelines: Primary CTA uses Signal Blue (#2A8EC9)
@@ -1307,6 +1325,10 @@ def main():
         nav_button_chiclet("What If (Forecast)", sim_icon, "simulator")
         nav_button_chiclet("Impact & Results", impact_icon, "impact")
         
+        # Client Report (SVG glassmorphic icon)
+        report_icon = f'<svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="{nav_icon_color}" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="vertical-align: middle;"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"></path><polyline points="14 2 14 8 20 8"></polyline><line x1="16" y1="13" x2="8" y2="13"></line><line x1="16" y1="17" x2="8" y2="17"></line><polyline points="10 9 9 9 8 9"></polyline></svg>'
+        nav_button_chiclet("Client Report", report_icon, "client_report")
+        
         # Launch - Requires 'run_optimizer' (Creating campaigns)
         if has_permission_for_account(user, 'run_optimizer', st.session_state.get('permission_account_context')):
             nav_button_chiclet("Launch", rocket_icon, "creator")
@@ -1434,6 +1456,9 @@ def main():
     elif current == 'impact':
         from features.impact_dashboard import render_impact_dashboard
         render_impact_dashboard()
+    elif current == 'client_report':
+        from features.client_report import render_client_report
+        render_client_report()
 
     # Render Floating Chat Bubble (unless already on assistant page)
     if current != 'assistant':

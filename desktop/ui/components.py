@@ -49,7 +49,9 @@ def metric_card(label: str, value: str, icon_name: str = None, delta: str = None
             "check": f'<svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="{icon_color}" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" style="margin-right: 8px;"><polyline points="20 6 9 17 4 12"></polyline></svg>',
             "shield": f'<svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="{icon_color}" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" style="margin-right: 8px;"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"></path></svg>',
             "sliders": f'<svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="{icon_color}" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" style="margin-right: 8px;"><line x1="4" y1="21" x2="4" y2="14"></line><line x1="4" y1="10" x2="4" y2="3"></line><line x1="12" y1="21" x2="12" y2="12"></line><line x1="12" y1="8" x2="12" y2="3"></line><line x1="20" y1="21" x2="20" y2="16"></line><line x1="20" y1="12" x2="20" y2="3"></line><line x1="1" y1="14" x2="7" y2="14"></line><line x1="9" y1="8" x2="15" y2="8"></line><line x1="17" y1="16" x2="23" y2="16"></line></svg>',
-            "leaf": f'<svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="{icon_color}" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" style="margin-right: 8px;"><path d="M11 20A7 7 0 0 1 9.8 6.1C15.5 5 17 4.48 19 2c1 2 2 4.18 2 8a8 8 0 0 1-10 10Z"></path><path d="M11 20s.2-4.5 4-7"></path></svg>'
+            "leaf": f'<svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="{icon_color}" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" style="margin-right: 8px;"><path d="M11 20A7 7 0 0 1 9.8 6.1C15.5 5 17 4.48 19 2c1 2 2 4.18 2 8a8 8 0 0 1-10 10Z"></path><path d="M11 20s.2-4.5 4-7"></path></svg>',
+            "search": f'<svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="{icon_color}" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" style="margin-right: 8px;"><circle cx="11" cy="11" r="8"></circle><line x1="21" y1="21" x2="16.65" y2="16.65"></line></svg>',
+            "zap": f'<svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="{icon_color}" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" style="margin-right: 8px;"><polygon points="13 2 3 14 12 14 11 22 21 10 12 10 13 2"></polygon></svg>'
         }
         icon_html = icons.get(icon_name, "")
 
@@ -62,7 +64,7 @@ def metric_card(label: str, value: str, icon_name: str = None, delta: str = None
     border_color = "rgba(255, 255, 255, 0.05)"
     
     # Force a single-line, clean HTML string with no newlines or leading spaces
-    html = f'<div style="background-color: {bg_color}; padding: 20px 16px; border-radius: 12px; border: 1px solid {border_color}; margin-bottom: 10px; height: 100%; display: flex; flex-direction: column; align-items: center; justify-content: center; text-align: center;"><div style="color: {label_color}; font-size: 0.7rem; font-weight: 700; text-transform: uppercase; letter-spacing: 0.1em; margin-bottom: 12px; display: flex; align-items: center; justify-content: center; width: 100%;">{icon_html}{label}</div><div style="margin: 0; padding: 0; display: flex; align-items: baseline; gap: 8px; justify-content: center; width: 100%;"><span style="color: {val_color}; font-size: 1.6rem; font-weight: 800; line-height: 1;">{value}</span>{delta_html}</div>{subtitle_html}</div>'
+    html = f'<div class="custom-metric-card" style="background-color: {bg_color}; padding: 20px 16px; border-radius: 12px; border: 1px solid {border_color}; margin-bottom: 10px; height: 100%; display: flex; flex-direction: column; align-items: center; justify-content: center; text-align: center;"><div style="color: {label_color}; font-size: 0.7rem; font-weight: 700; text-transform: uppercase; letter-spacing: 0.1em; margin-bottom: 12px; display: flex; align-items: center; justify-content: center; width: 100%;">{icon_html}{label}</div><div style="margin: 0; padding: 0; display: flex; align-items: baseline; gap: 8px; justify-content: center; width: 100%;"><span style="color: {val_color}; font-size: 1.6rem; font-weight: 800; line-height: 1;">{value}</span>{delta_html}</div>{subtitle_html}</div>'
     st.markdown(html, unsafe_allow_html=True)
 
 
@@ -98,7 +100,7 @@ def metric_card_with_tooltip(label: str, value: str, tooltip: str, icon_html: st
     safe_tooltip = tooltip.replace('"', '&quot;').replace("'", "&#39;")
     
     html = f'''
-    <div style="background-color: {bg_color}; padding: 20px 16px; border-radius: 12px; border: 1px solid {border_color}; margin-bottom: 10px; height: 100%; display: flex; flex-direction: column; align-items: center; justify-content: center; text-align: center;">
+    <div class="custom-metric-card" style="background-color: {bg_color}; padding: 20px 16px; border-radius: 12px; border: 1px solid {border_color}; margin-bottom: 10px; height: 100%; display: flex; flex-direction: column; align-items: center; justify-content: center; text-align: center;">
         <div style="color: {label_color}; font-size: 0.7rem; font-weight: 700; text-transform: uppercase; letter-spacing: 0.1em; margin-bottom: 12px; display: flex; align-items: center; justify-content: center; width: 100%;">
             {icon_html}{label}
             <span title="{safe_tooltip}" style="display: inline-flex; align-items: center;">{info_icon}</span>
