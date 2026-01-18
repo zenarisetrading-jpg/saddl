@@ -111,7 +111,7 @@ class TTLCache:
         self._cache.clear()
 
 # Global cache instance
-_query_cache = TTLCache(ttl_seconds=60)
+# _query_cache = TTLCache(ttl_seconds=60)  # REMOVED: Rely on Streamlit cache
 
 def retry_on_connection_error(max_retries: int = 3, base_delay: float = 1.0):
     """Decorator for retrying database operations with exponential backoff."""
@@ -696,11 +696,12 @@ class PostgresManager:
                 for week_start in week_starts:
                     cursor.execute("""
                         INSERT INTO target_stats 
-                        (client_id, start_date, campaign_name, ad_group_name, target_text, 
+                        (client_id, start_date, end_date, campaign_name, ad_group_name, target_text, 
                          customer_search_term, match_type, spend, sales, orders, clicks, impressions)
                         SELECT 
                             client_id,
                             date_trunc('week', report_date)::date as start_date,
+                            MAX(report_date)::date as end_date,
                             campaign_name,
                             ad_group_name,
                             COALESCE(targeting, customer_search_term) as target_text,
@@ -725,6 +726,7 @@ class PostgresManager:
                         ON CONFLICT (client_id, start_date, campaign_name, ad_group_name, target_text, customer_search_term)
                         DO UPDATE SET
                             match_type = EXCLUDED.match_type,
+                            end_date = EXCLUDED.end_date,
                             spend = EXCLUDED.spend,
                             sales = EXCLUDED.sales,
                             orders = EXCLUDED.orders,
@@ -749,6 +751,27 @@ class PostgresManager:
             with conn.cursor(cursor_factory=RealDictCursor) as cursor:
                 cursor.execute("SELECT * FROM weekly_stats WHERE client_id = %s ORDER BY start_date DESC", (client_id,))
                 return cursor.fetchall()
+    
+    def get_latest_raw_data_date(self, client_id: str) -> Optional[date]:
+        """
+        Get the actual latest date from raw_search_term_data.
+        This is the TRUE latest date of uploaded data, NOT the week start_date.
+        
+        Use this for maturity calculations to avoid the week-aggregation offset.
+        E.g., if data covers Jan 12-17, this returns Jan 17
+              (not Jan 12 which is the week start_date in target_stats)
+        """
+        with self._get_connection() as conn:
+            with conn.cursor(cursor_factory=RealDictCursor) as cursor:
+                cursor.execute("""
+                    SELECT MAX(report_date) as latest_date
+                    FROM raw_search_term_data
+                    WHERE client_id = %s
+                """, (client_id,))
+                row = cursor.fetchone()
+                if row and row['latest_date']:
+                    return row['latest_date']
+        return None
 
     def get_target_stats_by_account(self, account_id: str, limit: int = 50000) -> pd.DataFrame:
         with self._get_connection() as conn:
@@ -897,6 +920,27 @@ class PostgresManager:
                     df['Date'] = pd.to_datetime(df['Date'])
                 
                 return df
+
+    def get_latest_raw_data_date(self, client_id: str) -> Optional[date]:
+        """
+        Get the absolute latest date available in the raw data.
+        Prerequisite for accurate maturity calculation on dashboards.
+        """
+        with self._get_connection() as conn:
+            with conn.cursor() as cursor:
+                # 1. Check raw search term data (primary source for new uploads)
+                cursor.execute("SELECT MAX(report_date) FROM raw_search_term_data WHERE client_id = %s", (client_id,))
+                res = cursor.fetchone()
+                if res and res[0]:
+                    return res[0]
+                
+                # 2. Check ad_group_history (legacy/fallback)
+                cursor.execute("SELECT MAX(date) FROM ad_group_history WHERE client_id = %s", (client_id,))
+                res = cursor.fetchone()
+                if res and res[0]:
+                    return res[0]
+                    
+        return None
 
     def save_category_mapping(self, df: pd.DataFrame, client_id: str):
         if df is None or df.empty: return 0
@@ -1146,16 +1190,16 @@ class PostgresManager:
     def get_all_accounts(self) -> List[tuple]:
         """Get all accounts with caching."""
         cache_key = 'all_accounts'
-        cached = _query_cache.get(cache_key)
-        if cached is not None:
-            return cached
+        # cached = _query_cache.get(cache_key)
+        # if cached is not None:
+        #     return cached
         
         with self._get_connection() as conn:
             with conn.cursor(cursor_factory=RealDictCursor) as cursor:
                 cursor.execute("SELECT account_id, account_name, account_type FROM accounts ORDER BY account_name")
                 result = [(row['account_id'], row['account_name'], row['account_type']) for row in cursor.fetchall()]
         
-        _query_cache.set(cache_key, result)
+        # _query_cache.set(cache_key, result)
         return result
 
     def get_account(self, account_id: str) -> Optional[Dict[str, Any]]:
@@ -1236,9 +1280,9 @@ class PostgresManager:
     def get_available_dates(self, client_id: str) -> List[str]:
         """Get list of unique action dates for a client with caching."""
         cache_key = f'dates_{client_id}'
-        cached = _query_cache.get(cache_key)
-        if cached is not None:
-            return cached
+        # cached = _query_cache.get(cache_key)
+        # if cached is not None:
+        #     return cached
         
         with self._get_connection() as conn:
             with conn.cursor(cursor_factory=RealDictCursor) as cursor:
@@ -1250,7 +1294,7 @@ class PostgresManager:
                 """, (client_id,))
                 result = [str(row['start_date']) for row in cursor.fetchall()]
         
-        _query_cache.set(cache_key, result)
+        # _query_cache.set(cache_key, result)
         return result
     
     @retry_on_connection_error()
@@ -1263,9 +1307,10 @@ class PostgresManager:
         - after_days: 14, 30, or 60 days (measurement horizon)
         """
         cache_key = f'impact_{client_id}_{before_days}_{after_days}'
-        cached = _query_cache.get(cache_key)
-        if cached is not None:
-            return cached
+        # Cache check removed
+        # cached = _query_cache.get(cache_key)
+        # if cached is not None:
+        #    return cached
 
         # Calculate intervals based on before_days and after_days
         after_minus_1 = after_days - 1
@@ -1412,7 +1457,7 @@ class PostgresManager:
             })
         
         if df.empty:
-            _query_cache.set(cache_key, df)
+            # _query_cache.set(cache_key, df)
             return df
             
         # ==========================================
@@ -1624,6 +1669,11 @@ class PostgresManager:
             b_sales = df.at[idx, 'before_sales']
             a_spend = df.at[idx, 'observed_after_spend']
             a_sales = df.at[idx, 'observed_after_sales']
+            
+            # Local deltas for calculation
+            delta_spend = a_spend - b_spend
+            delta_sales = a_sales - b_sales
+            
             b_clicks = df.at[idx, 'before_clicks'] if 'before_clicks' in df.columns else 0
             a_clicks = df.at[idx, 'after_clicks'] if 'after_clicks' in df.columns else 0
             
@@ -1743,6 +1793,12 @@ class PostgresManager:
                         # BID_DOWN with $0 after = SUCCESS (spend eliminated)
                         df.at[idx, 'validation_status'] = '✓ Spend Eliminated'
                         df.at[idx, 'spend_avoided'] = b_spend
+                        
+                        # Fix: Impact is Net Profit Change (Sales Lost + Spend Saved)
+                        # delta_sales is negative (lost sales), delta_spend is negative (saved spend)
+                        # Impact = delta_sales - delta_spend
+                        df.at[idx, 'impact_score'] = delta_sales - delta_spend
+                        
                         continue  # Skip rest of validation
                     else:
                         # BID_UP with $0 after = likely not implemented or target died
@@ -1856,16 +1912,50 @@ class PostgresManager:
         MIN_CLICKS_FOR_RELIABLE_SPC = 5
         low_sample_mask = df['before_clicks'] < MIN_CLICKS_FOR_RELIABLE_SPC
         
-        # Calculate reasonable SPC cap from higher-sample data
-        reliable_spc = df.loc[~low_sample_mask, 'spc_before'].dropna()
-        if len(reliable_spc) > 3:
-            spc_cap = reliable_spc.median() + 2 * reliable_spc.std()
-        else:
-            # Fallback: Use simple max of 10 AED per click (reasonable for most products)
-            spc_cap = 10.0
+        # EXTENDED GUARDRAIL: For medium confidence (5-20 clicks), apply SPC capping
+        # to prevent "lucky streak" outliers (like loose-match with 9.8 clicks, 10 ROAS)
+        # from creating impossible baselines.
+        medium_sample_mask = (df['before_clicks'] >= 5) & (df['before_clicks'] < 20)
         
-        # Apply cap to low-sample SPC values
-        df.loc[low_sample_mask, 'spc_before'] = df.loc[low_sample_mask, 'spc_before'].clip(upper=spc_cap)
+        # GUARDRAIL: Efficiency Capping (ROAS-based)
+        # ------------------------------------------
+        # Problem: Low CPC + High SPC = Massive ROAS (e.g. 0.65 CPC, 6.9 SPC -> 10.6 ROAS)
+        # When spend scales, this extrapolated efficiency creates impossible expectations.
+        # Solution: Cap implied ROAS for low-confidence (<20 clicks) targets.
+        
+        # Ensure cpc_before exists
+        if 'cpc_before' not in df.columns:
+             df['cpc_before'] = (df['before_spend'] / df['before_clicks'].replace(0, np.nan)).fillna(0)
+
+        # 1. Calculate Implied ROAS for all rows (handle div/0)
+        cpc_safe = df['cpc_before'].replace(0, np.nan)
+        df['implied_roas'] = df['spc_before'] / cpc_safe
+        
+        # 2. Calculate ROAS Cap from HIGH CONFIDENCE targets (>20 clicks)
+        # Exclude Negatives/Harvests from baseline as they skew distribution
+        high_confidence_mask = df['before_clicks'] >= 20
+        standard_mask = ~df['action_type'].isin(['NEGATIVE', 'NEGATIVE_ADD', 'HARVEST'])
+        baseline_mask = high_confidence_mask & standard_mask
+        
+        reliable_roas = df.loc[baseline_mask, 'implied_roas'].dropna()
+        reliable_roas = reliable_roas[reliable_roas < 100]  # Filter insane values
+        
+        if len(reliable_roas) > 3:
+            # Conservative cap: Median + 1*Std (Stricter to catch loose-match outliers)
+            # 2*Std yielded ~13.59 which still allowed 10.6 ROAS. 1*Std should bring it closer to ~10.
+            roas_cap = reliable_roas.median() + 1.0 * reliable_roas.std()
+        else:
+            # Fallback: Use reasonable ROAS cap (e.g. 5.0)
+            roas_cap = 5.0
+            
+        # 3. Apply cap to low-confidence targets (<20 clicks) where ROAS exceeds cap
+        cap_mask = (~high_confidence_mask) & (df['implied_roas'] > roas_cap)
+        
+        # Adjust SPC downwards to match the ROAS cap
+        # New SPC = ROAS_Cap * CPC
+        df.loc[cap_mask, 'spc_before'] = roas_cap * df.loc[cap_mask, 'cpc_before']
+        
+        # (Old SPC-only capping removed as ROAS capping is superior)
         
         # CPC calculations
         df['cpc_before'] = (
@@ -1894,6 +1984,22 @@ class PostgresManager:
             df['observed_after_sales'] - df['expected_sales']
         )
         
+        # CRITICAL FIX: For NEGATIVE and HARVEST, use the specialized impact_score 
+        # (For Negatives: Spend Saved. For Harvest: 10% attribution)
+        # Also include any 'Spend Eliminated' items (e.g. Pauses or Bid Downs that killed spend)
+        # The formula above (After - Expected) yields 0 or bad data for these types.
+        
+        # Check validation status for spend elimination (safe since status is string)
+        is_spend_eliminated = df['validation_status'].fillna('').str.contains('Spend Eliminated|Confirmed blocked', regex=True)
+        is_special_type = df['action_type'].isin(['NEGATIVE', 'NEGATIVE_ADD', 'HARVEST'])
+        
+        special_types_mask = is_special_type | is_spend_eliminated
+        
+        df.loc[special_types_mask, 'decision_impact'] = df.loc[special_types_mask, 'impact_score']
+        
+        # Ensure we don't have NaNs for these
+        df['decision_impact'] = df['decision_impact'].fillna(0)
+        
         # ==========================================
         # CRITICAL: Zero out impact for low-sample baselines
         # ==========================================
@@ -1901,7 +2007,17 @@ class PostgresManager:
         # The SPC from 1-2 clicks is statistically meaningless
         # These should NOT contribute positive or negative to total impact
         import numpy as np
-        insufficient_baseline_mask = df['before_clicks'] < MIN_CLICKS_FOR_RELIABLE_SPC
+        # Only apply low-sample filter to standard BID/PAUSE actions where SPC is used for calculation
+        # NEGATIVE/HARVEST/Spend-Eliminated use actual spend_saved/fixed logic
+        
+        # Re-using logic: match what we did for special_types_mask above
+        is_spend_eliminated_check = df['validation_status'].fillna('').str.contains('Spend Eliminated|Confirmed blocked', regex=True)
+        is_special_type_check = df['action_type'].isin(['NEGATIVE', 'NEGATIVE_ADD', 'HARVEST'])
+        exempt_mask = is_special_type_check | is_spend_eliminated_check
+        
+        standard_actions_mask = ~exempt_mask
+        
+        insufficient_baseline_mask = (df['before_clicks'] < MIN_CLICKS_FOR_RELIABLE_SPC) & standard_actions_mask
         df.loc[insufficient_baseline_mask, 'decision_impact'] = 0
         df['insufficient_baseline'] = insufficient_baseline_mask
         
@@ -1962,6 +2078,10 @@ class PostgresManager:
         # Rows with <5 clicks are already 0 impact, so weight doesn't matter there
         df['confidence_weight'] = (df['before_clicks'] / 15.0).clip(upper=1.0)
         
+        # CRITICAL FIX: Negative/Harvest validation doesn't depend on click volume for confidence
+        # If we validated it (Spend Eliminated), the impact is 100% real.
+        df.loc[special_types_mask, 'confidence_weight'] = 1.0
+        
         # Final Impact = Raw Impact * Confidence Weight
         # Does not override existing exclusions (0 * weight = 0)
         df['final_decision_impact'] = df['decision_impact'] * df['confidence_weight']
@@ -1981,7 +2101,7 @@ class PostgresManager:
         tier_choices = ['Excluded', 'Directional', 'Validated']
         df['impact_tier'] = np.select(tier_conditions, tier_choices, default='Excluded')
 
-        _query_cache.set(cache_key, df)
+        # _query_cache.set(cache_key, df)
         return df
 
     def _empty_summary(self) -> Dict[str, Any]:
@@ -2046,19 +2166,32 @@ class PostgresManager:
             # Problem: Single-click conversions create inflated SPC (e.g., 62 AED/click)
             # which causes massive negative impacts when extrapolated.
             # Solution: Cap SPC for low-sample targets to reasonable max using median + 2*std
+            # Solution: Cap SPC for low-sample targets to reasonable max using median + 2*std
             MIN_CLICKS_FOR_RELIABLE_SPC = 5
             low_sample_mask = bid_df['before_clicks'] < MIN_CLICKS_FOR_RELIABLE_SPC
             
-            # Calculate reasonable SPC cap from higher-sample data
-            reliable_spc = bid_df.loc[~low_sample_mask, 'spc_before'].dropna()
-            if len(reliable_spc) > 3:
-                spc_cap = reliable_spc.median() + 2 * reliable_spc.std()
-            else:
-                # Fallback: Use simple max of 10 AED per click (reasonable for most products)
-                spc_cap = 10.0
+            # EXTENDED GUARDRAIL: Cap medium sample (5-20 clicks) too
+            medium_sample_mask = (bid_df['before_clicks'] >= 5) & (bid_df['before_clicks'] < 20)
             
-            # Apply cap to low-sample SPC values
-            bid_df.loc[low_sample_mask, 'spc_before'] = bid_df.loc[low_sample_mask, 'spc_before'].clip(upper=spc_cap)
+            # GUARDRAIL: Efficiency Capping (ROAS-based)
+            # ------------------------------------------
+            # 1. Calculate Implied ROAS
+            cpc_safe = bid_df['cpc_before'].replace(0, np.nan)
+            bid_df['implied_roas'] = bid_df['spc_before'] / cpc_safe
+            
+            # 2. Calculate ROAS Cap from HIGH CONFIDENCE (>20 clicks)
+            high_confidence_mask = bid_df['before_clicks'] >= 20
+            reliable_roas = bid_df.loc[high_confidence_mask, 'implied_roas'].dropna()
+            reliable_roas = reliable_roas[reliable_roas < 100]
+            
+            if len(reliable_roas) > 3:
+                roas_cap = reliable_roas.median() + 2 * reliable_roas.std()
+            else:
+                roas_cap = 5.0  # Fallback reasonable cap
+                
+            # 3. Apply cap to low-confidence targets
+            cap_mask = (~high_confidence_mask) & (bid_df['implied_roas'] > roas_cap)
+            bid_df.loc[cap_mask, 'spc_before'] = roas_cap * bid_df.loc[cap_mask, 'cpc_before']
             
             # Counterfactual: Expected sales if we kept old CPC
             # Expected_Clicks = After_Spend / Before_CPC

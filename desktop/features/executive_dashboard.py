@@ -513,7 +513,7 @@ class ExecutiveDashboard:
             # get_action_impact and get_impact_summary replaced by unified cached fetcher
             
             # Use dynamic cache version to match impact_dashboard.py and force fresh fetch
-            cache_version = "v18_perf_" + str(st.session_state.get('data_upload_timestamp', 'init'))
+            cache_version = "v19_perf_" + str(st.session_state.get('data_upload_timestamp', 'init'))
             
             impact_df, impact_summary = _fetch_impact_data(
                 self.client_id,
