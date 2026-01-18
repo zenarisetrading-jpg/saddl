@@ -106,6 +106,10 @@ class ImpactMetrics:
         # === Step 2: Determine impact column ===
         impact_col = 'final_decision_impact' if 'final_decision_impact' in working_df.columns else 'decision_impact'
         
+        # DEBUG: Trace column selection
+        print(f"[ImpactMetrics] Columns available: {list(working_df.columns)}")
+        print(f"[ImpactMetrics] Selected Impact Col: {impact_col}")
+        
         # === Step 3: Calculate breakdown by market_tag ===
         # Market tags: 'Offensive Win', 'Defensive Win', 'Gap', 'Market Drag'
         offensive_mask = working_df['market_tag'] == 'Offensive Win'

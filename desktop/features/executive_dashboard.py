@@ -16,7 +16,215 @@ from features.impact_metrics import ImpactMetrics
 from features.report_card import get_account_health_score
 from features.constants import classify_match_type
 from ui.theme import ThemeManager
-from features.impact_dashboard import get_maturity_status
+
+from features.impact_dashboard import get_maturity_status, _fetch_impact_data
+
+
+
+
+
+
+def create_revenue_timeline_figure(
+    df_current: pd.DataFrame, 
+    impact_df: pd.DataFrame, 
+    currency: str = 'INR ',
+    for_export: bool = False
+) -> Optional['go.Figure']:
+    """
+    Create Revenue Trend with Decision Markers - reusable by dashboard and client report.
+    
+    Args:
+        df_current: DataFrame with Date and Sales columns (daily data)
+        impact_df: DataFrame with action_impact data
+        currency: Currency symbol/prefix
+        for_export: If True, uses solid background for PNG export
+        
+    Returns:
+        Plotly Figure object or None if no data
+    """
+    import plotly.graph_objects as go
+    
+    if impact_df is None or impact_df.empty:
+        return None
+        
+    if df_current.empty or 'Date' not in df_current.columns or 'Sales' not in df_current.columns:
+        return None
+        
+    df = df_current.copy()
+    
+    # === FILTER: Match ImpactMetrics logic ===
+    impact_col = 'final_decision_impact' if 'final_decision_impact' in impact_df.columns else 'decision_impact'
+    
+    if impact_col not in impact_df.columns:
+        return None
+    
+    # Filter: mature + validated (same as ImpactMetrics)
+    filtered = impact_df.copy()
+    immature_df = pd.DataFrame()  # Track immature windows for pending markers
+    
+    if 'is_mature' in impact_df.columns:
+        filtered = impact_df[impact_df['is_mature'] == True].copy()
+        immature_df = impact_df[impact_df['is_mature'] == False].copy()
+    
+    if 'validation_status' in filtered.columns:
+        mask = filtered['validation_status'].str.contains(
+            '✓|CPC Validated|CPC Match|Directional|Confirmed|Normalized|Volume', 
+            na=False, regex=True
+        )
+        filtered = filtered[mask]
+    
+    # Allow showing pending markers even if no validated actions yet
+    if filtered.empty and immature_df.empty:
+        return None
+    
+    # === AGGREGATE BY ACTION WINDOW (Weekly) ===
+    window_data = []
+    pending_window_data = []
+    
+    # Mature + validated windows
+    if not filtered.empty:
+        filtered['action_date'] = pd.to_datetime(filtered['action_date'])
+        filtered['Week'] = filtered['action_date'].dt.to_period('W').apply(lambda x: x.start_time)
+        
+        for week, group in filtered.groupby('Week'):
+            offensive = group.loc[group['market_tag'] == 'Offensive Win', impact_col].sum()
+            defensive = group.loc[group['market_tag'] == 'Defensive Win', impact_col].sum()
+            gap = group.loc[group['market_tag'] == 'Gap', impact_col].sum()
+            drag = group.loc[group['market_tag'] == 'Market Drag', impact_col].sum()
+            
+            attributed = offensive + defensive + gap
+            total_actions = len(group)
+            
+            window_data.append({
+                'week': week,
+                'attributed': attributed,
+                'offensive': offensive,
+                'defensive': defensive,
+                'gap': gap,
+                'drag': drag,
+                'actions': total_actions,
+                'is_pending': False
+            })
+    
+    # Immature (pending) windows
+    if not immature_df.empty:
+        immature_df['action_date'] = pd.to_datetime(immature_df['action_date'])
+        immature_df['Week'] = immature_df['action_date'].dt.to_period('W').apply(lambda x: x.start_time)
+        
+        for week, group in immature_df.groupby('Week'):
+            mature_weeks = [w['week'] for w in window_data]
+            if week not in mature_weeks:
+                total_actions = len(group)
+                pending_window_data.append({
+                    'week': week,
+                    'attributed': 0,
+                    'offensive': 0,
+                    'defensive': 0,
+                    'gap': 0,
+                    'drag': 0,
+                    'actions': total_actions,
+                    'is_pending': True
+                })
+    
+    all_windows = window_data + pending_window_data
+    if not all_windows:
+        return None
+    
+    window_df = pd.DataFrame(all_windows).sort_values('week')
+    
+    # Get weekly revenue for Y-axis positioning
+    df['Week'] = df['Date'].dt.to_period('W').apply(lambda x: x.start_time)
+    weekly_revenue = df.groupby('Week')['Sales'].sum().reset_index()
+    
+    # === CREATE VISUALIZATION ===
+    fig = go.Figure()
+    
+    # Revenue trend line
+    fig.add_trace(go.Scatter(
+        x=weekly_revenue['Week'],
+        y=weekly_revenue['Sales'],
+        mode='lines',
+        name='Revenue Trend',
+        line=dict(color='#64748B', width=2.5, shape='spline'),
+        hovertemplate='%{x|%b %d}<br>Revenue: ' + currency + ' %{y:,.0f}<extra></extra>',
+        showlegend=True
+    ))
+    
+    # Match windows to revenue points
+    marker_weeks = []
+    marker_revenues = []
+    marker_colors = []
+    marker_opacities = []
+    
+    # Colors
+    C_SUCCESS = '#10B981'
+    C_DANGER = '#EF4444'
+    C_PENDING = '#64748B'
+    
+    for _, row in window_df.iterrows():
+        revenue_match = weekly_revenue[weekly_revenue['Week'] == row['week']]['Sales'].values
+        if len(revenue_match) > 0:
+            marker_weeks.append(row['week'])
+            marker_revenues.append(revenue_match[0])
+            
+            if row.get('is_pending', False):
+                marker_colors.append(C_PENDING)
+                marker_opacities.append(0.5)
+            else:
+                # Color logic from Dashboard: Success if attributed >= 0, else Danger
+                color = C_SUCCESS if row['attributed'] >= 0 else C_DANGER
+                marker_colors.append(color)
+                marker_opacities.append(0.9)
+    
+    # Add action window markers
+    if marker_weeks:
+        fig.add_trace(go.Scatter(
+            x=marker_weeks,
+            y=marker_revenues,
+            mode='markers',
+            name='Action Windows',
+            marker=dict(
+                size=12,
+                color=marker_colors,
+                opacity=marker_opacities,
+                symbol='circle',
+                line=dict(width=2, color='white')
+            ),
+            showlegend=True
+        ))
+    
+    # Layout (Matches Dashboard aesthetics but cleaner for export)
+    bg_color = 'rgba(30, 41, 59, 1)' if for_export else 'rgba(0,0,0,0)'
+    
+    fig.update_layout(
+        title="",
+        paper_bgcolor=bg_color,
+        plot_bgcolor=bg_color,
+        font=dict(family="Inter, sans-serif", color="#E2E8F0"),
+        height=350,
+        margin=dict(t=20, b=20, l=40, r=20),
+        legend=dict(
+            orientation="h",
+            yanchor="bottom",
+            y=1.02,
+            xanchor="right",
+            x=1,
+            bgcolor='rgba(0,0,0,0)'
+        ),
+        xaxis=dict(
+            showgrid=False,
+            gridcolor='rgba(255,255,255,0.05)',
+            tickfont=dict(color='#94A3B8')
+        ),
+        yaxis=dict(
+            showgrid=True,
+            gridcolor='rgba(255,255,255,0.05)',
+            tickfont=dict(color='#94A3B8'),
+            tickprefix=currency
+        )
+    )
+    
+    return fig
 
 
 class ExecutiveDashboard:
@@ -302,44 +510,45 @@ class ExecutiveDashboard:
             
             # Get decision impact (use pre-calculated metrics from DB)
             # Also fetch the official summary for alignment with Impact Dashboard
-            impact_df = self.db_manager.get_action_impact(
-                self.client_id,
-                before_days=14,
-                after_days=14
-            )
+            # get_action_impact and get_impact_summary replaced by unified cached fetcher
             
-            # Fetch official impact summary to ensure alignment with Impact Dashboard
-            # Get data with validation/maturity columns effectively
-            # Note: db_manager.get_action_impact returns raw data. We need to apply maturity logic.
-            try:
-                impact_summary = self.db_manager.get_impact_summary(
-                    self.client_id,
-                    before_days=14,
-                    after_days=14
-                )
+            # Use dynamic cache version to match impact_dashboard.py and force fresh fetch
+            cache_version = "v18_perf_" + str(st.session_state.get('data_upload_timestamp', 'init'))
+            
+            impact_df, impact_summary = _fetch_impact_data(
+                self.client_id,
+                test_mode=False, 
+                before_days=14,
+                after_days=14,
+                cache_version=cache_version
+            )
                 
-                # === CRITICAL FIX: REPLICATE MATURITY LOGIC ===
-                # Getting the maturity right is essential for matching the dash
-                if not impact_df.empty and 'action_date' in impact_df.columns:
-                    # Need strict latest date from data summary logic
-                    # Since we don't have the full summary here, we estimate based on max date in target stats
-                    # Or better, fetch the summary logic.
-                    # Simplified: Use max date from impact_df if available, or fetch impact summary (which we just did)
-                    
-                    # Better fallback: Use latest date from target stats calculated above
+                
+            # Initialize for scope
+            latest_data_date = None
+            
+            # === CRITICAL FIX: REPLICATE MATURITY LOGIC ===
+            # Getting the maturity right is essential for matching the dash
+            if not impact_df.empty and 'action_date' in impact_df.columns:
+                # CRITICAL FIX: Get latest date from RAW data, not weekly target_stats
+                # target_stats uses week START date (e.g., Jan 12 for Jan 12-17 data)
+                # but maturity should be based on ACTUAL latest date (Jan 17)
+                if hasattr(self.db_manager, 'get_latest_raw_data_date'):
+                    latest_data_date = self.db_manager.get_latest_raw_data_date(self.client_id)
+                
+                # Fallback to max_date from target_stats if raw date not available
+                if not latest_data_date:
                     latest_data_date = max_date.date()
-                    
-                    if latest_data_date:
-                        # Calculate maturity exactly as dashboard does
-                        impact_df['is_mature'] = impact_df['action_date'].apply(
-                            lambda d: get_maturity_status(d, latest_data_date, horizon='14D')['is_mature']
-                        )
-                        impact_df['maturity_status'] = impact_df['action_date'].apply(
-                            lambda d: get_maturity_status(d, latest_data_date, horizon='14D')['status']
-                        )
-                    
-            except Exception:
-                impact_summary = None
+                
+                if latest_data_date:
+                    # Calculate maturity exactly as Impact Dashboard does
+                    # Ensure imported get_maturity_status is used
+                    impact_df['is_mature'] = impact_df['action_date'].apply(
+                        lambda d: get_maturity_status(d, latest_data_date, horizon='14D')['is_mature']
+                    )
+                    impact_df['maturity_status'] = impact_df['action_date'].apply(
+                        lambda d: get_maturity_status(d, latest_data_date, horizon='14D')['status']
+                    )
             
             # Use ImpactMetrics.from_dataframe() for canonical calculation
             # This matches EXACTLY how Impact Dashboard calculates its number
@@ -372,7 +581,9 @@ class ExecutiveDashboard:
                 'medians': medians,
                 'date_range': {
                     'start': current_start,
-                    'end': max_date
+                    # Use actual latest date from raw data for display accuracy
+                    # This ensures we show Jan 17 instead of Jan 12 (week start)
+                    'end': latest_data_date if latest_data_date else max_date.date()
                 }
             }
         except Exception as e:
@@ -402,12 +613,14 @@ class ExecutiveDashboard:
         
         # Date range
         dr = data['date_range']
-        # Calculate actual duration
-        duration = (dr['end'] - dr['start']).days
+        # Calculate actual duration (ensure both are same type)
+        start = pd.Timestamp(dr['start']) if dr['start'] else pd.Timestamp.now()
+        end = pd.Timestamp(dr['end']) if dr['end'] else pd.Timestamp.now()
+        duration = (end - start).days
         
         st.markdown(f"""
         <p style='color: #64748b; font-size: 0.85rem; margin-bottom: 20px;'>
-            📅 {dr['start'].strftime('%b %d')} – {dr['end'].strftime('%b %d, %Y')} 
+            📅 {start.strftime('%b %d')} – {end.strftime('%b %d, %Y')} 
             <span style="color: #475569;">vs. Previous {duration} Days</span>
         </p>
         """, unsafe_allow_html=True)

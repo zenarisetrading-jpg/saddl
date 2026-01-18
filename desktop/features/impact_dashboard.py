@@ -20,38 +20,12 @@ from core.db_manager import get_db_manager
 
 # === PHASE 2: Single Source of Truth ===
 from features.impact_metrics import ImpactMetrics
+from core.utils import IMPACT_WINDOWS, get_maturity_status
 
 # ==========================================
 # MULTI-HORIZON IMPACT MEASUREMENT CONFIG
 # ==========================================
-IMPACT_WINDOWS = {
-    "before_window_days": 14,       # Fixed 14-day baseline for all horizons
-    "maturity_buffer_days": 3,      # Days after window for attribution to settle
-    
-    "horizons": {
-        "14D": {
-            "days": 14,
-            "maturity": 17,  # 14 + 3
-            "label": "14-Day Impact",
-            "description": "Early signal — did the action have an effect?",
-        },
-        "30D": {
-            "days": 30,
-            "maturity": 33,  # 30 + 3
-            "label": "30-Day Impact",
-            "description": "Confirmed — is the impact sustained?",
-        },
-        "60D": {
-            "days": 60,
-            "maturity": 63,  # 60 + 3
-            "label": "60-Day Impact",
-            "description": "Long-term — did the gains hold?",
-        },
-    },
-    
-    "default_horizon": "14D",
-    "available_horizons": ["14D", "30D", "60D"],
-}
+# IMPACT_WINDOWS imported from core.utils
 
 # ==========================================
 # HELPER: Ensure Required Impact Columns Exist
@@ -279,67 +253,7 @@ def compute_spend_avoided_confidence(
         "totalSpendAvoided": round(total_spend_avoided, 2)
     }
 
-def get_maturity_status(action_date, latest_data_date, horizon: str = "14D") -> dict:
-    """
-    Check if action has matured enough for impact calculation at a specific horizon.
-    
-    Maturity formula: action_date + horizon_days + buffer_days ≤ latest_data_date
-    
-    Args:
-        action_date: Date the action was logged (T0)
-        latest_data_date: The most recent date in the data (from DB)
-        horizon: Measurement horizon - "14D", "30D", or "60D"
-        
-    Returns:
-        dict with is_mature, maturity_date, days_until_mature, status, horizon
-    """
-    # Get horizon config
-    if horizon not in IMPACT_WINDOWS["horizons"]:
-        horizon = IMPACT_WINDOWS["default_horizon"]
-    horizon_config = IMPACT_WINDOWS["horizons"][horizon]
-    after_window_days = horizon_config["days"]
-    maturity_buffer_days = IMPACT_WINDOWS["maturity_buffer_days"]
-    
-    # Parse action_date to date object
-    if isinstance(action_date, str):
-        action_date = datetime.strptime(action_date[:10], "%Y-%m-%d").date()
-    elif isinstance(action_date, datetime):
-        action_date = action_date.date()
-    elif hasattr(action_date, 'date'):  # pd.Timestamp
-        action_date = action_date.date()
-    
-    # Parse latest_data_date
-    if isinstance(latest_data_date, str):
-        latest_data_date = datetime.strptime(latest_data_date[:10], "%Y-%m-%d").date()
-    elif isinstance(latest_data_date, datetime):
-        latest_data_date = latest_data_date.date()
-    elif hasattr(latest_data_date, 'date'):
-        latest_data_date = latest_data_date.date()
-    
-    # Calculate when this action will be mature
-    after_window_end = action_date + timedelta(days=after_window_days)
-    maturity_date = after_window_end + timedelta(days=maturity_buffer_days)
-    
-    # Check against latest data date, not today
-    days_until_mature = (maturity_date - latest_data_date).days
-    is_mature = latest_data_date >= maturity_date
-    
-    if is_mature:
-        status = "Measured"
-    elif latest_data_date >= after_window_end:
-        status = f"Pending ({days_until_mature}d)"
-    else:
-        days_in = (latest_data_date - action_date).days
-        status = f"In Window ({max(0, days_in)}/{after_window_days}d)"
-    
-    return {
-        "is_mature": is_mature,
-        "maturity_date": maturity_date,
-        "days_until_mature": max(0, days_until_mature),
-        "status": status,
-        "horizon": horizon,
-        "horizon_config": horizon_config,
-    }
+# get_maturity_status imported from core.utils
 
 @st.cache_data(ttl=3600, show_spinner=False)  # Restored production TTL
 def _fetch_impact_data(client_id: str, test_mode: bool, before_days: int = 14, after_days: int = 14, cache_version: str = "v14_impact_tiers") -> Tuple[pd.DataFrame, Dict[str, Any]]:
@@ -403,7 +317,7 @@ def render_impact_dashboard():
             horizon = IMPACT_WINDOWS["default_horizon"]
 
     
-    # Dark theme compatible CSS
+    # Dark theme compatible CSS + Panel styling
     st.markdown("""
     <style>
     /* Dark theme buttons */
@@ -420,6 +334,23 @@ def render_impact_dashboard():
     /* Data table dark theme compatibility */
     .stDataFrame {
         background: transparent !important;
+    }
+    /* Panel container styling (matches Executive Dashboard) */
+    [data-testid="stVerticalBlock"] > div:has(> .panel-header-content) {
+        background: rgba(15, 23, 42, 0.6) !important;
+        border: 1px solid rgba(255, 255, 255, 0.08) !important;
+        border-radius: 12px !important;
+        padding: 0 !important;
+    }
+    .panel-header-content {
+        background: linear-gradient(90deg, rgba(30, 41, 59, 0.9) 0%, rgba(30, 41, 59, 0.4) 100%);
+        padding: 14px 20px;
+        border-radius: 12px 12px 0 0;
+        border-bottom: 1px solid rgba(255, 255, 255, 0.05);
+        margin-bottom: 0;
+    }
+    .panel-body {
+        padding: 16px 20px;
     }
     </style>
     """, unsafe_allow_html=True)
@@ -457,7 +388,7 @@ def render_impact_dashboard():
         # Use cached fetcher
         test_mode = st.session_state.get('test_mode', False)
         # Cache invalidation via version string (changes when data uploaded)
-        cache_version = "v18_perf_" + str(st.session_state.get('data_upload_timestamp', 'init'))
+        cache_version = "v19_perf_" + str(st.session_state.get('data_upload_timestamp', 'init'))
         
         # Get horizon config
         horizon_config = IMPACT_WINDOWS["horizons"].get(horizon, IMPACT_WINDOWS["horizons"]["14D"])
@@ -468,6 +399,26 @@ def render_impact_dashboard():
         impact_df, full_summary = _fetch_impact_data(selected_client, test_mode, before_days, after_days, cache_version)
         
         # ================================================================
+        # CRITICAL FIX: Recalculate maturity BEFORE ImpactMetrics calculation
+        # This ensures canonical_metrics uses the correct is_mature values
+        # ================================================================
+        db_manager = st.session_state.get('db_manager')
+        latest_data_date = None
+        if db_manager and hasattr(db_manager, 'get_latest_raw_data_date'):
+            latest_data_date = db_manager.get_latest_raw_data_date(selected_client)
+        
+        # Fallback to period_info if raw date not available
+        if not latest_data_date:
+            period_info = full_summary.get('period_info', {})
+            latest_data_date = period_info.get('after_end') or period_info.get('latest_date')
+        
+        # Update is_mature column BEFORE calculating metrics
+        if not impact_df.empty and 'action_date' in impact_df.columns and latest_data_date:
+            impact_df['is_mature'] = impact_df['action_date'].apply(
+                lambda d: get_maturity_status(d, latest_data_date, horizon)['is_mature']
+            )
+        
+        # ================================================================
         # PHASE 2: CANONICAL METRICS COMPUTATION (Single Source of Truth)
         # ================================================================
         # Gather current filter state
@@ -476,7 +427,7 @@ def render_impact_dashboard():
             'mature_only': True,  # Always filter to mature for display
         }
         
-        # SINGLE CALCULATION POINT
+        # SINGLE CALCULATION POINT - now uses updated is_mature values
         canonical_metrics = ImpactMetrics.from_dataframe(
             impact_df, 
             filters=current_filters,
@@ -490,9 +441,18 @@ def render_impact_dashboard():
         # Maturity is based on whether the DATA covers enough time after the action
         # for the after-window + attribution buffer to have settled
         
-        # Get the latest date in the data from full_summary
-        period_info = full_summary.get('period_info', {})
-        latest_data_date = period_info.get('after_end') or period_info.get('latest_date')
+        # CRITICAL FIX: Get latest date from RAW data, not weekly target_stats
+        # target_stats uses week START date (e.g., Jan 12 for Jan 12-17 data)
+        # but maturity should be based on ACTUAL latest date (Jan 17)
+        db_manager = st.session_state.get('db_manager')
+        latest_data_date = None
+        if db_manager and hasattr(db_manager, 'get_latest_raw_data_date'):
+            latest_data_date = db_manager.get_latest_raw_data_date(selected_client)
+        
+        # Fallback to period_info if raw date not available
+        if not latest_data_date:
+            period_info = full_summary.get('period_info', {})
+            latest_data_date = period_info.get('after_end') or period_info.get('latest_date')
         
         if not impact_df.empty and 'action_date' in impact_df.columns and latest_data_date:
             impact_df['is_mature'] = impact_df['action_date'].apply(
@@ -706,9 +666,11 @@ def render_impact_dashboard():
                 if isinstance(d, str): d = pd.to_datetime(d)
                 return d.strftime("%b %d")
             
-            # Use strict before_start (baseline start) to after_end (impact end)
+            # Use strict before_start (baseline start) to latest_data_date (actual data end)
             start = p.get('before_start')
-            end = p.get('after_end')
+            # CRITICAL FIX: Use actual latest date from raw data, not target_stats start_date
+            # This ensures display shows Jan 17 (actual end) instead of Jan 12 (week start)
+            end = latest_data_date if latest_data_date else p.get('after_end')
             if start and end:
                 analysis_range = f"{fmt(start)} - {fmt(end)}"
             else:
@@ -720,16 +682,18 @@ def render_impact_dashboard():
         compare_text = f"Analysis Period: <code>{analysis_range}</code>"
 
         st.markdown(f"""
-        <div style="background: linear-gradient(135deg, rgba(91, 86, 112, 0.4) 0%, rgba(91, 86, 112, 0.1) 100%); 
-                    border: 1px solid rgba(91, 86, 112, 0.5); 
-                    border-radius: 12px; padding: 16px; margin-bottom: 24px; display: flex; align-items: center; justify-content: space-between;">
+        <div style="background: linear-gradient(135deg, rgba(30, 41, 59, 0.95) 0%, rgba(15, 23, 42, 0.95) 100%); 
+                    border: 1px solid rgba(148, 163, 184, 0.15); 
+                    border-left: 3px solid #06B6D4;
+                    border-radius: 12px; padding: 16px; margin-bottom: 24px; display: flex; align-items: center; justify-content: space-between;
+                    box-shadow: 0 4px 16px rgba(0, 0, 0, 0.3);">
             <div style="display: flex; align-items: center; gap: 8px;">
                 {calendar_icon}
-                <span style="font-weight: 600; font-size: 1.1rem; color: #E9EAF0; margin-right: 12px;">{horizon_config['label']}</span>
+                <span style="font-weight: 600; font-size: 1.1rem; color: #F8FAFC; margin-right: 12px;">{horizon_config['label']}</span>
                 <span style="color: #94a3b8; font-size: 0.95rem;">{compare_text}</span>
             </div>
             <div style="color: #94a3b8; font-size: 0.85rem; font-family: monospace;">
-                Measured: <span style="color: #e2e8f0; font-weight: 600;">{measured_count}</span> | Pending: <span style="color: #e2e8f0; font-weight: 600;">{pending_display_count}</span>
+                Measured: <span style="color: #22D3EE; font-weight: 600;">{measured_count}</span> | Pending: <span style="color: #94a3b8; font-weight: 600;">{pending_display_count}</span>
             </div>
         </div>
         """, unsafe_allow_html=True)
@@ -747,13 +711,25 @@ def render_impact_dashboard():
     
     st.divider()
 
-    with st.expander("📊 Impact Summary (Modeled vs Baseline)", expanded=True):
-        # Panel header subtext
-        st.markdown("""
-        <div style="color: #8F8CA3; font-size: 0.8rem; margin-bottom: 16px; font-style: italic;">
+    # Premium section header for Impact Summary (matching 14D Impact style)
+    chart_icon = '<svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="#06B6D4" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="18" y1="20" x2="18" y2="10"></line><line x1="12" y1="20" x2="12" y2="4"></line><line x1="6" y1="20" x2="6" y2="14"></line></svg>'
+    st.markdown(f"""
+    <div style="background: linear-gradient(135deg, rgba(30, 41, 59, 0.95) 0%, rgba(15, 23, 42, 0.95) 100%); 
+                border: 1px solid rgba(148, 163, 184, 0.15); 
+                border-left: 3px solid #06B6D4;
+                border-radius: 12px; padding: 16px; margin-bottom: 16px;
+                box-shadow: 0 4px 16px rgba(0, 0, 0, 0.3);">
+        <div style="display: flex; align-items: center; gap: 12px;">
+            {chart_icon}
+            <span style="font-weight: 700; font-size: 1.1rem; color: #F8FAFC; letter-spacing: 0.02em;">Impact Summary (Modeled vs Baseline)</span>
+        </div>
+        <div style="color: #64748B; font-size: 0.85rem; margin-top: 8px; margin-left: 32px;">
             Market-adjusted • based on validated actions only
         </div>
-        """, unsafe_allow_html=True)
+    </div>
+    """, unsafe_allow_html=True)
+
+    with st.expander("▸ Measured Impact Details", expanded=True):
         
         # ==========================================
         # MEASURED vs PENDING IMPACT TABS
@@ -935,15 +911,32 @@ def _render_hero_banner(impact_df: pd.DataFrame, currency: str, horizon_label: s
         badge_color = "#10B981" if incremental_pct >= 0 else "#EF4444"
         badge_html = f'<span style="display: inline-flex; align-items: center; gap: 4px; background: rgba(16, 185, 129, 0.15); color: {badge_color}; padding: 4px 12px; border-radius: 20px; font-size: 1rem; font-weight: 600; margin-left: 16px; vertical-align: middle;">{arrow_up_icon} {incremental_badge}</span>'
     
+    # Premium glassmorphic styling based on state
+    if answer_prefix == "YES":
+        hero_bg = "linear-gradient(135deg, rgba(16, 185, 129, 0.15) 0%, rgba(15, 23, 42, 0.95) 100%)"
+        hero_border = "1px solid rgba(16, 185, 129, 0.3)"
+        hero_glow = "0 0 30px rgba(16, 185, 129, 0.2)"
+        text_glow = "text-shadow: 0 0 20px rgba(16, 185, 129, 0.5);"
+    elif answer_prefix == "NOT YET":
+        hero_bg = "linear-gradient(135deg, rgba(239, 68, 68, 0.15) 0%, rgba(15, 23, 42, 0.95) 100%)"
+        hero_border = "1px solid rgba(239, 68, 68, 0.3)"
+        hero_glow = "0 0 30px rgba(239, 68, 68, 0.2)"
+        text_glow = "text-shadow: 0 0 20px rgba(239, 68, 68, 0.5);"
+    else:  # BREAK EVEN
+        hero_bg = "linear-gradient(135deg, rgba(30, 41, 59, 0.95) 0%, rgba(15, 23, 42, 0.95) 100%)"
+        hero_border = "1px solid rgba(148, 163, 184, 0.2)"
+        hero_glow = "0 4px 16px rgba(0, 0, 0, 0.3)"
+        text_glow = ""
+    
     st.markdown(f"""
-    <div style="background: linear-gradient(135deg, rgba(91, 86, 112, 0.25) 0%, rgba(91, 86, 112, 0.08) 100%); border: 1px solid rgba(91, 86, 112, 0.3); border-radius: 16px; padding: 32px 40px; margin-bottom: 24px;">
+    <div style="background: {hero_bg}; border: {hero_border}; border-radius: 16px; padding: 32px 40px; margin-bottom: 24px; box-shadow: {hero_glow}; backdrop-filter: blur(10px);">
         <div style="display: flex; align-items: center; gap: 8px; margin-bottom: 24px;">
             <span style="color: {answer_color};">{checkmark_icon}</span>
-            <span style="font-size: 1.1rem; font-weight: 600; color: #E9EAF0;">Did your optimizations make money?</span>
+            <span style="font-size: 1.1rem; font-weight: 600; color: #F8FAFC;">Did your optimizations make money?</span>
             <span style="margin-left: auto; font-size: 0.85rem; color: #94a3b8; opacity: 0.7;">({horizon_label})</span>
         </div>
-        <div style="font-size: 2.8rem; font-weight: 800; color: {answer_color}; margin-bottom: 8px;">{answer_prefix} — {impact_display}{badge_html}</div>
-        <div style="background: rgba(255,255,255,0.1); border-radius: 8px; height: 12px; margin: 16px 0; overflow: hidden;">
+        <div style="font-size: 2.8rem; font-weight: 800; color: {answer_color}; margin-bottom: 8px; {text_glow}">{answer_prefix} — {impact_display}{badge_html}</div>
+        <div style="background: rgba(255,255,255,0.08); border-radius: 8px; height: 12px; margin: 16px 0; overflow: hidden; border: 1px solid rgba(255,255,255,0.05);">
             <div style="background: linear-gradient(90deg, #10B981 0%, #059669 100%); height: 100%; width: {win_pct}%; border-radius: 8px;"></div>
         </div>
         <div style="font-size: 1rem; color: #94a3b8; margin-bottom: 12px;">{subtitle}</div>
@@ -1044,24 +1037,24 @@ def _render_what_worked_card(currency: str):
     shield_icon = '<svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#10B981" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"></path></svg>'
     
     st.markdown(f"""
-    <div style="background: rgba(16, 185, 129, 0.08); border: 1px solid rgba(16, 185, 129, 0.2); border-radius: 12px; padding: 20px; height: 100%;">
-        <div style="font-size: 0.85rem; font-weight: 600; color: #10B981; text-transform: uppercase; letter-spacing: 0.5px; margin-bottom: 12px;">
+    <div style="background: linear-gradient(135deg, rgba(16, 185, 129, 0.15) 0%, rgba(15, 23, 42, 0.95) 100%); border: 1px solid rgba(16, 185, 129, 0.3); border-radius: 12px; padding: 20px; height: 100%; box-shadow: 0 0 20px rgba(16, 185, 129, 0.1);">
+        <div style="font-size: 0.75rem; font-weight: 700; color: #10B981; text-transform: uppercase; letter-spacing: 1px; margin-bottom: 12px;">
             ✓ What Worked
         </div>
-        <div style="font-size: 1.8rem; font-weight: 700; color: #10B981; margin-bottom: 8px;">
+        <div style="font-size: 2rem; font-weight: 800; color: #10B981; margin-bottom: 8px; text-shadow: 0 0 20px rgba(16, 185, 129, 0.5);">
             +{currency}{total_wins:,.0f}
         </div>
         <div style="font-size: 0.9rem; color: #94a3b8; margin-bottom: 16px;">
             {win_count} decisions helped
         </div>
-        <div style="border-top: 1px solid rgba(16, 185, 129, 0.15); padding-top: 12px; font-size: 0.8rem; color: #8F8CA3; line-height: 1.6;">
+        <div style="border-top: 1px solid rgba(16, 185, 129, 0.2); padding-top: 12px; font-size: 0.8rem; color: #94A3B8; line-height: 1.6;">
             <div style="display: flex; align-items: center; gap: 6px; margin-bottom: 6px;">
                 {rocket_icon}
-                <span>Offensive Wins: +{currency}{offensive_val:,.0f} ({offensive_count})</span>
+                <span>Offensive: +{currency}{offensive_val:,.0f} ({offensive_count})</span>
             </div>
             <div style="display: flex; align-items: center; gap: 6px;">
                 {shield_icon}
-                <span>Defensive Wins: +{currency}{defensive_val:,.0f} ({defensive_count})</span>
+                <span>Defensive: +{currency}{defensive_val:,.0f} ({defensive_count})</span>
             </div>
         </div>
     </div>
@@ -1078,17 +1071,17 @@ def _render_what_didnt_card(currency: str):
     warning_icon = '<svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#EF4444" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m21.73 18-8-14a2 2 0 0 0-3.48 0l-8 14A2 2 0 0 0 4 21h16a2 2 0 0 0 1.73-3Z"></path><line x1="12" y1="9" x2="12" y2="13"></line><line x1="12" y1="17" x2="12.01" y2="17"></line></svg>'
     
     st.markdown(f"""
-    <div style="background: rgba(239, 68, 68, 0.08); border: 1px solid rgba(239, 68, 68, 0.2); border-radius: 12px; padding: 20px; height: 100%;">
-        <div style="font-size: 0.85rem; font-weight: 600; color: #EF4444; text-transform: uppercase; letter-spacing: 0.5px; margin-bottom: 12px;">
+    <div style="background: linear-gradient(135deg, rgba(239, 68, 68, 0.15) 0%, rgba(15, 23, 42, 0.95) 100%); border: 1px solid rgba(239, 68, 68, 0.3); border-radius: 12px; padding: 20px; height: 100%; box-shadow: 0 0 20px rgba(239, 68, 68, 0.1);">
+        <div style="font-size: 0.75rem; font-weight: 700; color: #EF4444; text-transform: uppercase; letter-spacing: 1px; margin-bottom: 12px;">
             ✗ What Didn't
         </div>
-        <div style="font-size: 1.8rem; font-weight: 700; color: #EF4444; margin-bottom: 8px;">
+        <div style="font-size: 2rem; font-weight: 800; color: #EF4444; margin-bottom: 8px; text-shadow: 0 0 20px rgba(239, 68, 68, 0.5);">
             {currency}{gap_val:,.0f}
         </div>
         <div style="font-size: 0.9rem; color: #94a3b8; margin-bottom: 16px;">
             {gap_count} decisions hurt
         </div>
-        <div style="border-top: 1px solid rgba(239, 68, 68, 0.15); padding-top: 12px; font-size: 0.8rem; color: #8F8CA3; line-height: 1.6;">
+        <div style="border-top: 1px solid rgba(239, 68, 68, 0.2); padding-top: 12px; font-size: 0.8rem; color: #94A3B8; line-height: 1.6;">
             <div style="display: flex; align-items: center; gap: 6px; margin-bottom: 6px;">
                 {warning_icon}
                 <span>Decision Gaps: Missed opportunities</span>
@@ -1139,17 +1132,34 @@ def _render_decision_score_card():
         color = "#EF4444"
     
     # Info icon
-    info_icon = '<svg xmlns="http://www.w3.org/2000/svg" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="#8F8CA3" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="cursor: help;"><circle cx="12" cy="12" r="10"></circle><line x1="12" y1="16" x2="12" y2="12"></line><line x1="12" y1="8" x2="12.01" y2="8"></line></svg>'
+    info_icon = '<svg xmlns="http://www.w3.org/2000/svg" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="#94A3B8" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="cursor: help;"><circle cx="12" cy="12" r="10"></circle><line x1="12" y1="16" x2="12" y2="12"></line><line x1="12" y1="8" x2="12.01" y2="8"></line></svg>'
     
     tooltip = f"Score = % helped - % hurt. {score:+d} means {abs(score)}% more decisions {'helped' if score >= 0 else 'hurt'}."
     
+    # Determine gradient colors based on score
+    if score >= 10:
+        card_bg = f"linear-gradient(135deg, rgba(16, 185, 129, 0.12) 0%, rgba(15, 23, 42, 0.95) 100%)"
+        card_border = "1px solid rgba(16, 185, 129, 0.25)"
+        card_glow = f"0 0 20px rgba(16, 185, 129, 0.15)"
+        text_glow = f"text-shadow: 0 0 15px rgba(16, 185, 129, 0.4);"
+    elif score >= 0:
+        card_bg = "linear-gradient(135deg, rgba(30, 41, 59, 0.95) 0%, rgba(15, 23, 42, 0.95) 100%)"
+        card_border = "1px solid rgba(148, 163, 184, 0.15)"
+        card_glow = "0 4px 16px rgba(0, 0, 0, 0.3)"
+        text_glow = ""
+    else:
+        card_bg = f"linear-gradient(135deg, rgba(239, 68, 68, 0.12) 0%, rgba(15, 23, 42, 0.95) 100%)"
+        card_border = "1px solid rgba(239, 68, 68, 0.25)"
+        card_glow = f"0 0 20px rgba(239, 68, 68, 0.15)"
+        text_glow = f"text-shadow: 0 0 15px rgba(239, 68, 68, 0.4);"
+    
     st.markdown(f"""
-    <div style="background: rgba(91, 86, 112, 0.15); border: 1px solid rgba(91, 86, 112, 0.25); border-radius: 12px; padding: 20px; height: 100%; text-align: center;">
-        <div style="font-size: 0.85rem; font-weight: 600; color: #8F8CA3; text-transform: uppercase; letter-spacing: 0.5px; margin-bottom: 12px;">Decision Score</div>
-        <div style="font-size: 2.5rem; font-weight: 800; color: {color}; margin-bottom: 4px;">{score:+d}</div>
+    <div style="background: {card_bg}; border: {card_border}; border-radius: 12px; padding: 20px; height: 100%; text-align: center; box-shadow: {card_glow};">
+        <div style="font-size: 0.75rem; font-weight: 700; color: #94A3B8; text-transform: uppercase; letter-spacing: 1px; margin-bottom: 12px;">Decision Score</div>
+        <div style="font-size: 2.5rem; font-weight: 800; color: {color}; margin-bottom: 4px; {text_glow}">{score:+d}</div>
         <div style="font-size: 1rem; font-weight: 600; color: {color}; margin-bottom: 12px;">{label}</div>
         <div style="font-size: 0.85rem; color: #94a3b8; margin-bottom: 8px;">{helped_pct:.0f}% helped · {hurt_pct:.0f}% hurt</div>
-        <div style="font-size: 0.7rem; color: #6B7280; font-style: italic;">Score = % helped − % hurt</div>
+        <div style="font-size: 0.7rem; color: #64748B; font-style: italic;">Score = % helped − % hurt</div>
     </div>
     """, unsafe_allow_html=True)
 
@@ -1306,7 +1316,7 @@ def _render_details_table_collapsed(impact_df: pd.DataFrame, currency: str):
     
     total_count = len(impact_df)
     
-    with st.expander(f"▶ Show all {total_count} decisions", expanded=False):
+    with st.expander(f"#### Measured Impact Details ({total_count})", expanded=False):
         # Prepare display dataframe - keep Impact as NUMERIC for sorting
         # Fallback to raw if final not present
         impact_col = 'final_decision_impact' if 'final_decision_impact' in impact_df.columns else 'decision_impact'
@@ -1452,256 +1462,537 @@ def _render_validation_rate_chart(impact_df: pd.DataFrame):
         """, unsafe_allow_html=True)
 
 
-def _render_roas_attribution_bar(summary: Dict[str, Any], impact_df: pd.DataFrame, currency: str, canonical_metrics: 'ImpactMetrics' = None):
+def create_roas_waterfall_figure(
+    baseline_roas: float,
+    actual_roas: float,
+    decision_impact_roas: float,
+    for_export: bool = False
+) -> 'go.Figure':
     """
-    Section: ROAS Attribution Visual
-    Plotly Waterfall chart showing: Baseline → Market → Decisions → Actual
-    Now uses data from core/roas_attribution module.
+    Create ROAS waterfall chart figure - reusable by dashboard and client report.
     
     Args:
-        canonical_metrics: If provided, use this for decision_impact_value (Phase 3+)
+        baseline_roas: Baseline ROAS value
+        actual_roas: Actual/current ROAS value
+        decision_impact_roas: ROAS contribution from decisions
+        for_export: If True, uses solid background for PNG export
+        
+    Returns:
+        Plotly Figure object
     """
     import plotly.graph_objects as go
     
-    st.markdown("""
-    <p style="font-size: 1rem; font-weight: 600; color: #F4F4F5; margin-bottom: 12px; display: flex; align-items: center; gap: 8px;">
-        <svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="#00E5CC" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-            <polyline points="23 6 13.5 15.5 8.5 10.5 1 18"></polyline>
-            <polyline points="17 6 23 6 23 12"></polyline>
-        </svg>
-        ROAS Attribution
-    </p>
+    # Calculate Combined Forces to balance equation
+    combined_forces = actual_roas - baseline_roas - decision_impact_roas
+    
+    # Labels
+    x_labels = ["Baseline", "Combined\nForces", "Decisions", "Actual"]
+    
+    # Bar Colors
+    C_BASELINE = "#475569"
+    C_COMBINED_NEG = "#DC2626"
+    C_COMBINED_POS = "#10B981"
+    C_DECISIONS = "#10B981"
+    C_ACTUAL = "#06B6D4"
+    
+    combined_color = C_COMBINED_POS if combined_forces >= 0 else C_COMBINED_NEG
+    
+    # Bar Values and Bases
+    y_vals = []
+    bases = []
+    colors = []
+    text_labels = []
+    
+    current_lvl = 0.0
+    
+    # 1. Baseline
+    y_vals.append(baseline_roas)
+    bases.append(0)
+    colors.append(C_BASELINE)
+    text_labels.append(f"{baseline_roas:.2f}")
+    current_lvl += baseline_roas
+    
+    # 2. Combined Forces
+    y_vals.append(combined_forces)
+    bases.append(current_lvl)
+    colors.append(combined_color)
+    text_labels.append(f"{combined_forces:+.2f}")
+    current_lvl += combined_forces
+    
+    # 3. Decisions
+    y_vals.append(decision_impact_roas)
+    bases.append(current_lvl)
+    colors.append(C_DECISIONS)
+    text_labels.append(f"{decision_impact_roas:+.2f}")
+    current_lvl += decision_impact_roas
+    
+    # 4. Actual
+    y_vals.append(actual_roas)
+    bases.append(0)
+    colors.append(C_ACTUAL)
+    text_labels.append(f"{actual_roas:.2f}")
+    
+    # Create figure
+    fig = go.Figure()
+    
+    # Main Bars
+    fig.add_trace(go.Bar(
+        x=x_labels,
+        y=y_vals,
+        base=bases,
+        marker_color=colors,
+        marker_line=dict(width=1, color='rgba(148, 163, 184, 0.2)'),
+        width=0.55,
+        text=text_labels,
+        textposition='outside',
+        textfont=dict(color='white', size=14),
+        hoverinfo='x+y+text',
+        name=""
+    ))
+    
+    # Connector Lines
+    comb_end = baseline_roas + combined_forces
+    dec_end = comb_end + decision_impact_roas
+    
+    conn_x = [x_labels[0], x_labels[1], None, x_labels[1], x_labels[2], None, x_labels[2], x_labels[3], None]
+    conn_y = [baseline_roas, baseline_roas, None, comb_end, comb_end, None, dec_end, dec_end, None]
+    
+    fig.add_trace(go.Scatter(
+        x=conn_x,
+        y=conn_y,
+        mode='lines',
+        line=dict(color='rgba(148, 163, 184, 0.4)', width=2, dash='dash'),
+        hoverinfo='skip',
+        showlegend=False
+    ))
+    
+    # Dynamic Y-axis range
+    data_points = [0, baseline_roas, comb_end, dec_end, actual_roas]
+    min_val = min(data_points)
+    max_val = max(data_points)
+    
+    y_range = None
+    if max_val > 0:
+        zoom_floor = max(0, min_val * 0.5)
+        if min_val > 2.0:
+            zoom_floor = max(0, min_val - 0.5)
+        padding = (max_val - zoom_floor) * 0.15
+        y_range = [max(0, zoom_floor - padding), max_val + padding]
+    
+    # Background color based on export mode
+    bg_color = 'rgba(30, 41, 59, 1)' if for_export else 'rgba(0,0,0,0)'
+    
+    fig.update_layout(
+        title="",
+        plot_bgcolor=bg_color,
+        paper_bgcolor=bg_color,
+        font=dict(family="Inter, sans-serif", color='#E2E8F0'),
+        showlegend=False,
+        height=350,
+        margin=dict(l=20, r=20, t=30, b=20),
+        yaxis=dict(
+            showgrid=True,
+            gridcolor='rgba(148, 163, 184, 0.1)',
+            zeroline=True,
+            zerolinecolor='rgba(148, 163, 184, 0.2)',
+            title="ROAS",
+            title_font=dict(color='#94A3B8'),
+            tickfont=dict(color='#94A3B8'),
+            range=y_range
+        ),
+        xaxis=dict(
+            showgrid=False,
+            tickfont=dict(size=12, color='#F8FAFC')
+        ),
+        bargap=0.3
+    )
+    
+    return fig
+
+
+def create_decision_timeline_figure(
+    impact_df: pd.DataFrame,
+    currency: str = 'INR ',
+    for_export: bool = False
+) -> Optional['go.Figure']:
+    """
+    Create Decision Impact Timeline chart - reusable by dashboard and client report.
+    
+    Args:
+        impact_df: DataFrame with action_date and decision_impact columns
+        currency: Currency symbol/prefix
+        for_export: If True, uses solid background for PNG export
+        
+    Returns:
+        Plotly Figure object or None if no data
+    """
+    import plotly.graph_objects as go
+    
+    if impact_df.empty:
+        return None
+    
+    # Filter to verified impacts
+    df = impact_df.copy()
+    if 'validation_status' in df.columns:
+        df = df[df['validation_status'].str.contains('✓|Confirmed|Validated|Directional', na=False, regex=True)]
+    
+    if df.empty or 'action_date' not in df.columns:
+        return None
+    
+    # Ensure decision_impact column exists
+    if 'decision_impact' not in df.columns:
+        if 'attributed_impact' in df.columns:
+            df['decision_impact'] = df['attributed_impact']
+        else:
+            return None
+    
+    df['action_date'] = pd.to_datetime(df['action_date'])
+    df = df.sort_values('action_date')
+    
+    # Aggregate by date
+    daily = df.groupby('action_date')['decision_impact'].sum().reset_index()
+    daily.columns = ['action_date', 'decision_impact']
+    daily['cumulative_impact'] = daily['decision_impact'].cumsum()
+    
+    if daily.empty:
+        return None
+    
+    total_val = daily['cumulative_impact'].iloc[-1]
+    
+    fig = go.Figure()
+    
+    # Area fill
+    fig.add_trace(go.Scatter(
+        x=daily['action_date'],
+        y=daily['cumulative_impact'],
+        mode='lines',
+        fill='tozeroy',
+        line=dict(color='#06B6D4', width=3),
+        fillcolor='rgba(6, 182, 212, 0.2)',
+        name='Cumulative Impact'
+    ))
+    
+    # End point marker
+    fig.add_trace(go.Scatter(
+        x=[daily['action_date'].iloc[-1]],
+        y=[daily['cumulative_impact'].iloc[-1]],
+        mode='markers+text',
+        marker=dict(color='#10B981', size=12),
+        text=[f"+{currency}{total_val:,.0f}"],
+        textposition="top center",
+        textfont=dict(color='#F8FAFC', size=14),
+        showlegend=False
+    ))
+    
+    # Background color
+    bg_color = 'rgba(30, 41, 59, 1)' if for_export else 'rgba(0,0,0,0)'
+    
+    fig.update_layout(
+        height=350,
+        plot_bgcolor=bg_color,
+        paper_bgcolor=bg_color,
+        font=dict(family="Inter, sans-serif", color='#E2E8F0'),
+        showlegend=False,
+        margin=dict(l=50, r=20, t=30, b=40),
+        xaxis=dict(
+            showgrid=False,
+            tickfont=dict(color='#94A3B8'),
+            tickformat='%b %d'
+        ),
+        yaxis=dict(
+            showgrid=True,
+            gridcolor='rgba(148, 163, 184, 0.1)',
+            tickfont=dict(color='#94A3B8'),
+            tickprefix=currency
+        )
+    )
+    
+    return fig
+
+
+def _render_roas_attribution_bar(summary: Dict[str, Any], impact_df: pd.DataFrame, currency: str, canonical_metrics: 'ImpactMetrics' = None):
+    """
+    Section: ROAS Attribution Visual - Premium Design
+    Plotly Waterfall chart with custom styling and gradients.
+    """
+    import plotly.graph_objects as go
+    
+    # Chart icon (cyan)
+    chart_icon = '<svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="#06B6D4" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="23 6 13.5 15.5 8.5 10.5 1 18"></polyline><polyline points="17 6 23 6 23 12"></polyline></svg>'
+    
+    st.markdown(f"""
+    <div style="background: linear-gradient(135deg, rgba(30, 41, 59, 0.95) 0%, rgba(15, 23, 42, 0.95) 100%); 
+                border: 1px solid rgba(148, 163, 184, 0.15); 
+                border-left: 3px solid #06B6D4;
+                border-radius: 12px; padding: 16px; margin-bottom: 16px;
+                box-shadow: 0 4px 16px rgba(0, 0, 0, 0.3);">
+        <div style="display: flex; align-items: center; gap: 12px;">
+            {chart_icon}
+            <span style="font-weight: 700; font-size: 1.1rem; color: #F8FAFC; letter-spacing: 0.02em;">ROAS Attribution</span>
+        </div>
+        <div style="color: #64748B; font-size: 0.85rem; margin-top: 8px; margin-left: 32px;">
+            Waterfall analysis of performance drivers
+        </div>
+    </div>
     """, unsafe_allow_html=True)
     
-    # Use attribution data from module (populated via get_roas_attribution)
+    # Use attribution data from module
     baseline_roas = summary.get('baseline_roas', 0)
     actual_roas = summary.get('actual_roas', 0)
     market_impact_roas = summary.get('market_impact_roas', 0)
     
-    # ==========================================
-    # PHASE 3: USE CANONICAL METRICS IF PROVIDED
-    # ==========================================
-    # ==========================================
-    # PHASE 4: USE CANONICAL METRICS (Single Source of Truth)
-    # ==========================================
-    if canonical_metrics is None or not canonical_metrics.has_data:
-        st.warning("Impact metrics unavailable")
-        return
+    # Canonical metrics logic
+    if canonical_metrics:
+        decision_impact_value = canonical_metrics.attributed_impact
+        total_spend = canonical_metrics.total_spend
+        decision_impact_roas = decision_impact_value / total_spend if total_spend > 0 else 0
+    else:
+        # Fallback
+        decision_impact_roas = 0.0
+        decision_impact_value = 0.0
 
-    decision_impact_value = canonical_metrics.attributed_impact
-    total_spend = canonical_metrics.total_spend
-    
-    # Calculate decision_impact_roas from the value
-    decision_impact_roas = decision_impact_value / total_spend if total_spend > 0 else 0
-    
-    baseline_roas = summary.get('baseline_roas', 0.0)
-    actual_roas = summary.get('actual_roas', 0.0)
-    market_impact_roas = summary.get('market_impact_roas', 0.0)
-    # decision_impact_roas is already calculated above
-
-    
     # Structural components
     scale_effect = summary.get('scale_effect', 0.0)
     portfolio_effect = summary.get('portfolio_effect', 0.0)
     unexplained = summary.get('unexplained', 0.0)
     
-    # Calculate Combined Forces (Market + structural + unexplained)
-    # Ideally: Combined = Actual - Baseline - Decision
-    # This ensures the waterfall connects perfectly
+    # Calculate Combined Forces
     combined_forces = actual_roas - baseline_roas - decision_impact_roas
-    
-    # Breakdown of Combined Forces for tooltip/text
-    # Note: 'combined_forces' implicitly captures scale, portfolio, market, and residual
     structural_total = scale_effect + portfolio_effect
     
-    # Prior and Actual Labels
+    # Labels
     periods = summary.get('periods', {})
     prior_start = periods.get('prior_start')
     current_end = periods.get('current_end')
+    prior_label = f"Baseline"
+    actual_label = f"Actual"
     
-    prior_label = f"Baseline ({prior_start.strftime('%b %d')})" if prior_start else "Baseline"
-    actual_label = f"Actual ({current_end.strftime('%b %d')})" if current_end else "Actual"
-
-    # --- 1. Waterfall Chart Data ---
-    C_BASELINE = "#5B5670"    # Saddle Deep Purple
-    C_POS = "#8FC9D6"         # Muted Cyan (Positive)
-    C_NEG = "#FF6B6B"         # Red (Negative)
-    C_DECISION = "#2A8EC9"    # Signal Blue
-    C_DECISION_NEG = "#FFA502" # Orange Warning
+    # --- CHART DATA PREP ---
     
-    x_data = [prior_label, "Combined Forces", "Decisions", actual_label]
-    y_data = []    # Length of bar
-    base_data = [] # Bottom of bar
+    # Visual coordinates
+    # We construct the waterfall manually to control every aspect
+    # Bars: [Baseline, Combined, Decisions, Actual]
+    
+    x_labels = [prior_label, "Combined\nForces", "Decisions", actual_label]
+    
+    # Bar Colors (Main fills)
+    C_BASELINE = "#475569"   # Slate
+    C_COMBINED_NEG = "#DC2626" # Red
+    C_COMBINED_POS = "#10B981" # Emerald (if market tailwinds)
+    C_DECISIONS = "#10B981"  # Emerald (Hero)
+    C_ACTUAL = "#06B6D4"     # Cyan (Result)
+    
+    combined_color = C_COMBINED_POS if combined_forces >= 0 else C_COMBINED_NEG
+    decision_color = C_DECISIONS
+    
+    # Bar Values and Bases
+    y_vals = []
+    bases = []
     colors = []
-    text_data = []
+    borders = []
+    text_labels = []
     
-    # Initialize connector lines
-    connector_x = []
-    connector_y = []
+    current_lvl = 0.0
     
-    current_level = 0.0
-    
-    # Bar 1: Baseline
-    y_data.append(baseline_roas)
-    base_data.append(0)
+    # 1. Baseline
+    y_vals.append(baseline_roas)
+    bases.append(0)
     colors.append(C_BASELINE)
-    text_data.append(f"{baseline_roas:.2f}")
-    current_level += baseline_roas
+    borders.append("rgba(148, 163, 184, 0.2)")
+    text_labels.append(f"{baseline_roas:.2f}")
+    current_lvl += baseline_roas
     
-    # Connector: Baseline -> Combined
-    connector_x.extend([prior_label, "Combined Forces", None])
-    connector_y.extend([current_level, current_level, None])
-    
-    # Bar 2: Combined Forces (Floating)
-    combined_color = C_POS if combined_forces >= 0 else C_NEG
-    y_data.append(combined_forces)
-    base_data.append(current_level)
+    # 2. Combined
+    y_vals.append(combined_forces)
+    bases.append(current_lvl)
     colors.append(combined_color)
-    text_data.append(f"{combined_forces:+.2f}")
-    current_level += combined_forces
+    borders.append("rgba(239, 68, 68, 0.4)" if combined_forces < 0 else "rgba(16, 185, 129, 0.4)")
+    text_labels.append(f"{combined_forces:+.2f}")
+    current_lvl += combined_forces
     
-    # Connector: Combined -> Decisions
-    connector_x.extend(["Combined Forces", "Decisions", None])
-    connector_y.extend([current_level, current_level, None])
+    # 3. Decisions
+    y_vals.append(decision_impact_roas)
+    bases.append(current_lvl)
+    colors.append(C_DECISIONS)
+    borders.append("rgba(16, 185, 129, 0.5)")
+    text_labels.append(f"{decision_impact_roas:+.2f}")
+    current_lvl += decision_impact_roas
     
-    # Bar 3: Decisions (Floating)
-    decision_color = C_DECISION if decision_impact_roas >= 0 else C_DECISION_NEG
-    y_data.append(decision_impact_roas)
-    base_data.append(current_level)
-    colors.append(decision_color)
-    text_data.append(f"{decision_impact_roas:+.2f}")
-    current_level += decision_impact_roas
+    # 4. Actual
+    y_vals.append(actual_roas)
+    bases.append(0)
+    colors.append(C_ACTUAL)
+    borders.append("rgba(6, 182, 212, 0.3)")
+    text_labels.append(f"{actual_roas:.2f}")
     
-    # Connector: Decisions -> Actual
-    connector_x.extend(["Decisions", actual_label, None])
-    connector_y.extend([current_level, current_level, None])
-    
-    # Bar 4: Actual
-    y_data.append(actual_roas)
-    base_data.append(0)
-    colors.append(C_POS) # Neutral/Result color
-    text_data.append(f"{actual_roas:.2f}")
-
-    # --- Render Chart ---
+    # --- RENDER CHART ---
     fig = go.Figure()
     
-    # The Bars
+    # Main Bars
     fig.add_trace(go.Bar(
-        x=x_data,
-        y=y_data,
-        base=base_data,
+        x=x_labels,
+        y=y_vals,
+        base=bases,
         marker_color=colors,
-        text=text_data,
-        textposition='auto',
-        hoverinfo='x+text',
-        width=0.6
+        marker_line=dict(width=1, color=borders),
+        width=0.55,
+        text=text_labels,
+        textposition='outside', # Using outside for clarity with bold white text if background is dark
+        textfont=dict(color='white', size=14, weight=800), # Trying bold white
+        hoverinfo='x+y+text',
+        name=""
     ))
     
-    # The Connectors
+    # Connector Lines with Arrows
+    # We draw lines from end of prev bar to start of curr bar
+    # Baseline Top -> Combined Start
+    # Combined End -> Decisions Start
+    # Decisions End -> Actual Top
+    
+    # Connectors
+    # 1. Baseline Top -> Combined Base (which is Baseline Top)
+    # Actually connectors in waterfalls connect the TOPS.
+    # Baseline Top connects to Combined Base? Yes.
+    # Combined Top connects to Decisions Base.
+    # Decisions Top connects to Actual Top.
+    
+    # Connector 1: Baseline Top -> Combined Base
+    # y = baseline_roas
+    fig.add_shape(
+        type="line",
+        x0=0.275, y0=baseline_roas, x1=0.725, y1=baseline_roas, # Approximate x-coords for gap
+        xref="x domain", yref="y", # Using x domain tricky with categorical.
+        # Better to simplify: Just dashed lines between categories using Scatter
+    )
+    # Retry with Scatter for connectors
+    
+    conn_x = []
+    conn_y = []
+    
+    # We need indices for x-axis categories: 0, 1, 2, 3
+    # Baseline(0) Top -> Combined(1) Base/Top depending on direction
+    # Standard waterfall connectors: From preceding bar's end to current bar's start.
+    
+    # Path 1: Baseline Top to Combined Start
+    conn_x.extend([x_labels[0], x_labels[1], None])
+    conn_y.extend([baseline_roas, baseline_roas, None])
+    
+    # Path 2: Combined End to Decisions Start
+    comb_end = baseline_roas + combined_forces
+    conn_x.extend([x_labels[1], x_labels[2], None])
+    conn_y.extend([comb_end, comb_end, None])
+    
+    # Path 3: Decisions End to Actual Start (Top)
+    dec_end = comb_end + decision_impact_roas
+    conn_x.extend([x_labels[2], x_labels[3], None])
+    conn_y.extend([dec_end, dec_end, None])
+    
     fig.add_trace(go.Scatter(
-        x=connector_x,
-        y=connector_y,
-        mode='lines',
-        line=dict(color='rgba(255, 255, 255, 0.3)', width=1, dash='dash'),
+        x=conn_x,
+        y=conn_y,
+        mode='lines+markers', # Markers for arrow heads? No, use annotations
+        line=dict(color='rgba(148, 163, 184, 0.4)', width=2, dash='dash'),
         hoverinfo='skip',
         showlegend=False
     ))
     
-    # --- Dynamic Scaling (Magnify Impact) ---
-    # Calculate min/max data points to zoom the Y-axis
-    # Points: Baseline, Combined End, Decisions End (Actual)
-    # We want to focus on the 'action' zone.
-    
-    # Calculate running totals to find true min/max
-    r1 = baseline_roas
-    r2 = baseline_roas + combined_forces
-    r3 = baseline_roas + combined_forces + decision_impact_roas # = Actual
-    
-    data_points = [0, baseline_roas, r1, r2, r3, actual_roas]
+    # Add Arrow Annotations at the destinations
+    # Arrow 1: At Combined Start
+    fig.add_annotation(
+        x=x_labels[1], y=baseline_roas,
+        text="▶", showarrow=False,
+        font=dict(size=10, color='rgba(148, 163, 184, 0.6)'),
+        xshift=-25
+    )
+    # Arrow 2: At Decisions Start
+    fig.add_annotation(
+        x=x_labels[2], y=comb_end,
+        text="▶", showarrow=False,
+        font=dict(size=10, color='rgba(148, 163, 184, 0.6)'),
+        xshift=-25
+    )
+    # Arrow 3: At Actual
+    fig.add_annotation(
+        x=x_labels[3], y=dec_end,
+        text="▶", showarrow=False,
+        font=dict(size=10, color='rgba(148, 163, 184, 0.6)'),
+        xshift=-25
+    )
+
+    # Dynamic Zoom
+    data_points = [0, baseline_roas, baseline_roas + combined_forces, dec_end, actual_roas]
     min_val = min(data_points)
     max_val = max(data_points)
     
-    # Magnification logic:
-    # If standard 0-based view makes changes look tiny, we zoom in.
-    # We'll set the range to [min_val - padding, max_val + padding]
-    # But we normally don't want to cut the bottom of the bars completely unless necessary.
-    # However, user asked to "artificially magnify". 
-    # Let's try a clamp at 50% of min value if min value is high (> 2.0).
-    
     y_range = None
     if max_val > 0:
-        span = max_val - min_val
-        # Determine strictness of zoom
-        zoom_floor = max(0, min_val * 0.5) # Show at least top 50% of the bar height
-        if min_val > 2.0:
-             zoom_floor = max(0, min_val - 0.5) # Tighter zoom for high ROAS
-             
-        padding = (max_val - zoom_floor) * 0.1
+        zoom_floor = max(0, min_val * 0.5)
+        if min_val > 2.0: zoom_floor = max(0, min_val - 0.5)
+        padding = (max_val - zoom_floor) * 0.15
         y_range = [max(0, zoom_floor - padding), max_val + padding]
 
     fig.update_layout(
-        title="ROAS Attribution",
+        title="",
         plot_bgcolor='rgba(0,0,0,0)',
         paper_bgcolor='rgba(0,0,0,0)',
-        font=dict(color='#E5E7EB'),
+        font=dict(family="Inter, sans-serif", color='#E2E8F0'),
         showlegend=False,
-        height=320,
-        margin=dict(l=20, r=20, t=40, b=20),
+        height=350,
+        margin=dict(l=20, r=20, t=30, b=20),
         yaxis=dict(
             showgrid=True, 
-            gridcolor='rgba(255,255,255,0.1)', 
-            title="ROAS", 
+            gridcolor='rgba(148, 163, 184, 0.08)', 
             zeroline=True, 
-            zerolinecolor='rgba(255,255,255,0.2)',
+            zerolinecolor='rgba(148, 163, 184, 0.2)',
+            title="ROAS",
+            title_font=dict(size=12, color='#94A3B8'),
+            tickfont=dict(color='#94A3B8', size=11),
             range=y_range
         ),
-        xaxis=dict(showgrid=False)
+        xaxis=dict(
+            showgrid=False,
+            tickfont=dict(color='#E2E8F0', size=13, weight=600),
+        )
     )
     
     st.plotly_chart(fig, use_container_width=True, config={'displayModeBar': False})
     
-    # Equation Summary
-    st.markdown(
-        f"<div style='text-align: center; color: #E5E7EB; font-weight: 600; font-size: 16px; margin-top: -10px; margin-bottom: 20px;'>"
-        f"{baseline_roas:.2f} {combined_forces:+.2f} (Market & Structural) {decision_impact_roas:+.2f} (Decisions) → {actual_roas:.2f} ROAS"
-        f"</div>",
-        unsafe_allow_html=True
+    # --- VISUAL EQUATION ---
+    # --- VISUAL EQUATION ---
+    equation_html = (
+        f"<div style='text-align: center; color: #E2E8F0; font-weight: 600; font-size: 1.1rem; "
+        f"padding: 16px; background: rgba(30, 41, 59, 0.3); border-radius: 8px; margin-top: -10px; margin-bottom: 24px;'>"
+        f"<span style='color: #94A3B8'>{baseline_roas:.2f}</span> "
+        f"{'-' if combined_forces < 0 else '+'} <span style='color: {'#EF4444' if combined_forces < 0 else '#10B981'}'>{abs(combined_forces):.2f}</span> <span style='font-size: 0.85rem; color: #94A3B8'>(Market)</span> "
+        f"{'-' if decision_impact_roas < 0 else '+'} <span style='color: {'#EF4444' if decision_impact_roas < 0 else '#10B981'}'>{abs(decision_impact_roas):.2f}</span> <span style='font-size: 0.85rem; color: #94A3B8'>(Decisions)</span> "
+        f"→ <span style='color: #06B6D4'>{actual_roas:.2f} ROAS</span>"
+        f"</div>"
     )
-
-    # --- Revenue Highlight (Aligned with Hero Card) ---
-    # Pull from session state to ensure identical value as Hero card
-    impact_metrics = st.session_state.get('_impact_metrics', {})
-    hero_attributed_impact = impact_metrics.get('attributed_impact', decision_impact_value)
+    st.markdown(equation_html, unsafe_allow_html=True)
     
-    if hero_attributed_impact > 0:
-        highlight_label = "Revenue Protected" if combined_forces < 0 else "Value Created"
-        counterfactual_roas = baseline_roas + combined_forces
+    # --- VALUE CREATED BOX ---
+    # Calculate performance improvement percentage
+    # Improvement = Attributed Impact / Counterfactual Revenue? 
+    # Or just use the User's example "improved performance by X%" logic.
+    # We'll use ROAS improvement % attributed to decisions.
+    
+    counterfactual_roas = max(0.01, baseline_roas + combined_forces)
+    pct_improvement = (decision_impact_roas / counterfactual_roas) * 100
+    
+    if decision_impact_value > 0:
+        val_formatted = f"{currency}{decision_impact_value:,.0f}" if currency else f"{decision_impact_value:,.0f}"
         
-        formatted_value = f"{currency}{hero_attributed_impact:,.0f}" if currency else f"${hero_attributed_impact:,.0f}"
-        
-        st.markdown(
-            f"""
-            <div style="
-                background-color: rgba(46, 213, 115, 0.12); 
-                border: 1px solid rgba(46, 213, 115, 0.3);
-                border-radius: 6px; 
-                padding: 12px; 
-                margin-top: 12px; 
-                margin-bottom: 24px;
-                text-align: center;
-            ">
-                <div style="color: #2ed573; font-size: 18px; font-weight: 700; margin-bottom: 4px;">
-                    {highlight_label}: {formatted_value}
-                </div>
-                <div style="color: #2ed573; font-size: 13px; opacity: 0.9;">
-                    (Without optimizations, ROAS would have been {counterfactual_roas:.2f})
-                </div>
-            </div>
-            """,
-            unsafe_allow_html=True
+        value_box_html = (
+            f'<div style="background: linear-gradient(135deg, rgba(16, 185, 129, 0.15) 0%, rgba(16, 185, 129, 0.05) 100%); '
+            f'border: 2px solid rgba(16, 185, 129, 0.4); border-radius: 12px; padding: 28px 32px; '
+            f'box-shadow: 0 6px 20px rgba(0, 0, 0, 0.3); margin-top: 24px; margin-bottom: 24px; text-align: center;">'
+            f'<div style="color: #10B981; font-size: 0.85rem; font-weight: 700; text-transform: uppercase; letter-spacing: 1.5px; margin-bottom: 12px;">VALUE CREATED</div>'
+            f'<div style="color: #10B981; font-size: 2.5rem; font-weight: 800; letter-spacing: -1px; line-height: 1; margin-bottom: 12px;">{val_formatted}</div>'
+            f'<div style="color: #94A3B8; font-size: 0.95rem; line-height: 1.5; margin-bottom: 4px;">Without optimizations, ROAS would have been {counterfactual_roas:.2f}</div>'
+            f'<div style="color: #10B981; font-size: 0.9rem; font-weight: 600;">You improved performance by {pct_improvement:.0f}%</div>'
+            f'</div>'
         )
-
-
+        st.markdown(value_box_html, unsafe_allow_html=True)
     # --- Expandable Breakdown ---
     with st.expander("Full Breakdown", expanded=False):
         # Data Prep for Text
@@ -1824,16 +2115,24 @@ def _render_cumulative_impact_chart(impact_df: pd.DataFrame, currency: str):
     import plotly.graph_objects as go
     import numpy as np
     
-    # Trend icon SVG
-    trend_icon = '<svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="#8F8CA3" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="23 6 13.5 15.5 8.5 10.5 1 18"></polyline><polyline points="17 6 23 6 23 12"></polyline></svg>'
+    # Trend icon SVG (cyan color)
+    trend_icon = '<svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="#06B6D4" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="23 6 13.5 15.5 8.5 10.5 1 18"></polyline><polyline points="17 6 23 6 23 12"></polyline></svg>'
     
     st.markdown(f"""
-    <div style="display: flex; align-items: center; gap: 8px; font-size: 1.1rem; font-weight: 600; color: #E9EAF0; margin-bottom: 4px;">
-        {trend_icon}
-        Is it getting better?
+    <div style="background: linear-gradient(135deg, rgba(30, 41, 59, 0.95) 0%, rgba(15, 23, 42, 0.95) 100%); 
+                border: 1px solid rgba(148, 163, 184, 0.15); 
+                border-left: 3px solid #06B6D4;
+                border-radius: 12px; padding: 16px; margin-bottom: 16px;
+                box-shadow: 0 4px 16px rgba(0, 0, 0, 0.3);">
+        <div style="display: flex; align-items: center; gap: 12px;">
+            {trend_icon}
+            <span style="font-weight: 700; font-size: 1.1rem; color: #F8FAFC; letter-spacing: 0.02em;">Decision Impact Timeline</span>
+        </div>
+        <div style="color: #64748B; font-size: 0.85rem; margin-top: 8px; margin-left: 32px;">
+            Total value created over time
+        </div>
     </div>
     """, unsafe_allow_html=True)
-    st.caption("Total value created over time")
     
     if impact_df.empty:
         st.info("No data")
@@ -2114,30 +2413,119 @@ def _render_new_impact_analytics(summary: Dict[str, Any], impact_df: pd.DataFram
 
     st.markdown("<div style='height: 32px;'></div>", unsafe_allow_html=True)
     
-    # ==========================================
-    # SECTION 4B: CUMULATIVE IMPACT CHART (Moved Down - Full Width)
-    # ==========================================
-    _render_cumulative_impact_chart(impact_df, currency)
-    
-    st.markdown("<div style='height: 32px;'></div>", unsafe_allow_html=True)
+
 
     # ==========================================
     # SECTION 5 & 6: CONFIDENCE ROW (Data Confidence | Value Breakdown)
     # ==========================================
-    conf_c1, conf_c2 = st.columns(2, gap="medium")
+    # ==========================================
+    # ==========================================
+    # SECTION 5 & 6: RECENT WINS + TRUST LAYOUT
+    # ==========================================
+    # Unified Panel
+    with st.container(border=True):
+        trust_c1, wins_c2 = st.columns([3, 7], gap="medium")
+        
+        # --- LEFT COLUMN: MEASUREMENT TRUST (30%) ---
+        with trust_c1:
+            # Content continues at same indentation...
+            # Calculate Trust Metrics
+            # Reuse validation logic from existing dataframes to avoid recalc
+            if not validation_df.empty:
+                v_df = validation_df
+                # Status counts
+                measured_count = len(v_df[v_df['validation_status'].astype(str).str.contains('✓|Confirmed|Validated|Directional', na=False)])
+                pending_count = len(v_df[v_df['maturity_status'] == 'Immature']) + len(v_df[v_df['maturity_status'] == 'Dormant'])
+                total_count = len(v_df)
+                early_count = total_count - measured_count - pending_count # Inconclusive/Excluded
+                
+                pct_measured = (measured_count / total_count * 100) if total_count > 0 else 0
+            else:
+                measured_count = 0
+                pending_count = 0
+                early_count = 0
+                pct_measured = 0
+            
+            # 1. Header
+            st.markdown("""
+<div style="display: flex; align-items: center; gap: 8px; margin-bottom: 16px;">
+    <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="#10B981" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"></path></svg>
+    <span style="font-weight: 700; font-size: 1rem; color: #F8FAFC;">Measurement Confidence</span>
+</div>
+""", unsafe_allow_html=True)
+
+            # 2. Dramatic Gauge (Plotly)
+            import plotly.graph_objects as go
+            
+            fig = go.Figure(go.Indicator(
+                mode = "gauge+number",
+                value = pct_measured,
+                number = {'font': {'size': 36, 'color': '#10B981', 'family': 'Inter, sans-serif'}, 'suffix': '%'},
+                domain = {'x': [0, 1], 'y': [0, 1]},
+                gauge = {
+                    'axis': {'range': [0, 100], 'tickwidth': 0, 'tickcolor': "rgba(0,0,0,0)", 'visible': False},
+                    'bar': {'color': "#10B981", 'thickness': 1.0}, # Full thickness
+                    'bgcolor': "rgba(255,255,255,0.1)",
+                    'borderwidth': 0,
+                    'steps': []
+                }
+            ))
+            
+            fig.update_layout(
+                height=160,
+                margin=dict(l=20, r=20, t=20, b=20),
+                paper_bgcolor='rgba(0,0,0,0)',
+                font={'family': "Inter, sans-serif"}
+            )
+            
+            st.plotly_chart(fig, use_container_width=True, config={'displayModeBar': False})
+            
+            st.markdown(f"""
+<div style="text-align: center; margin-top: -30px; margin-bottom: 24px;"><div style="color: #94A3B8; font-size: 0.85rem; font-weight: 500;">Measurement Coverage</div></div>
+<div style="display: flex; flex-direction: column; gap: 12px; padding: 0 12px;">
+    <div style="display: flex; align-items: center; justify-content: space-between;">
+        <div style="display: flex; align-items: center; gap: 8px; color: #E2E8F0; font-size: 0.9rem;">
+            <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#E2E8F0" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M22 11.08V12a10 10 0 1 1-5.93-9.14"></path><polyline points="22 4 12 14.01 9 11.01"></polyline></svg>
+            Total Decisions
+        </div>
+        <span style="font-weight: 600; color: #E2E8F0;">{total_count}</span>
+    </div>
+    <div style="display: flex; align-items: center; justify-content: space-between;">
+        <div style="display: flex; align-items: center; gap: 8px; color: #E2E8F0; font-size: 0.9rem;">
+            <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#10B981" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="20 6 9 17 4 12"></polyline></svg>
+            Next decision proven
+        </div>
+        <span style="font-weight: 600; color: #10B981;">{measured_count}</span>
+    </div>
+    <div style="display: flex; align-items: center; justify-content: space-between;">
+        <div style="display: flex; align-items: center; gap: 8px; color: #64748B; font-size: 0.9rem;">
+            <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#64748B" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"></circle><line x1="15" y1="9" x2="9" y2="15"></line><line x1="9" y1="9" x2="15" y2="15"></line></svg>
+            Pending decisions (too early)
+        </div>
+        <span style="font-weight: 600; color: #64748B;">{early_count + pending_count}</span>
+    </div>
+</div>
+<div style="margin-top: 24px; padding: 12px; background: rgba(16, 185, 129, 0.1); border: 1px solid rgba(16, 185, 129, 0.2); border-radius: 8px; display: flex; align-items: center; gap: 12px;">
+    <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="#10B981" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"></path><path d="m9 12 2 2 4-4"></path></svg>
+    <div>
+        <div style="color: #10B981; font-weight: 700; font-size: 0.9rem;">High Confidence</div>
+        <div style="color: #6EE7B7; font-size: 0.75rem;">Statistically significant results</div>
+    </div>
+</div>
+""", unsafe_allow_html=True)
     
-    with conf_c1:
-        _render_data_confidence_section(validation_df)
-    
-    with conf_c2:
-        _render_value_breakdown_section(impact_df, currency, canonical_metrics=canonical_metrics)
+    # --- RIGHT COLUMN: RECENT WINNING DECISIONS (70%) ---
+        # --- RIGHT COLUMN: RECENT WINNING DECISIONS (70%) ---
+        with wins_c2:
+            _render_recent_wins_list(impact_df, currency)
 
     st.markdown("<div style='height: 24px;'></div>", unsafe_allow_html=True)
 
     # ==========================================
     # SECTION 7: COLLAPSED DETAILS TABLE
     # ==========================================
-    _render_details_table_collapsed(impact_df, currency)
+    with st.container(border=True):
+        _render_details_table_collapsed(impact_df, currency)
     # Debug console removed for production
 
 
@@ -2198,16 +2586,24 @@ def _render_decision_outcome_matrix(impact_df: pd.DataFrame, summary: Dict[str, 
     import plotly.graph_objects as go
     import numpy as np
     
-    # Target icon SVG
-    target_icon = '<svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="#8F8CA3" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"></circle><circle cx="12" cy="12" r="6"></circle><circle cx="12" cy="12" r="2"></circle></svg>'
+    # Target icon SVG (cyan color)
+    target_icon = '<svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="#06B6D4" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"></circle><circle cx="12" cy="12" r="6"></circle><circle cx="12" cy="12" r="2"></circle></svg>'
     
     st.markdown(f"""
-    <div style="display: flex; align-items: center; gap: 8px; font-size: 1.1rem; font-weight: 600; color: #E9EAF0; margin-bottom: 4px;">
-        {target_icon}
-        Did each decision help or hurt?
+    <div style="background: linear-gradient(135deg, rgba(30, 41, 59, 0.95) 0%, rgba(15, 23, 42, 0.95) 100%); 
+                border: 1px solid rgba(148, 163, 184, 0.15); 
+                border-left: 3px solid #06B6D4;
+                border-radius: 12px; padding: 16px; margin-bottom: 16px;
+                box-shadow: 0 4px 16px rgba(0, 0, 0, 0.3);">
+        <div style="display: flex; align-items: center; gap: 12px;">
+            {target_icon}
+            <span style="font-weight: 700; font-size: 1.1rem; color: #F8FAFC; letter-spacing: 0.02em;">Decision Outcome Map</span>
+        </div>
+        <div style="color: #64748B; font-size: 0.85rem; margin-top: 8px; margin-left: 32px;">
+            Each dot is one decision • Hover for details
+        </div>
     </div>
     """, unsafe_allow_html=True)
-    st.caption("Each dot is one decision. Hover for details.")
     
     if impact_df.empty:
         st.info("No data to display")
@@ -2226,6 +2622,9 @@ def _render_decision_outcome_matrix(impact_df: pd.DataFrame, summary: Dict[str, 
     if len(df) < 3:
         st.info("Insufficient data for matrix")
         return
+
+
+
 
     # Cap outliers for visualization (keep charts readable)
     # We clip the visual coordinates but keep actuals for hover
@@ -3206,14 +3605,23 @@ def get_recent_impact_summary() -> Optional[dict]:
         
     try:
         # Construct cache version to ensure data freshness on new uploads
-        # This matches the strategy in ImpactDashboardModule
-        ts_dict = st.session_state.get('unified_data', {}).get('upload_timestamps', {})
-        cache_version = f"v6_{hash(frozenset(ts_dict.items()))}"
+        # This matches the strategy in ImpactDashboardModule (v19_perf_)
+        cache_version = "v19_perf_" + str(st.session_state.get('data_upload_timestamp', 'init'))
         
         # Use existing CACHED data fetcher (14 Days)
         # discard dataframe, keep summary
         impact_df, summary = _fetch_impact_data(selected_client, test_mode, before_days=14, after_days=14, cache_version=cache_version)
         
+        # CONSOLE DEBUG
+        print(f"\n[HOME TILE DEBUG]")
+        print(f"Cache Key: {cache_version}")
+        print(f"Selected Client: {selected_client}")
+        # Check if 'final_decision_impact' exists
+        has_final = 'final_decision_impact' in impact_df.columns
+        print(f"Has 'final_decision_impact': {has_final}")
+        if has_final:
+            print(f"Avg Confidence Weight: {impact_df['confidence_weight'].mean() if 'confidence_weight' in impact_df.columns else 'N/A'}")
+
         # ==========================================
         # PHASE 3: USE CANONICAL METRICS
         # ==========================================
@@ -3222,9 +3630,21 @@ def get_recent_impact_summary() -> Optional[dict]:
         # === CRITICAL FIX: REPLICATE MATURITY LOGIC ===
         # Getting the maturity right is essential for matching the dash
         if not impact_df.empty and 'action_date' in impact_df.columns:
-            # Need strict latest date from data summary
-            period_info = summary.get('period_info', {})
-            latest_data_date = period_info.get('after_end') or period_info.get('latest_date')
+            try:
+                # Use DB source of truth for latest date to match Exec Dash
+                # Otherwise summary.period_info might lag (e.g. Jan 12 vs Jan 17)
+                latest_data_date = None
+                db = get_db_manager(test_mode)
+                if hasattr(db, 'get_latest_raw_data_date'):
+                    latest_data_date = db.get_latest_raw_data_date(selected_client)
+            except Exception as e:
+                print(f"Error fetching latest date for {selected_client}: {e}")
+                latest_data_date = None
+            
+            if not latest_data_date:
+                period_info = summary.get('period_info', {})
+                # Fallback safely to whatever date is available
+                latest_data_date = period_info.get('after_end') or period_info.get('latest_date')
             
             if latest_data_date:
                 # Calculate maturity exactly as dashboard does
@@ -3240,11 +3660,36 @@ def get_recent_impact_summary() -> Optional[dict]:
             'mature_only': True
         }
         
+        # Use ImpactMetrics.from_dataframe() for canonical calculation
+        # This matches EXACTLY how Impact Dashboard calculates its number
+        canonical_filters = {
+            'validated_only': True,
+            'mature_only': True
+        }
+        
         metrics = ImpactMetrics.from_dataframe(
             impact_df, 
             horizon_days=14,
             filters=canonical_filters
         )
+        
+        # CONSOLE DEBUG PART 2
+        print(f"Metrics Attributed Impact: {metrics.attributed_impact}")
+        
+        # Verify manual sums on the subset metrics is seeing
+        # We need to replicate default behavior of ImpactMetrics to see what it sees
+        subset = impact_df.copy()
+        if 'is_mature' in subset.columns:
+            subset = subset[subset['is_mature'] == True]
+        mask = subset['validation_status'].astype(str).str.contains('✓|CPC Validated|CPC Match|Directional|Confirmed|Normalized|Volume', na=False, regex=True)
+        subset = subset[mask]
+        
+        raw_sum = subset['decision_impact'].sum() if 'decision_impact' in subset.columns else 0
+        final_sum = subset['final_decision_impact'].sum() if 'final_decision_impact' in subset.columns else 0
+        
+        print(f"Manual Raw Sum (Mature+Valid): {raw_sum:,.0f}")
+        print(f"Manual Final Sum (Mature+Valid): {final_sum:,.0f}")
+        print(f"-------------------------------------------")
         
         if not metrics.has_data:
             return None
@@ -3275,4 +3720,97 @@ def get_recent_impact_summary() -> Optional[dict]:
     except Exception as e:
         print(f"[Impact Summary] Error: {e}")
         return None
+
+
+def _render_recent_wins_list(impact_df: pd.DataFrame, currency: str):
+    """
+    Render scrollable list of top 5 recent winning decisions with premium cards.
+    """
+    # 1. Header
+    st.markdown("""
+<div style="display: flex; align-items: center; gap: 8px; margin-bottom: 20px;">
+    <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="#F59E0B" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M6 9H4.5a2.5 2.5 0 0 1 0-5H6"></path><path d="M18 9h1.5a2.5 2.5 0 0 0 0-5H18"></path><path d="M4 22h16"></path><path d="M10 14.66V17"></path><path d="M14 14.66V17"></path><path d="M18 2H6v7a6 6 0 0 0 12 0V2Z"></path></svg>
+    <span style="font-weight: 700; font-size: 1rem; color: #F8FAFC;">RECENT WINNING DECISIONS</span>
+</div>
+""", unsafe_allow_html=True)
+    
+    if impact_df.empty:
+        st.info("No recent wins found.")
+        return
+
+    # 2. Filter & Sort Data
+    # Wins: impact > 0 AND validated
+    wins_df = impact_df[
+        (impact_df['decision_impact'] > 0) & 
+        (impact_df['validation_status'].astype(str).str.contains('✓|Confirmed|Validated|Directional', na=False))
+    ].copy()
+    
+    if wins_df.empty:
+        st.caption("No validated wins in this period yet.")
+        return
+        
+    # Sort by date descending (most recent first)
+    if 'action_date' in wins_df.columns:
+        wins_df['action_date'] = pd.to_datetime(wins_df['action_date'])
+        wins_df = wins_df.sort_values(by='action_date', ascending=False)
+    
+    # Take top 5
+    top_wins = wins_df.head(5)
+    
+    # 3. Render Cards
+    for idx, row in top_wins.iterrows():
+        # Format Data
+        action_desc = row.get('target_text', 'Unknown Action')
+        if len(action_desc) > 35:
+            action_desc = action_desc[:32] + "..."
+            
+        impact_val = row.get('decision_impact', 0)
+        formatted_impact = f"{currency}{impact_val:,.0f}" if currency else f"${impact_val:,.0f}"
+        
+        action_date = row.get('action_date')
+        date_str = action_date.strftime('%b %d') if pd.notnull(action_date) else ""
+        action_type = str(row.get('action_type', '')).replace('_', ' ').title()
+        
+        # Determine icon based on type
+        if 'Bid' in action_type:
+            type_icon = '<svg xmlns="http://www.w3.org/2000/svg" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="#94A3B8" stroke-width="2"><line x1="12" y1="1" x2="12" y2="23"></line><path d="M17 5H9.5a3.5 3.5 0 0 0 0 7h5a3.5 3.5 0 0 1 0 7H6"></path></svg>'
+        elif 'Negative' in action_type:
+            type_icon = '<svg xmlns="http://www.w3.org/2000/svg" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="#94A3B8" stroke-width="2"><circle cx="12" cy="12" r="10"></circle><line x1="4.93" y1="4.93" x2="19.07" y2="19.07"></line></svg>'
+        else:
+            type_icon = '<svg xmlns="http://www.w3.org/2000/svg" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="#94A3B8" stroke-width="2"><path d="M6 9H4.5a2.5 2.5 0 0 1 0-5H6"></path><path d="M18 9h1.5a2.5 2.5 0 0 0 0-5H18"></path><path d="M4 22h16"></path></svg>'
+
+        # Card HTML
+        st.markdown(f"""
+<div style="
+    background: rgba(30, 41, 59, 0.4); 
+    border: 1px solid rgba(148, 163, 184, 0.1); 
+    border-left: 3px solid #10B981;
+    border-radius: 8px; 
+    padding: 12px 16px; 
+    margin-bottom: 12px;
+    display: flex; 
+    align-items: center; 
+    justify-content: space-between;
+    transition: transform 0.2s;
+" onmouseover="this.style.transform='translateY(-2px)'" onmouseout="this.style.transform='translateY(0)'">
+    <div style="flex: 1;">
+        <div style="color: #E2E8F0; font-weight: 600; font-size: 0.95rem; margin-bottom: 4px;">
+            {action_desc}
+        </div>
+        <div style="display: flex; align-items: center; gap: 6px; color: #94A3B8; font-size: 0.8rem;">
+            {type_icon} {date_str} • {action_type}
+        </div>
+    </div>
+    <div style="text-align: right;">
+        <div style="color: #10B981; font-weight: 700; font-size: 1.1rem; margin-bottom: 2px;">
+            +{formatted_impact}
+        </div>
+        <div style="color: #64748B; font-size: 0.75rem;">
+            (14-day measured)
+        </div>
+    </div>
+</div>
+""", unsafe_allow_html=True)
+    
+
 
