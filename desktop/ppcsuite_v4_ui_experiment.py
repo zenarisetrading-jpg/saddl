@@ -18,6 +18,15 @@ import pandas as pd
 from datetime import datetime
 import os
 
+# BRIDGE: Load Environment Variables (support .env in desktop/ or parent root)
+try:
+    from dotenv import load_dotenv
+    current_dir = Path(__file__).parent
+    load_dotenv(current_dir / '.env')          # desktop/.env
+    load_dotenv(current_dir.parent / '.env')   # saddle/.env
+except ImportError:
+    pass
+
 # BRIDGE: Load Streamlit Secrets into OS Environment for Core Modules
 try:
     if "DATABASE_URL" in st.secrets:
@@ -273,7 +282,11 @@ def run_consolidated_optimizer():
                 # CONSISTENCY FIX: Use DB data directly like Performance Overview
                 # No merge, no dedup - just use what's in the database
                 df = db_df.copy()
-                st.success(f"✅ Using complete database history: {len(df):,} rows from {df['Date'].min().date()} to {df['Date'].max().date()}")
+                # Display dates as week ending (database stores week start/Monday, but show week end/Sunday)
+                from datetime import timedelta
+                min_display = df['Date'].min().date()
+                max_display = df['Date'].max().date() + timedelta(days=6)  # Week ending (Sunday)
+                st.success(f"✅ Using complete database history: {len(df):,} rows from {min_display} to {max_display}")
     
     # =====================================================
     # DATE RANGE FILTER: Default to last 30 days
@@ -306,9 +319,13 @@ def run_consolidated_optimizer():
             # Use wider bounds (1 year back) if date filter needs more room
             abs_min = min(min_date, datetime.now() - timedelta(days=365))
             
+            # Week ending display: Show dates as week ending (database stores week start)
+            # Display offset: +6 days to convert Monday (week start) to Sunday (week end)
+            week_end_max = max_date.date() + timedelta(days=6)
+            
             # --- CLAMP SESSION STATE TO VALID RANGE ---
             # This prevents StreamlitAPIException if the previous file had a wider range
-            s_min, s_max = abs_min.date(), max_date.date()
+            s_min, s_max = abs_min.date(), week_end_max  # s_max now shows week ending
             if "opt_date_start" in st.session_state:
                 if st.session_state["opt_date_start"] < s_min: st.session_state["opt_date_start"] = s_min
                 if st.session_state["opt_date_start"] > s_max: st.session_state["opt_date_start"] = s_max
@@ -324,14 +341,21 @@ def run_consolidated_optimizer():
                                             max_value=s_max,
                                             key="opt_date_start")
             with col_b:
+                # Default shows week ending (max stored date + 6 days)
+                default_end = max_date.date() + timedelta(days=6)
                 end_date = st.date_input("End Date", 
-                                          value=st.session_state.get("opt_date_end", max_date.date()),
+                                          value=st.session_state.get("opt_date_end", default_end),
                                           min_value=s_min, 
                                           max_value=s_max,
                                           key="opt_date_end")
         
         # Filter data to selected range
+        # User selects dates as week ending (Sunday), but DB stores week start (Monday)
+        # Convert user's end_date back to week start for comparison: subtract 6 days
         if date_col:
+            # For end_date, if user picked week ending (Sunday), convert to week start (Monday) 
+            # by subtracting 6 days for proper filtering against DB's start_date column
+            filter_end = end_date - timedelta(days=6) if end_date != start_date else end_date
             mask = (df[date_col].dt.date >= start_date) & (df[date_col].dt.date <= end_date)
             df = df[mask].copy()
         else:
@@ -1325,9 +1349,8 @@ def main():
         nav_button_chiclet("What If (Forecast)", sim_icon, "simulator")
         nav_button_chiclet("Impact & Results", impact_icon, "impact")
         
-        # Client Report (SVG glassmorphic icon)
-        report_icon = f'<svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="{nav_icon_color}" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="vertical-align: middle;"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"></path><polyline points="14 2 14 8 20 8"></polyline><line x1="16" y1="13" x2="8" y2="13"></line><line x1="16" y1="17" x2="8" y2="17"></line><polyline points="10 9 9 9 8 9"></polyline></svg>'
-        nav_button_chiclet("Client Report", report_icon, "client_report")
+        
+        # Client Report feature removed
         
         # Launch - Requires 'run_optimizer' (Creating campaigns)
         if has_permission_for_account(user, 'run_optimizer', st.session_state.get('permission_account_context')):
@@ -1456,9 +1479,7 @@ def main():
     elif current == 'impact':
         from features.impact_dashboard import render_impact_dashboard
         render_impact_dashboard()
-    elif current == 'client_report':
-        from features.client_report import render_client_report
-        render_client_report()
+    # Client Report feature removed
 
     # Render Floating Chat Bubble (unless already on assistant page)
     if current != 'assistant':

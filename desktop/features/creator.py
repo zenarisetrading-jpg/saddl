@@ -388,46 +388,50 @@ class CreatorModule(BaseFeature):
                 else:
                     df_harvest["Advertised SKU"] = "SKU_NEEDED"
 
-            if "Advertised SKU" not in df_harvest.columns or df_harvest["Advertised SKU"].eq("SKU_NEEDED").all():
-                # TRY TO PRE-FILL FROM SESSION STATE FIRST
+            # Check if SKUs are missing (ANY row missing SKU triggers mapping)
+            if "Advertised SKU" not in df_harvest.columns or df_harvest["Advertised SKU"].eq("SKU_NEEDED").any():
+                
+                purchased_report = None
+                
                 # 1. Try Data Hub (Session State)
                 if 'unified_data' in st.session_state:
                      purchased_report = st.session_state.unified_data.get('advertised_product_report')
-                else:
-                     purchased_report = None
-                
-                # 2. Key Fallback: Try DB if missing
-                if purchased_report is None or purchased_report.empty:
+
+                # 2. Fallback: Try DB
+                if purchased_report is None or (hasattr(purchased_report, 'empty') and purchased_report.empty):
                     client_id = st.session_state.get('active_account_id')
                     if client_id:
                         try:
-                            # Use db_manager logic to fetch
                             db_mgr = get_db_manager(st.session_state.get('test_mode', False))
                             purchased_report = db_mgr.get_advertised_product_map(client_id)
                             
-                            # Cache it back to DataHub for this session
-                            if not purchased_report.empty:
+                            if purchased_report is not None and not purchased_report.empty:
                                 if 'unified_data' not in st.session_state:
                                      DataHub() # Initialize structure
                                 st.session_state.unified_data['advertised_product_report'] = purchased_report
                         except Exception as e:
-                            pass # Fail silently, user will see warning
+                            st.warning(f"Could not load SKU map from DB: {e}")
 
                 if purchased_report is not None and not purchased_report.empty:
                      df_harvest, msg = self.map_skus_from_df(df_harvest, purchased_report)
-                     if "Matches found" in msg:
+                     
+                     # Check for success message - actual format is "✅ Matched X/Y SKUs"
+                     if "Matched" in msg and "SKU" in msg:
                         check_icon = f'<svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#4ade80" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" style="vertical-align: middle; margin-right: 8px;"><polyline points="20 6 9 17 4 12"></polyline></svg>'
                         st.markdown(f"""
                         <div style="background: rgba(74, 222, 128, 0.05); border-left: 4px solid #4ade80; padding: 12px 20px; border-radius: 0 8px 8px 0; margin-bottom: 20px; display: flex; align-items: center;">
                             {check_icon}
-                            <span style="color: #F5F5F7; font-size: 0.95rem;">Auto-mapped SKUs using Data Hub: <strong style="color: #4ade80;">{msg}</strong></span>
+                            <span style="color: #F5F5F7; font-size: 0.95rem;">Auto-mapped SKUs from database: <strong style="color: #4ade80;">{msg}</strong></span>
                         </div>
                         """, unsafe_allow_html=True)
                         st.session_state['harvest_payload'] = df_harvest
                      else:
                         st.warning("⚠️ SKUs missing. Detailed SKU mapping required.")
+                        st.caption(f"Status: {msg}")
                         sku_file = st.file_uploader("Upload SKU Map (Purchased Product Report)", type=['csv', 'xlsx'], key="harvest_sku_map")
                         if sku_file:
+                            df_harvest, msg = self.map_skus_from_file(df_harvest, sku_file)
+                            check_icon = f'<svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#4ade80" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" style="vertical-align: middle; margin-right: 8px;"><polyline points="20 6 9 17 4 12"></polyline></svg>'
                             df_harvest, msg = self.map_skus_from_file(df_harvest, sku_file)
                             check_icon = f'<svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#4ade80" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" style="vertical-align: middle; margin-right: 8px;"><polyline points="20 6 9 17 4 12"></polyline></svg>'
                             st.markdown(f"""
@@ -438,6 +442,7 @@ class CreatorModule(BaseFeature):
                             """, unsafe_allow_html=True)
                             st.session_state['harvest_payload'] = df_harvest
                 else:
+                    print("DEBUG CREATOR: No purchased_report available, showing upload prompt")
                     st.warning("⚠️ SKUs missing. detailed SKU mapping required.")
                     sku_file = st.file_uploader("Upload SKU Map (Purchased Product Report)", type=['csv', 'xlsx'], key="harvest_sku_map")
                     if sku_file:
@@ -552,64 +557,96 @@ class CreatorModule(BaseFeature):
 
     def map_skus_from_df(self, harvest_df: pd.DataFrame, camp_df: pd.DataFrame) -> tuple[pd.DataFrame, str]:
         """Resolves SKUs from a pre-loaded Advertised Product Report DataFrame."""
+        import re
         try:
-            col_map = SmartMapper.map_columns(camp_df)
+            # 1. Column Mapping (Robust)
+            c_col = None
+            s_col = None
+            ag_col = None
             
-            c_col = col_map.get("Campaign Name")
-            s_col = col_map.get("SKU")
-            ag_col = col_map.get("Ad Group Name")  # Add ad group for better matching
+            # Direct DB columns
+            if 'Campaign Name' in camp_df.columns: c_col = 'Campaign Name'
+            if 'SKU' in camp_df.columns: s_col = 'SKU'
+            if 'Ad Group Name' in camp_df.columns: ag_col = 'Ad Group Name'
+                
+            # SmartMapper fallback
+            if not c_col or not s_col:
+                col_map = SmartMapper.map_columns(camp_df)
+                c_col = c_col or col_map.get("Campaign Name")
+                s_col = s_col or col_map.get("SKU")
+                ag_col = ag_col or col_map.get("Ad Group Name")
             
             if not (c_col and s_col):
-                return harvest_df, "❌ Missing Campaign or SKU columns in report"
+                return harvest_df, f"❌ Missing Campaign or SKU columns. Found: {list(camp_df.columns)}"
+                
+            # 2. UI Debugger (Visible to User)
+            with st.expander("🕵️ SKU Mapping Diagnostics", expanded=True):
+                st.write("**Debugging Info**")
+                c1, c2 = st.columns(2)
+                with c1:
+                    st.caption("Harvest Candidates (Target)")
+                    st.dataframe(harvest_df[['Campaign Name', 'Customer Search Term', 'Advertised SKU']].head(), use_container_width=True)
+                with c2:
+                    st.caption("Advertised Product Report (Source)")
+                    st.dataframe(camp_df.head(), use_container_width=True)
+                
+                st.write(f"**Mapping Keys**: Campaign='{c_col}', AdGroup='{ag_col}', SKU='{s_col}'")
+                sample_camp = camp_df[c_col].iloc[0] if not camp_df.empty else "N/A"
+                st.write(f"**Sample Cache Campaign**: '{sample_camp}'")
+
+            # 3. Lookup Construction (Norm + Fuzzy)
+            # We build a dictionary that maps:
+            #   exact_camp|ag -> sku
+            #   exact_camp -> sku
+            #   fuzzy_camp (no timestamp) -> sku
             
-            # Create normalized lookup with Campaign + Ad Group (more precise)
+            sku_lookup = {} 
+            
+            # Helper to clean campaign name (strip timestamp)
+            # Pattern: "Name - DD/MM/YYYY..." or "Name - YYYY/MM/DD..."
+            def clean_name(name):
+                return re.sub(r' - \d{2}[/-]\d{2}[/-]\d{4}.*', '', str(name)).strip().lower()
+                
+            # Populate Lookups
+            # Iterate for flexibility (fast enough for reports < 100k rows)
+            # Using groupby for base performance then augment
             camp_df = camp_df.copy()
-            camp_df['_camp_norm'] = camp_df[c_col].astype(str).str.strip().str.lower()
+            camp_df['__c_norm'] = camp_df[c_col].astype(str).str.strip().str.lower()
+            camp_df['__sku_str'] = camp_df[s_col].astype(str).str.strip()
             
-            # If Ad Group exists, use it for better precision
-            if ag_col and ag_col in camp_df.columns:
-                camp_df['_ag_norm'] = camp_df[ag_col].astype(str).str.strip().str.lower()
-                
-                # Create composite key: campaign|adgroup -> SKU
-                camp_df['_composite_key'] = camp_df['_camp_norm'] + '|' + camp_df['_ag_norm']
-                
-                # Aggregate SKUs (in case multiple SKUs per campaign/adgroup)
-                sku_lookup = camp_df.groupby('_composite_key')[s_col].apply(
-                    lambda x: ', '.join(x.dropna().astype(str).unique())
-                ).to_dict()
-                
-                # Also create campaign-only fallback
-                sku_lookup_camp = camp_df.groupby('_camp_norm')[s_col].apply(
-                    lambda x: ', '.join(x.dropna().astype(str).unique())
-                ).to_dict()
-            else:
-                # Campaign-only lookup
-                sku_lookup_camp = camp_df.groupby('_camp_norm')[s_col].apply(
-                    lambda x: ', '.join(x.dropna().astype(str).unique())
-                ).to_dict()
-                sku_lookup = {}
+            if ag_col:
+                camp_df['__ag_norm'] = camp_df[ag_col].astype(str).str.strip().str.lower()
+                # Composite Exact
+                camp_df['__key_comp'] = camp_df['__c_norm'] + '|' + camp_df['__ag_norm']
+                lookup_comp = camp_df.groupby('__key_comp')['__sku_str'].first().to_dict()
+                sku_lookup.update(lookup_comp)
             
+            # Campaign Exact
+            lookup_camp = camp_df.groupby('__c_norm')['__sku_str'].first().to_dict()
+            sku_lookup.update(lookup_camp)
+            
+            # Fuzzy Campaign (Cleaned)
+            camp_df['__c_clean'] = camp_df['__c_norm'].apply(lambda x: re.sub(r' - \d{2}[/-]\d{2}[/-]\d{4}.*', '', x).strip())
+            lookup_fuzzy = camp_df.groupby('__c_clean')['__sku_str'].first().to_dict()
+            
+            # 4. Resolve Function
             def resolve(row):
-                # If already has SKU, keep it
                 existing = str(row.get("Advertised SKU", "")).strip()
-                if existing and existing != "SKU_NEEDED":
-                    return existing
+                if existing and existing != "SKU_NEEDED": return existing
                 
-                # Normalize search keys
-                c_name = str(row.get("Campaign Name", "")).strip().lower()
-                ag_name = str(row.get("Ad Group Name", "")).strip().lower()
+                c_raw = str(row.get("Campaign Name", "")).strip().lower()
+                ag_raw = str(row.get("Ad Group Name", "")).strip().lower()
                 
-                # Try composite key first (most precise)
-                if sku_lookup:
-                    composite_key = f"{c_name}|{ag_name}"
-                    found = sku_lookup.get(composite_key)
-                    if found:
-                        return found
+                # 1. Try Composite (Exact)
+                if ag_col:
+                    if (res := sku_lookup.get(f"{c_raw}|{ag_raw}")): return res
                 
-                # Fallback to campaign-only
-                found = sku_lookup_camp.get(c_name)
-                if found:
-                    return found
+                # 2. Try Campaign (Exact)
+                if (res := sku_lookup.get(c_raw)): return res
+                
+                # 3. Try Fuzzy Campaign (Cleaned)
+                c_clean = re.sub(r' - \d{2}[/-]\d{2}[/-]\d{4}.*', '', c_raw).strip()
+                if (res := lookup_fuzzy.get(c_clean)): return res
                 
                 return "SKU_NEEDED"
             
@@ -622,12 +659,17 @@ class CreatorModule(BaseFeature):
             
             msg = f"✅ Matched {found}/{total} SKUs"
             if missing > 0:
-                msg += f" | ⚠️ {missing} still need manual mapping"
+                msg += f" | ⚠️ {missing} manually mapped"
             
             return harvest_df, msg
             
         except Exception as e:
+            # Keep debug output for visibility during SKU mapping issues
+            import traceback
+            print(f"DEBUG SKU MAPPING ERROR: {e}")
+            traceback.print_exc()
             return harvest_df, f"❌ Error mapping SKUs: {str(e)}"
+
 
     def map_skus_from_file(self, harvest_df: pd.DataFrame, campaigns_file) -> tuple[pd.DataFrame, str]:
         """Resolves SKUs from Purchased Product Report (Advertised Product Report)."""

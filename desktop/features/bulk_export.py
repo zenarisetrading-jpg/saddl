@@ -27,7 +27,7 @@ from core.bulk_validation import (
     ERROR_MESSAGES,
 )
 
-from tests.bulk_validation_spec import OptimizationRecommendation
+from core.optimization_types import OptimizationRecommendation
 
 
 # ==========================================
@@ -664,7 +664,7 @@ def generate_harvest_bulk(harvest_df: pd.DataFrame,
                 "Campaign Name": camp_name,
                 "Targeting Type": "Manual",
                 "State": "enabled",
-                "Bidding Strategy": "Dynamic bidding (down only)",
+                "Bidding Strategy": "Dynamic bids - down only",
                 "Daily Budget": f"{campaign_budget:.2f}",
                 "Start Date": start_date_str,
                 "Portfolio ID": str(portfolio_id) if portfolio_id else ""
@@ -709,6 +709,7 @@ def generate_harvest_bulk(harvest_df: pd.DataFrame,
                 pa_row = {
                     "Product": "Sponsored Products",
                     "Entity": "Product Ad",
+                    "Ad Group Default Bid": ag_def_bid,
                     "Operation": "Create",
                     "Campaign Id": camp_name,
                     "Ad Group Id": ag_name,
@@ -728,6 +729,7 @@ def generate_harvest_bulk(harvest_df: pd.DataFrame,
         kw_rows["Ad Group Id"] = ag_name
         kw_rows["Campaign Name"] = camp_name
         kw_rows["Ad Group Name"] = ag_name
+        # Populate Ad Group Default Bid for all entities (except Campaign) per user requirement
         kw_rows["Ad Group Default Bid"] = ag_def_bid
         kw_rows["State"] = "enabled"
 
