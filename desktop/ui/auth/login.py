@@ -269,7 +269,6 @@ def render_login():
                      st.info(f"Seeding Result: {result}")
                      st.success(f"Seeding complete! Try logging in as {DEFAULT_ADMIN_EMAIL} / {DEFAULT_ADMIN_PASSWORD}")
                      
-                     # Double check existence
                      with auth._get_connection() as conn:
                          cur = conn.cursor()
                          cur.execute(f"SELECT email, role FROM users WHERE email = '{DEFAULT_ADMIN_EMAIL}'")
@@ -278,6 +277,40 @@ def render_login():
                              st.success(f"✅ User verified in DB: {row[0]} ({row[1]})")
                          else:
                              st.error("Still not found in DB after seeding!")
+
+             if st.button("Fix Missing Organization"):
+                 try:
+                     import uuid
+                     default_org_id = str(uuid.uuid5(uuid.NAMESPACE_DNS, "saddle.io"))
+                     default_org_name = "Primary Organization"
+                     st.info(f"Attempting to create Org: {default_org_id}")
+                     
+                     from core.auth.service import AuthService
+                     auth = AuthService()
+                     with auth._get_connection() as conn:
+                         cur = conn.cursor()
+                         # Check if table exists
+                         cur.execute("SELECT to_regclass('organizations')")
+                         if not cur.fetchone()[0]:
+                             st.warning("Table 'organizations' does not exist! Creating it...")
+                             cur.execute("""
+                                CREATE TABLE IF NOT EXISTS organizations (
+                                    id TEXT PRIMARY KEY,
+                                    name TEXT NOT NULL,
+                                    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+                                )
+                             """)
+                             st.success("Table 'organizations' created.")
+
+                         # Upsert
+                         ph = auth.db_manager.placeholder
+                         cur.execute(f"""
+                             INSERT INTO organizations (id, name) VALUES ({ph}, {ph})
+                             ON CONFLICT (id) DO NOTHING
+                         """, (default_org_id, default_org_name))
+                         st.success(f"Organization {default_org_name} ({default_org_id}) ensured.")
+                 except Exception as e:
+                     st.error(f"Org Creation Failed: {e}")
                              
                  except Exception as e:
                      st.error(f"Repair failed: {e}")
