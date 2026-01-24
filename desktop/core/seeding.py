@@ -29,7 +29,8 @@ def seed_initial_data():
         with auth_service._get_connection() as conn:
             cur = conn.cursor()
             # Check if default admin explicitly exists
-            cur.execute("SELECT id FROM users WHERE email = %s", (DEFAULT_ADMIN_EMAIL,))
+            ph = auth_service.db_manager.placeholder
+            cur.execute(f"SELECT id FROM users WHERE email = {ph}", (DEFAULT_ADMIN_EMAIL,))
             admin_check = cur.fetchone()
             
             if admin_check:
