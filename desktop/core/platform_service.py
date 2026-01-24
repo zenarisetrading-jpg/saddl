@@ -10,7 +10,7 @@ import logging
 from typing import List, Optional, NamedTuple
 from datetime import datetime
 
-from core.postgres_manager import PostgresManager
+from core.db_manager import get_db_manager
 from core.auth.invitation_service import InvitationService, InvitationResult
 
 logging.basicConfig(level=logging.INFO)
@@ -32,7 +32,7 @@ class OrganizationResult(NamedTuple):
 
 class PlatformService:
     def __init__(self):
-        self.db = PostgresManager()
+        self.db = get_db_manager()
         self.invitation_service = InvitationService()
         
     def list_organizations(self) -> List[OrganizationSummary]:
