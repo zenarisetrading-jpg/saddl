@@ -391,7 +391,7 @@ class PostgresManager:
                 # Users Table (Auth V2)
                 cursor.execute("""
                     CREATE TABLE IF NOT EXISTS users (
-                        id SERIAL PRIMARY KEY,
+                        id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
                         organization_id TEXT NOT NULL,
                         email TEXT NOT NULL UNIQUE,
                         password_hash TEXT NOT NULL,
@@ -408,8 +408,8 @@ class PostgresManager:
                 # User Account Overrides Table
                 cursor.execute("""
                     CREATE TABLE IF NOT EXISTS user_account_overrides (
-                        id SERIAL PRIMARY KEY,
-                        user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+                        id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+                        user_id UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
                         amazon_account_id TEXT NOT NULL,
                         role TEXT NOT NULL,
                         created_by TEXT,
