@@ -91,10 +91,11 @@ class AuthService:
                 cur = conn.cursor()
                 
                 # Fetch user + password_hash
-                query = """
+                ph = self.db_manager.placeholder
+                query = f"""
                     SELECT id, organization_id, email, password_hash, role, billable, status, must_reset_password, password_updated_at
                     FROM users 
-                    WHERE email = %s AND status = 'ACTIVE';
+                    WHERE email = {ph} AND status = 'ACTIVE';
                 """
                 cur.execute(query, (email.lower().strip(),))
                 row = cur.fetchone()
