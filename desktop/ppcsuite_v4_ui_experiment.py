@@ -672,6 +672,46 @@ def run_consolidated_optimizer():
         if st.button("← Stop / Edit Settings", use_container_width=True):
             st.session_state["run_optimizer"] = False
             st.rerun()
+            
+    # === ADMIN / DEV TOOLS (Bottom of Sidebar) ===
+    # Only show for admins or in test mode
+    user = st.session_state.get('user')
+    is_admin = user and (user.role == 'ADMIN' or user.role == 'OWNER')
+    
+    if is_admin or st.session_state.get('test_mode'):
+        with st.sidebar:
+            st.markdown("---")
+            with st.expander("🛠️ Admin Tools", expanded=False):
+                st.caption("Debugging & Verification")
+                
+                # 1. Onboarding Reset
+                if st.button("Restart Onboarding Wizard", use_container_width=True):
+                    st.session_state['show_onboarding'] = True
+                    st.session_state['onboarding_step'] = 1
+                    st.rerun()
+                    
+                # 2. Test Invitation
+                st.markdown("---")
+                st.caption("Test Email Invitation")
+                invite_email = st.text_input("Invite Email", placeholder="test@example.com")
+                if st.button("Send Invite", use_container_width=True):
+                    if invite_email:
+                        with st.spinner("Sending..."):
+                            from core.auth.invitation_service import InvitationService
+                            service = InvitationService()
+                            # Use current user as inviter
+                            res = service.create_invitation(
+                                email=invite_email,
+                                organization_id=str(user.organization_id) if user else "test-org",
+                                invited_by_user_id=str(user.id) if user else None,
+                                role="OPERATOR"
+                            )
+                            if res.success:
+                                st.success(f"Sent! Token: {res.invitation.token[:8]}...")
+                            else:
+                                st.error(f"Failed: {res.message}")
+                    else:
+                        st.warning("Enter an email first")
     
     opt._render_sidebar()
     

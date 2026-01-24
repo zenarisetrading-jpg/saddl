@@ -43,8 +43,8 @@ class FeatureFlags:
     # Default values for all feature flags
     # These are used when env vars are not set
     DEFAULTS: Dict[str, bool] = {
-        'ENABLE_EMAIL_INVITATIONS': False,      # Phase 1: Email invites
-        'ENABLE_ONBOARDING_WIZARD': False,      # Phase 3: Welcome wizard
+        'ENABLE_EMAIL_INVITATIONS': True,       # Phase 1: Email invites (Enabled)
+        'ENABLE_ONBOARDING_WIZARD': True,       # Phase 3: Welcome wizard (Enabled)
         'ENABLE_ENHANCED_EMPTY_STATES': True,   # Phase 4: Styled empty states
     }
 
