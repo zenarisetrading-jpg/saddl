@@ -209,6 +209,33 @@ def render_login():
                 v1.2 • {db_type}
             </div>
         """, unsafe_allow_html=True)
+
+        if st.checkbox("Show Debug Tools"):
+             if st.button("Repair Admin Account"):
+                 try:
+                     from core.seeding import seed_initial_data, DEFAULT_ADMIN_EMAIL, DEFAULT_ADMIN_PASSWORD
+                     # Run seeding
+                     seed_initial_data()
+                     st.success(f"Seeding ran. Try logging in as {DEFAULT_ADMIN_EMAIL} / {DEFAULT_ADMIN_PASSWORD}")
+                     
+                     # Double check existence
+                     from core.auth.service import AuthService
+                     auth = AuthService()
+                     with auth._get_connection() as conn:
+                         cur = conn.cursor()
+                         cur.execute(f"SELECT email, password_hash FROM users WHERE email = '{DEFAULT_ADMIN_EMAIL}'")
+                         row = cur.fetchone()
+                         if row:
+                             st.info(f"User verified in DB: {row[0]}")
+                             st.code(f"Hash prefix: {row[1][:10]}...")
+                         else:
+                             st.error("Still not found in DB after seeding!")
+                             
+                 except Exception as e:
+                     st.error(f"Seeding failed: {e}")
+                     import traceback
+                     st.code(traceback.format_exc())
+
     except Exception as e:
          st.markdown(f"""
             <div style="text-align: center; font-size: 0.75rem; color: #ef4444; margin-top: 4px;">
