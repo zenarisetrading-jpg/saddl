@@ -269,6 +269,7 @@ def render_login():
                      st.info(f"Seeding Result: {result}")
                      st.success(f"Seeding complete! Try logging in as {DEFAULT_ADMIN_EMAIL} / {DEFAULT_ADMIN_PASSWORD}")
                      
+                     # Double check existence
                      with auth._get_connection() as conn:
                          cur = conn.cursor()
                          cur.execute(f"SELECT email, role FROM users WHERE email = '{DEFAULT_ADMIN_EMAIL}'")
@@ -277,6 +278,11 @@ def render_login():
                              st.success(f"✅ User verified in DB: {row[0]} ({row[1]})")
                          else:
                              st.error("Still not found in DB after seeding!")
+
+                 except Exception as e:
+                     st.error(f"Repair failed: {e}")
+                     import traceback
+                     st.code(traceback.format_exc())
 
              if st.button("Fix Missing Organization"):
                  try:
@@ -295,7 +301,7 @@ def render_login():
                              st.warning("Table 'organizations' does not exist! Creating it...")
                              cur.execute("""
                                 CREATE TABLE IF NOT EXISTS organizations (
-                                    id TEXT PRIMARY KEY,
+                                    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
                                     name TEXT NOT NULL,
                                     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
                                 )
@@ -311,11 +317,6 @@ def render_login():
                          st.success(f"Organization {default_org_name} ({default_org_id}) ensured.")
                  except Exception as e:
                      st.error(f"Org Creation Failed: {e}")
-                             
-                 except Exception as e:
-                     st.error(f"Repair failed: {e}")
-                     import traceback
-                     st.code(traceback.format_exc())
 
     except Exception as e:
          st.markdown(f"""
