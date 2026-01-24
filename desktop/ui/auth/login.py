@@ -223,8 +223,10 @@ def render_login():
                      with auth._get_connection() as conn:
                          cur = conn.cursor()
 
-                         # Check if we're using Postgres
-                         if hasattr(auth.db_manager, 'connection_pool'):
+                         # Check if we're using Postgres (check class name)
+                         is_postgres = auth.db_manager.__class__.__name__ == 'PostgresManager'
+
+                         if is_postgres:
                              st.info("Detected Postgres - dropping and recreating tables with UUID schema...")
                              cur.execute("DROP TABLE IF EXISTS user_account_overrides CASCADE")
                              cur.execute("DROP TABLE IF EXISTS users CASCADE")
