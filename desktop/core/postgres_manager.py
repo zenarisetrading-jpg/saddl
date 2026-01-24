@@ -380,11 +380,17 @@ class PostgresManager:
                 """)
 
                 # Organizations Table
+                # Matches 002_org_users_schema.sql
                 cursor.execute("""
                     CREATE TABLE IF NOT EXISTS organizations (
                         id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-                        name TEXT NOT NULL,
-                        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+                        name VARCHAR(255) NOT NULL,
+                        type VARCHAR(20) NOT NULL CHECK (type IN ('AGENCY', 'SELLER')),
+                        subscription_plan VARCHAR(50), 
+                        amazon_account_limit INT NOT NULL DEFAULT 5,
+                        seat_price DECIMAL(10,2) NOT NULL DEFAULT 0.00,
+                        status VARCHAR(20) NOT NULL DEFAULT 'ACTIVE' CHECK (status IN ('ACTIVE', 'SUSPENDED')),
+                        created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
                     )
                 """)
 

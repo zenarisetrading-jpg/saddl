@@ -299,11 +299,17 @@ def render_login():
                          cur.execute("SELECT to_regclass('organizations')")
                          if not cur.fetchone()[0]:
                              st.warning("Table 'organizations' does not exist! Creating it...")
+                             # Matches 002_org_users_schema.sql
                              cur.execute("""
                                 CREATE TABLE IF NOT EXISTS organizations (
                                     id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-                                    name TEXT NOT NULL,
-                                    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+                                    name VARCHAR(255) NOT NULL,
+                                    type VARCHAR(20) NOT NULL CHECK (type IN ('AGENCY', 'SELLER')),
+                                    subscription_plan VARCHAR(50), 
+                                    amazon_account_limit INT NOT NULL DEFAULT 5,
+                                    seat_price DECIMAL(10,2) NOT NULL DEFAULT 0.00,
+                                    status VARCHAR(20) NOT NULL DEFAULT 'ACTIVE' CHECK (status IN ('ACTIVE', 'SUSPENDED')),
+                                    created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
                                 )
                              """)
                              st.success("Table 'organizations' created.")
@@ -311,7 +317,7 @@ def render_login():
                          # Upsert
                          ph = auth.db_manager.placeholder
                          cur.execute(f"""
-                             INSERT INTO organizations (id, name) VALUES ({ph}, {ph})
+                             INSERT INTO organizations (id, name, type) VALUES ({ph}, {ph}, 'SELLER')
                              ON CONFLICT (id) DO NOTHING
                          """, (default_org_id, default_org_name))
                          st.success(f"Organization {default_org_name} ({default_org_id}) ensured.")

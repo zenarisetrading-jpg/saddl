@@ -33,7 +33,7 @@ def seed_initial_data():
             ph = auth_service.db_manager.placeholder
             # UPSERT Organization
             cur.execute(f"""
-                INSERT INTO organizations (id, name) VALUES ({ph}, {ph})
+                INSERT INTO organizations (id, name, type) VALUES ({ph}, {ph}, 'SELLER')
                 ON CONFLICT (id) DO NOTHING
             """, (default_org_id, default_org_name))
             print(f"SEED: Verified Organization {default_org_id}")
