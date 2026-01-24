@@ -214,25 +214,70 @@ def render_login():
              if st.button("Repair Admin Account"):
                  try:
                      from core.seeding import seed_initial_data, DEFAULT_ADMIN_EMAIL, DEFAULT_ADMIN_PASSWORD
-                     # Run seeding
-                     seed_initial_data()
-                     st.success(f"Seeding ran. Try logging in as {DEFAULT_ADMIN_EMAIL} / {DEFAULT_ADMIN_PASSWORD}")
-                     
-                     # Double check existence
                      from core.auth.service import AuthService
+
+                     st.info("Step 1: Dropping existing users table if schema is incorrect...")
                      auth = AuthService()
+
+                     # Drop and recreate users table to fix schema issues
                      with auth._get_connection() as conn:
                          cur = conn.cursor()
-                         cur.execute(f"SELECT email, password_hash FROM users WHERE email = '{DEFAULT_ADMIN_EMAIL}'")
+
+                         # Check if we're using Postgres
+                         if hasattr(auth.db_manager, 'connection_pool'):
+                             st.info("Detected Postgres - dropping and recreating tables with UUID schema...")
+                             cur.execute("DROP TABLE IF EXISTS user_account_overrides CASCADE")
+                             cur.execute("DROP TABLE IF EXISTS users CASCADE")
+
+                             # Recreate with correct schema
+                             cur.execute("""
+                                 CREATE TABLE users (
+                                     id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+                                     organization_id TEXT NOT NULL,
+                                     email TEXT NOT NULL UNIQUE,
+                                     password_hash TEXT NOT NULL,
+                                     role TEXT NOT NULL,
+                                     billable BOOLEAN DEFAULT TRUE,
+                                     status TEXT DEFAULT 'ACTIVE',
+                                     must_reset_password BOOLEAN DEFAULT FALSE,
+                                     password_updated_at TIMESTAMP,
+                                     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                                     updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+                                 )
+                             """)
+
+                             cur.execute("""
+                                 CREATE TABLE user_account_overrides (
+                                     id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+                                     user_id UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+                                     amazon_account_id TEXT NOT NULL,
+                                     role TEXT NOT NULL,
+                                     created_by TEXT,
+                                     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                                     UNIQUE(user_id, amazon_account_id)
+                                 )
+                             """)
+                             st.success("Tables recreated with UUID schema")
+                         else:
+                             st.info("Using SQLite - schema should be correct already")
+
+                     # Run seeding
+                     st.info("Step 2: Creating default admin user...")
+                     seed_initial_data()
+                     st.success(f"Seeding complete! Try logging in as {DEFAULT_ADMIN_EMAIL} / {DEFAULT_ADMIN_PASSWORD}")
+
+                     # Double check existence
+                     with auth._get_connection() as conn:
+                         cur = conn.cursor()
+                         cur.execute(f"SELECT email, role FROM users WHERE email = '{DEFAULT_ADMIN_EMAIL}'")
                          row = cur.fetchone()
                          if row:
-                             st.info(f"User verified in DB: {row[0]}")
-                             st.code(f"Hash prefix: {row[1][:10]}...")
+                             st.success(f"✅ User verified in DB: {row[0]} ({row[1]})")
                          else:
                              st.error("Still not found in DB after seeding!")
-                             
+
                  except Exception as e:
-                     st.error(f"Seeding failed: {e}")
+                     st.error(f"Repair failed: {e}")
                      import traceback
                      st.code(traceback.format_exc())
 
