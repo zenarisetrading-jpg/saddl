@@ -168,6 +168,8 @@ def render_login():
                 result = auth.sign_in(email, password)
                 if result["success"]:
                     st.success(f"Welcome back!")
+                    # Reset navigation to avoid sticky state from previous sessions
+                    st.session_state['current_module'] = 'home'
                     st.rerun()
                 else:
                     st.error(result.get("error", "Login failed"))

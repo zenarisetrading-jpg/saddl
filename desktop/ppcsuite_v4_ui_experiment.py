@@ -1518,8 +1518,14 @@ def main():
         render_data_hub()
         
     elif current == 'platform_admin':
-        from features.platform_admin import render_platform_admin
-        render_platform_admin()
+        # Strictly verify access even if session state thinks we are here
+        if user.email and user.email.lower().strip() == "admin@saddl.io":
+            from features.platform_admin import render_platform_admin
+            render_platform_admin()
+        else:
+            # Unauthorized access attempt or sticky session state - reset to home
+            st.session_state['current_module'] = 'home'
+            st.rerun()
     
     elif current == 'account_settings':
         # Route legacy calls to consolidated module
