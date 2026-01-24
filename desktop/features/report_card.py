@@ -84,11 +84,7 @@ class ReportCardModule(BaseFeature):
         # 3. Render UI Sections
         self._render_section_1_health(metrics)
         
-        # Key Insights (6 tiles, 2 rows)
-        st.markdown("<br>", unsafe_allow_html=True)
-        st.markdown("<h3 style='font-family: Inter, sans-serif; font-weight: 800; margin-bottom: 16px; text-transform: uppercase; letter-spacing: 1px; color: #F5F5F7;'>Key Insights</h3>", unsafe_allow_html=True)
-        insights = self._compute_insights(metrics)
-        self._render_insights_tiles(insights)
+
         
         st.markdown("<hr style='margin: 10px 0; border-color: rgba(255,255,255,0.1);'>", unsafe_allow_html=True)
         self._render_section_2_actions(metrics)

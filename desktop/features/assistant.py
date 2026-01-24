@@ -267,7 +267,9 @@ If Auto outperforms Manual: Discovery is working - harvest more aggressively
         if 'Customer Search Term' not in master.columns:
             return pd.DataFrame()
             
-        master['_norm_term'] = master['Customer Search Term'].astype(str).str.lower().str.strip()
+        # Ensure strict string type for Search Terms to prevent "int is not subscriptable" errors
+        master['Customer Search Term'] = master['Customer Search Term'].astype(str)
+        master['_norm_term'] = master['Customer Search Term'].str.lower().str.strip()
         
         # Ensure numeric columns
         for col in ['Impressions', 'Clicks', 'Spend', 'Sales', 'Orders']:
@@ -550,7 +552,7 @@ If Auto outperforms Manual: Discovery is working - harvest more aggressively
             if row.get('Is_Negative_Candidate'): flags.append("NEGATIVE")
             
             return {
-                "term": row['Customer Search Term'][:60],
+                "term": str(row['Customer Search Term'])[:60],
                 "spend": round(row['Spend'], 2),
                 "sales": round(row['Sales'], 2),
                 "orders": int(row['Orders']),

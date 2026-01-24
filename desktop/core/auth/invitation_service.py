@@ -149,6 +149,27 @@ class InvitationService:
         # Import email sender lazily to avoid circular imports
         self._email_sender = None
 
+    def _get_config(self, key: str, default: Any = None) -> Any:
+        """Get config from env vars or streamlit secrets."""
+        # 1. Try environment variable
+        val = os.environ.get(key)
+        if val is not None:
+            return val
+        
+        # 2. Try Streamlit secrets
+        try:
+            import streamlit as st
+            # Check root level
+            if key in st.secrets:
+                return str(st.secrets[key])
+            # Check [env] section
+            if "env" in st.secrets and key in st.secrets["env"]:
+                return str(st.secrets["env"][key])
+        except Exception:
+            pass
+            
+        return default
+
     from contextlib import contextmanager
     @contextmanager
     def _get_connection(self):
@@ -204,12 +225,12 @@ class InvitationService:
         """
         Calculate the expiration date for a new invitation.
         """
-        days = int(os.environ.get("INVITATION_EXPIRY_DAYS", self.DEFAULT_EXPIRY_DAYS))
+        days = int(self._get_config("INVITATION_EXPIRY_DAYS", self.DEFAULT_EXPIRY_DAYS))
         return datetime.now(timezone.utc) + timedelta(days=days)
 
     def _get_app_url(self) -> str:
         """Get the base application URL for invitation links."""
-        url = os.environ.get("APP_URL", "http://localhost:8501")
+        url = self._get_config("APP_URL", "http://localhost:8501")
         # Ensure URL always has a scheme (https preferred for production)
         if not url.startswith("http://") and not url.startswith("https://"):
             url = "https://" + url
@@ -713,7 +734,7 @@ class InvitationService:
                 org_name=org_name,
                 role=role,
                 invitation_url=invitation_url,
-                expiry_days=int(os.environ.get("INVITATION_EXPIRY_DAYS", self.DEFAULT_EXPIRY_DAYS))
+                expiry_days=int(self._get_config("INVITATION_EXPIRY_DAYS", self.DEFAULT_EXPIRY_DAYS))
             )
 
             subject = f"You've been invited to join {org_name} on SADDL AdPulse"
@@ -783,7 +804,7 @@ class InvitationService:
         
         # Logo URL - use the publicly hosted logo from landing page
         # saddl.io is the live landing page, logo.png exists there
-        logo_url = os.environ.get("LOGO_URL_PUBLIC", "https://saddl.io/logo.png")
+        logo_url = self._get_config("LOGO_URL_PUBLIC", "https://saddl.io/logo.png")
 
         return f"""
 <!DOCTYPE html>

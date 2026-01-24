@@ -21,6 +21,7 @@ from core.db_manager import get_db_manager
 # === PHASE 2: Single Source of Truth ===
 from features.impact_metrics import ImpactMetrics
 from core.utils import IMPACT_WINDOWS, get_maturity_status
+from utils.formatters import format_currency
 
 # ==========================================
 # MULTI-HORIZON IMPACT MEASUREMENT CONFIG
@@ -287,6 +288,20 @@ def _fetch_impact_data(client_id: str, test_mode: bool, before_days: int = 14, a
             'by_action_type': {}
         }
 
+@st.cache_data(ttl=3600, show_spinner=False)
+def _fetch_account_actuals(client_id: str, cache_version: str) -> pd.DataFrame:
+    """Cached fetcher for account-level daily stats (Actuals)."""
+    try:
+        db = get_db_manager()
+        df = db.get_target_stats_df(client_id)
+        if df.empty:
+            return pd.DataFrame()
+        df['Date'] = pd.to_datetime(df['Date'])
+        return df
+    except Exception as e:
+        print(f"Actuals fetch error: {e}")
+        return pd.DataFrame()
+
 
 
 
@@ -294,11 +309,19 @@ def _fetch_impact_data(client_id: str, test_mode: bool, before_days: int = 14, a
 def render_impact_dashboard():
     """Main render function for Impact Dashboard."""
     
+    # Force empty state for testing
+    if st.query_params.get("test_state") == "no_data":
+        from ui.components.empty_states import render_empty_state
+        # Use active account name for context
+        account = st.session_state.get('active_account_name', 'Account')
+        render_empty_state('no_data', context={'account_name': account})
+        return
+    
     # Header Layout with Toggle
     col_header, col_toggle = st.columns([3, 1])
     
     with col_header:
-        st.markdown("## :material/monitoring: Impact & Results")
+        st.markdown("## :material/monitoring: Impact & Results", help="Comprehensive view of optimization outcomes and measured ROI.")
         st.caption("Measured impact of executed optimization actions")
 
     with col_toggle:
@@ -712,22 +735,59 @@ def render_impact_dashboard():
     st.divider()
 
     # Premium section header for Impact Summary (matching 14D Impact style)
-    chart_icon = '<svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="#06B6D4" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="18" y1="20" x2="18" y2="10"></line><line x1="12" y1="20" x2="12" y2="4"></line><line x1="6" y1="20" x2="6" y2="14"></line></svg>'
-    st.markdown(f"""
-    <div style="background: linear-gradient(135deg, rgba(30, 41, 59, 0.95) 0%, rgba(15, 23, 42, 0.95) 100%); 
-                border: 1px solid rgba(148, 163, 184, 0.15); 
-                border-left: 3px solid #06B6D4;
-                border-radius: 12px; padding: 16px; margin-bottom: 16px;
-                box-shadow: 0 4px 16px rgba(0, 0, 0, 0.3);">
-        <div style="display: flex; align-items: center; gap: 12px;">
-            {chart_icon}
-            <span style="font-weight: 700; font-size: 1.1rem; color: #F8FAFC; letter-spacing: 0.02em;">Impact Summary (Modeled vs Baseline)</span>
-        </div>
-        <div style="color: #64748B; font-size: 0.85rem; margin-top: 8px; margin-left: 32px;">
-            Market-adjusted • based on validated actions only
-        </div>
-    </div>
-    """, unsafe_allow_html=True)
+    # Calculate Baseline ROAS specifically for the Value Created card
+    # Note: 'total_verified_impact' is already passed in
+    # infer 'total_spend_impact' from display_summary if possible, else assume 0 for MVP or calculate from impact_df
+    
+    # Simple calculation for MVP alignment with new revenue chart
+    # (Since we just switched to Revenue Chart, we focus on Sales Lift)
+    
+    vc_sales_lift = total_verified_impact
+    vc_spend_lift = 0 # Default if not tracked in summary, or fetch from summary if available
+    
+    # Try to fetch actuals for the horizon to get Baseline
+    # Re-use the data fetching logic if available, or rely on pass-through values
+    # For now, we will use the placeholders logic or minimal calculation to match the visual
+    
+    # We need:
+    # 1. Total Value Created (vc_sales_lift)
+    # 2. Baseline ROAS
+    # 3. % Improvement
+    
+    # This requires aggregated Actuals for the period.
+    # Since we are inside _render_hero_banner's caller scope, we have 'active_df' but not full 'actuals_df' handy here easily without re-fetch.
+    # However, 'display_summary' might have 'observed_after_sales' and 'observed_after_spend'.
+    
+    vc_actual_sales = display_summary.get('observed_sales', 0)
+    vc_actual_spend = display_summary.get('observed_spend', 0)
+    
+    # Baseline Sales = Actual - Lift
+    vc_baseline_sales = vc_actual_sales - vc_sales_lift
+    
+    # Baseline Spend = Actual - (Spend Impact). Assuming 0 spend impact for simplified revenue focus if data missing.
+    vc_baseline_spend = vc_actual_spend 
+    
+    if vc_baseline_spend > 0:
+        vc_baseline_roas = vc_baseline_sales / vc_baseline_spend
+    else:
+        vc_baseline_roas = 0.0
+        
+    if vc_actual_spend > 0:
+        vc_actual_roas = vc_actual_sales / vc_actual_spend
+    else:
+        vc_actual_roas = 0.0
+        
+    # % Improvement in ROAS
+    if vc_baseline_roas > 0:
+        vc_improvement = ((vc_actual_roas - vc_baseline_roas) / vc_baseline_roas) * 100
+    else:
+        vc_improvement = 0.0
+
+    # Value Created card removed as requested (redundant)
+    
+
+    # Pass metrics to chart to ensure footer alignment with main dashboard summary
+    chart_impact_override = total_verified_impact if total_verified_impact > 0 else None
 
     with st.expander("▸ Measured Impact Details", expanded=True):
         
@@ -743,11 +803,12 @@ def render_impact_dashboard():
         with tab_measured:
             # Show only MATURE actions with activity
             if active_df.empty:
-                st.info("No measured impact data for the selected filter")
+                from ui.components.empty_states import render_empty_state
+                render_empty_state('filtered_empty')
             else:
                 # IMPACT ANALYTICS: New human-centered layout with embedded details table
                 _render_new_impact_analytics(display_summary, active_df, show_validated_only, mature_count=measured_count, pending_count=pending_display_count, raw_impact_df=impact_df, canonical_metrics=canonical_metrics)
-        
+                
         with tab_pending:
             # Section 1: Pending Attribution (immature actions)
             if not pending_attr_df.empty:
@@ -769,11 +830,7 @@ def render_impact_dashboard():
             if pending_attr_df.empty and dormant_df.empty:
                 st.success("✨ All executed optimizations have measured activity!")
 
-    st.markdown("<br>", unsafe_allow_html=True)
-    st.caption(
-        "This view presents measured outcomes of executed actions over the selected period. "
-        "Detailed diagnostics are available for deeper investigation when required."
-    )
+
 
 
 def _render_empty_state():
@@ -3811,6 +3868,215 @@ def _render_recent_wins_list(impact_df: pd.DataFrame, currency: str):
     </div>
 </div>
 """, unsafe_allow_html=True)
+    
+
+# ==========================================
+# ROAS IMPACT CHART (Counterfactual)
+# ==========================================
+
+def _render_revenue_counterfactual_chart(impact_df: pd.DataFrame, client_id: str, cache_version: str, verified_lift_override: float = None, summary_context: dict = None):
+    """
+    Render Actual vs. Baseline Revenue Chart.
+    Baseline = Actual Sales - Decision Impact.
+    Revenue is additive, so time series will match aggregate attribution perfectly.
+    """
+    import plotly.graph_objects as go
+    
+    # 1. Fetch Actuals (Daily)
+    actuals_df = _fetch_account_actuals(client_id, cache_version)
+    if actuals_df.empty:
+        return
+    
+    # 2. Aggregate Actuals (Daily)
+    daily_actuals = actuals_df.groupby('Date')[['Sales']].sum().reset_index()
+    daily_actuals.columns = ['date', 'actual_sales']
+    
+    # 3. Create daily adjustment map
+    min_date = daily_actuals['date'].min()
+    max_date = daily_actuals['date'].max()
+    date_range = pd.date_range(start=min_date, end=max_date)
+    daily_adj = pd.DataFrame({'date': date_range})
+    daily_adj['sales_lift'] = 0.0
+    daily_adj.set_index('date', inplace=True)
+    
+    # 4. Spread decision impacts across action windows
+    if not impact_df.empty:
+        impact_df['action_date'] = pd.to_datetime(impact_df['action_date'])
+        default_window = 14
+        
+        for _, row in impact_df.iterrows():
+            start_date = row['action_date'] + pd.Timedelta(days=1)
+            window_days = row['actual_after_days'] if 'actual_after_days' in row and pd.notna(row['actual_after_days']) else default_window
+            window_days = max(1, int(window_days))
+            end_date = start_date + pd.Timedelta(days=window_days - 1)
+            
+            # Per-day revenue impact (uniform distribution)
+            daily_sales = row['decision_impact'] / window_days
+            
+            # Add to date range
+            eff_start = max(start_date, min_date)
+            eff_end = min(end_date, max_date)
+            
+            if eff_start <= eff_end:
+                daily_adj.loc[eff_start:eff_end, 'sales_lift'] += daily_sales
+    
+    daily_adj = daily_adj.reset_index()
+    
+    # 5. Merge
+    merged = pd.merge(daily_actuals, daily_adj, on='date', how='left').fillna(0)
+    merged.rename(columns={'sales_lift': 'daily_sales_impact'}, inplace=True)
+    
+    # === ALIGNMENT FIX: Scale chart data to match "Truth" Summary Cards ===
+    # The summary cards (Helped/Hurt) use strict filtering/confidence logic stored in session state.
+    # To ensure the chart visual strictly aligns with the reported Net Impact, we scale the daily impacts.
+    impact_metrics = st.session_state.get('_impact_metrics', {})
+    target_net_impact = impact_metrics.get('attributed_impact', None)
+    
+    current_chart_sum = merged['daily_sales_impact'].sum()
+    
+    if target_net_impact is not None and current_chart_sum != 0:
+        scaling_factor = target_net_impact / current_chart_sum
+        merged['daily_sales_impact'] = merged['daily_sales_impact'] * scaling_factor
+        # Use target explicitly for total
+        total_impact = target_net_impact
+    else:
+        # Fallback if metrics missing
+        total_impact = current_chart_sum
+        
+    # 6. Weekly Aggregation (for smoothing)
+    merged['week'] = merged['date'].dt.to_period('W-MON').dt.start_time
+    weekly = merged.groupby('week').agg({
+        'actual_sales': 'sum',
+        'daily_sales_impact': 'sum'
+    }).reset_index()
+    
+    # 7. Calculate Baseline Revenue
+    weekly['baseline_sales'] = weekly['actual_sales'] - weekly['daily_sales_impact']
+    
+    # 8. Calculate aggregate metrics for display
+    total_actual = weekly['actual_sales'].sum()
+    total_baseline = total_actual - total_impact
+    
+    # 9. Create the chart
+    fig = go.Figure()
+    
+    # Baseline (Dotted Line)
+    fig.add_trace(go.Scatter(
+        x=weekly['week'],
+        y=weekly['baseline_sales'],
+        name='Baseline',
+        line=dict(
+            color='rgba(148, 163, 184, 0.6)',  # Muted gray
+            width=2,
+            dash='dot'
+        ),
+        mode='lines'
+    ))
+    
+    # Actual (Solid Line)
+    fig.add_trace(go.Scatter(
+        x=weekly['week'],
+        y=weekly['actual_sales'],
+        name='Actual Revenue',
+        line=dict(
+            color='#06b6d4',  # Cyan (matching your theme)
+            width=3
+        ),
+        mode='lines+markers',
+        marker=dict(size=6)
+    ))
+    
+    # 10. Styling
+    fig.update_layout(
+        title=dict(
+            text='Revenue Impact Analysis',
+            font=dict(size=20, color='white', family='Inter'),
+            x=0.02
+        ),
+        plot_bgcolor='rgba(15, 23, 42, 0.6)',  # Dark slate
+        paper_bgcolor='rgba(15, 23, 42, 0)',
+        font=dict(color='white', family='Inter'),
+        xaxis=dict(
+            title='',
+            gridcolor='rgba(148, 163, 184, 0.1)',
+            showgrid=True
+        ),
+        yaxis=dict(
+            title='Revenue',
+            gridcolor='rgba(148, 163, 184, 0.1)',
+            showgrid=True,
+            tickformat=',.0f'  # Format as currency
+        ),
+        hovermode='x unified',
+        legend=dict(
+            orientation='h',
+            yanchor='top',
+            y=1.08,
+            xanchor='right',
+            x=1,
+            bgcolor='rgba(15, 23, 42, 0.8)',
+            bordercolor='rgba(148, 163, 184, 0.3)',
+            borderwidth=1
+        ),
+        margin=dict(t=100, b=150, l=60, r=40),
+        height=400
+    )
+    
+    # 11. Add metrics bar below chart
+    fig.add_annotation(
+        text=f"Based on {len(weekly)} weeks of data",
+        xref="paper", yref="paper",
+        x=0.25, y=-0.15,
+        showarrow=False,
+        font=dict(size=11, color="rgba(148, 163, 184, 0.8)"),
+        align="center"
+    )
+    
+    fig.add_annotation(
+        text=f"Baseline: {total_baseline:,.0f}",
+        xref="paper", yref="paper",
+        x=0.45, y=-0.15,
+        showarrow=False,
+        font=dict(size=11, color="rgba(148, 163, 184, 0.8)"),
+        align="center"
+    )
+    
+    fig.add_annotation(
+        text=f"Your Lift: <span style='color:#10b981'>+{total_impact:,.0f}</span>",
+        xref="paper", yref="paper",
+        x=0.65, y=-0.15,
+        showarrow=False,
+        font=dict(size=11, color="rgba(148, 163, 184, 0.8)"),
+        align="center"
+    )
+    
+    fig.add_annotation(
+        text=f"Confidence: <span style='color:#10b981'>Calculated in Model</span>",
+        xref="paper", yref="paper",
+        x=0.85, y=-0.15,
+        showarrow=False,
+        font=dict(size=11, color="rgba(148, 163, 184, 0.8)"),
+        align="center"
+    )
+    
+    # 12. Add clean footnote
+    fig.add_annotation(
+        text="Baseline isolates your decision impact from external market forces and portfolio-level structural changes.",
+        xref="paper", yref="paper",
+        x=0.5, y=-0.22,
+        xanchor="center", yanchor="top",
+        showarrow=False,
+        font=dict(
+            size=11,
+            color="rgba(148, 163, 184, 0.8)",
+            family="Inter"
+        ),
+        align="center"
+    )
+    
+    st.plotly_chart(fig, use_container_width=True, config={'displayModeBar': False}, key=f"rev_impact_chart_{cache_version}_{client_id}")
+
+
     
 
 

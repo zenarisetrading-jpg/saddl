@@ -42,7 +42,7 @@ from ui.components import metric_card
 import plotly.graph_objects as go
 
 # Validation Architecture
-from tests.bulk_validation_spec import (
+from dev_resources.tests.bulk_validation_spec import (
     OptimizationRecommendation,
     RecommendationType,
     validate_recommendation,
@@ -106,7 +106,7 @@ DEFAULT_CONFIG = {
     
     # Harvest forecast
     "HARVEST_EFFICIENCY_MULTIPLIER": 1.30,  # 30% efficiency gain from exact match
-    "HARVEST_LAUNCH_MULTIPLIER": 2.0,  # Bid multiplier for new harvest keywords to compete for impressions
+    "HARVEST_LAUNCH_MULTIPLIER": 1.1,  # Bid multiplier for new harvest keywords (10% above current CPC)
     
     # Bucket median sanity check
     "BUCKET_MEDIAN_FLOOR_MULTIPLIER": 0.5,  # Bucket median must be >= 50% of target ROAS
@@ -360,11 +360,15 @@ def identify_harvest_candidates(
     # Use dynamic min orders from CVR analysis
     min_orders_threshold = account_benchmarks.get('harvest_min_orders', config["HARVEST_ORDERS"])
     
-    # Filter for discovery campaigns (non-exact)
-    auto_pattern = r'close-match|loose-match|substitutes|complements|category=|asin|b0'
+    # Filter for discovery campaigns (non-exact, non-PT)
+    # Exclude: exact match types, PT campaigns, and harvest destination campaigns
+    harvest_dest_pattern = r'harvestexact|harvest_exact|_exact_|exactmatch'
+    
+    # Discovery = non-exact match type AND not a harvest destination campaign
     discovery_mask = (
-        (~df["Match Type"].str.contains("exact", case=False, na=False)) |
-        (df["Targeting"].str.contains(auto_pattern, case=False, na=False))
+        (~df["Match Type"].str.contains("exact", case=False, na=False)) &
+        (~df["Match Type"].str.upper().isin(["PT", "PRODUCT TARGETING"])) &
+        (~df["Campaign Name"].str.contains(harvest_dest_pattern, case=False, na=False))
     )
     discovery_df = df[discovery_mask].copy()
     
@@ -549,9 +553,20 @@ def identify_harvest_candidates(
     survivors_df = pd.DataFrame(survivors)
     
     if not survivors_df.empty:
-        # Apply launch multiplier (2x by default) to ensure new harvest keywords can compete
-        launch_mult = DEFAULT_CONFIG.get("HARVEST_LAUNCH_MULTIPLIER", 2.0)
-        survivors_df["New Bid"] = survivors_df["CPC"] * launch_mult
+        # Calculate New Bid using priority: Bid → Ad Group Default Bid → Current Bid → CPC
+        # Apply launch multiplier (+10% above current bid by default)
+        launch_mult = DEFAULT_CONFIG.get("HARVEST_LAUNCH_MULTIPLIER", 1.1)
+        
+        def get_base_bid(row):
+            """Get base bid with priority: Bid → Ad Group Default Bid → Current Bid → CPC"""
+            for col in ["Bid", "Ad Group Default Bid", "Current Bid"]:
+                if col in row.index and pd.notna(row.get(col)) and float(row.get(col) or 0) > 0:
+                    return float(row.get(col))
+            # Fallback to CPC
+            return float(row.get("CPC", 0) or 0)
+        
+        survivors_df["Base Bid"] = survivors_df.apply(get_base_bid, axis=1)
+        survivors_df["New Bid"] = survivors_df["Base Bid"] * launch_mult
         survivors_df = survivors_df.sort_values("Sales", ascending=False)
     
     return survivors_df
@@ -763,9 +778,15 @@ def identify_negative_candidates(
         df_cst_clean = df["Customer Search Term"].apply(strip_targeting_prefix).astype(str).str.strip().str.lower()
         
         # Find all occurrences in non-exact campaigns
+        # EXCLUDE harvest destination campaigns from receiving isolation negatives
+        harvest_dest_pattern = r'harvestexact|harvest_exact|_exact_|exactmatch'
+        is_harvest_destination = df["Campaign Name"].str.contains(harvest_dest_pattern, case=False, na=False)
+        
         isolation_mask = (
             df_cst_clean.isin(harvested_terms) &
-            (~df["Match Type"].str.contains("exact", case=False, na=False))
+            (~df["Match Type"].str.contains("exact", case=False, na=False)) &
+            (~df["Match Type"].str.upper().isin(["PT", "PRODUCT TARGETING"])) &
+            (~is_harvest_destination)
         )
         
         isolation_df = df[isolation_mask].copy()
@@ -1148,6 +1169,86 @@ def calculate_bid_optimizations(
     
     # Combine auto and category for backwards compatibility (displayed as "Auto/Category")
     bids_auto_combined = pd.concat([bids_auto, bids_category], ignore_index=True) if not bids_category.empty else bids_auto
+    
+    # =========================================================================
+    # CROSS-CAMPAIGN DEDUPLICATION: Same keyword in multiple campaigns
+    # Keep highest ROAS, flag others for consolidation negative
+    # =========================================================================
+    def deduplicate_bucket(bids_df, bucket_name):
+        """Deduplicate keywords that appear in multiple campaigns within the same bucket."""
+        if bids_df.empty:
+            return bids_df
+        
+        # Normalize targeting for comparison
+        bids_df = bids_df.copy()
+        bids_df["_target_norm"] = bids_df["Targeting"].astype(str).str.strip().str.lower()
+        
+        # Find duplicates (same keyword in different campaigns)
+        dup_mask = bids_df.duplicated(subset=["_target_norm"], keep=False)
+        
+        if not dup_mask.any():
+            bids_df.drop(columns=["_target_norm"], inplace=True)
+            return bids_df
+        
+        # For each duplicate group, keep highest ROAS, flag others
+        consolidation_negatives = []
+        
+        for target, group in bids_df[dup_mask].groupby("_target_norm"):
+            if len(group) <= 1:
+                continue
+            
+            # Sort by ROAS descending
+            sorted_group = group.sort_values("ROAS", ascending=False)
+            winner = sorted_group.iloc[0]
+            losers = sorted_group.iloc[1:]
+            
+            # Flag losers for consolidation negative
+            for _, loser in losers.iterrows():
+                consolidation_negatives.append({
+                    "Type": "Consolidation",
+                    "Campaign Name": loser["Campaign Name"],
+                    "Ad Group Name": loser.get("Ad Group Name", ""),
+                    "Term": loser["Targeting"],
+                    "Is_ASIN": is_asin(str(loser["Targeting"])),
+                    "Winner_Campaign": winner["Campaign Name"],
+                    "Winner_ROAS": winner["ROAS"],
+                    "Loser_ROAS": loser["ROAS"],
+                    "Reason": f"Consolidation: Same keyword exists in {winner['Campaign Name']} with higher ROAS ({winner['ROAS']:.2f} vs {loser['ROAS']:.2f})"
+                })
+        
+        # Store consolidation negatives in session state for the negatives tab
+        if consolidation_negatives:
+            import streamlit as st
+            existing = st.session_state.get("consolidation_negatives", [])
+            st.session_state["consolidation_negatives"] = existing + consolidation_negatives
+            print(f"DEBUG - {bucket_name}: Found {len(consolidation_negatives)} consolidation negatives")
+        
+        # Keep only winners (highest ROAS for each duplicate group) + all non-duplicates
+        non_dups = bids_df[~dup_mask].copy()
+        
+        winners = []
+        for target, group in bids_df[dup_mask].groupby("_target_norm"):
+            winner_row = group.sort_values("ROAS", ascending=False).iloc[0:1]
+            winner_row = winner_row.copy()
+            winner_row["Reason"] = winner_row["Reason"].astype(str) + " [Best ROAS among duplicates]"
+            winners.append(winner_row)
+        
+        if winners:
+            winners_df = pd.concat(winners, ignore_index=True)
+            result = pd.concat([non_dups, winners_df], ignore_index=True)
+        else:
+            result = non_dups
+        
+        result.drop(columns=["_target_norm"], inplace=True, errors="ignore")
+        return result
+    
+    # Clear previous consolidation negatives
+    import streamlit as st
+    st.session_state["consolidation_negatives"] = []
+    
+    # Apply deduplication to exact and PT buckets (most common for duplicates)
+    bids_exact = deduplicate_bucket(bids_exact, "Exact")
+    bids_pt = deduplicate_bucket(bids_pt, "PT")
     
     # FINAL ENRICHMENT: Ensure IDs are present for Bulk Export
     bulk = DataHub().get_data('bulk_id_mapping')
@@ -2336,7 +2437,14 @@ class OptimizerModule(BaseFeature):
                     valid_dates = df_db['start_date'].dropna()
                     
                     if not valid_dates.empty:
+                        # CRITICAL FIX: Use actual latest date from raw_search_term_data
+                        # target_stats.start_date shows Jan 12 but actual data ends Jan 17
                         max_date = valid_dates.max()
+                        if hasattr(db, 'get_latest_raw_data_date'):
+                            actual_latest = db.get_latest_raw_data_date(client_id)
+                            if actual_latest:
+                                max_date = pd.Timestamp(actual_latest)
+                        
                         cutoff_date = max_date - timedelta(days=30)
                         df_filtered = df_db[df_db['start_date'] >= cutoff_date].copy()
                         

@@ -162,6 +162,10 @@ def render_client_report():
     if generate_clicked:
         selected_visuals = [k for k, v in st.session_state['report_visuals'].items() if v]
         
+        # Always include report_card (Actions & Results) and decision timeline
+        if 'report_card' not in selected_visuals:
+            selected_visuals.append('report_card')
+        
         if not selected_visuals:
             st.error("Please select at least one visual to include in the report.")
             return
@@ -293,7 +297,10 @@ def _generate_report(
                     impact_df = visual_data['decision_impact'].get('impact_df')
                     sales_df = visual_data.get('sales_df')
                     
-                    if impact_df is not None and not impact_df.empty and sales_df is not None:
+                    # DEBUG: Show what we have
+                    st.caption(f"🔍 Debug: impact_df rows={len(impact_df) if impact_df is not None else 'None'}, sales_df rows={len(sales_df) if sales_df is not None else 'None'}")
+                    
+                    if impact_df is not None and not impact_df.empty and sales_df is not None and not sales_df.empty:
                         fig = create_revenue_timeline_figure(
                             df_current=sales_df,
                             impact_df=impact_df,
@@ -304,11 +311,17 @@ def _generate_report(
                             img_path = _capture_chart_image(fig, temp_dir, 'decision_timeline')
                             if img_path:
                                 chart_images['decision_timeline'] = img_path
+                                st.caption(f"✅ Timeline chart saved: {img_path}")
+                            else:
+                                st.caption("⚠️ Timeline chart: img_path is None")
+                        else:
+                            st.caption("⚠️ Timeline chart: fig is None (create_revenue_timeline_figure returned None)")
+                    else:
+                        st.caption(f"⚠️ Timeline chart skipped: impact_df empty={impact_df is None or (impact_df is not None and impact_df.empty)}, sales_df empty={sales_df is None or (sales_df is not None and sales_df.empty)}")
                 except Exception as e:
-                    print(f"Decision timeline failed: {e}")
+                    st.error(f"❌ Decision timeline failed: {e}")
             
-                except Exception as e:
-                    print(f"Decision timeline failed: {e}")
+
             
             # Spend Reallocation Chart (for Actions & Results)
             if 'report_card' in visual_data:
@@ -576,6 +589,13 @@ def _capture_visuals(client_id: str, selected_visuals: List[str], days: int) -> 
     visual_data = {}
     db_manager = st.session_state.get('db_manager')
     
+    # Define dates at function scope so they're available everywhere
+    end_date = datetime.now().date()
+    start_date = end_date - timedelta(days=days)
+    
+    # Initialize sales_df to empty DataFrame (not None)
+    visual_data['sales_df'] = pd.DataFrame()
+    
     if not db_manager:
         st.warning("Database not connected. Using sample data.")
         return _get_sample_visual_data()
@@ -583,9 +603,6 @@ def _capture_visuals(client_id: str, selected_visuals: List[str], days: int) -> 
     # 1. Fetch Campaign Data (for Report Card & Timeline)
     # This is needed for Actions & Results slide and Revenue Timeline
     try:
-        end_date = datetime.now().date()
-        start_date = end_date - timedelta(days=days)
-        
         # Fetch ALL data (db method doesn't support date args) and filter
         full_df = db_manager.get_target_stats_df(client_id)
         
@@ -598,6 +615,7 @@ def _capture_visuals(client_id: str, selected_visuals: List[str], days: int) -> 
         if not campaign_df.empty:
             if 'Date' in campaign_df.columns:
                  visual_data['sales_df'] = campaign_df.groupby('Date')[['Sales']].sum().reset_index()
+                 print(f"[DEBUG] sales_df populated with {len(visual_data['sales_df'])} rows")
 
     except Exception as e:
         print(f"Failed to fetch campaign data: {e}")
@@ -616,11 +634,25 @@ def _capture_visuals(client_id: str, selected_visuals: List[str], days: int) -> 
                 before_days=14,
                 after_days=14
             )
-            # Add maturity
+            
+            # Match Impact Dashboard Maturity Logic EXACTLY
             if not impact_df.empty and 'action_date' in impact_df.columns:
-                max_date = pd.Timestamp(datetime.now().date())
+                from features.impact_dashboard import get_maturity_status
+                
+                # Get latest data date from impact_df itself (matches dashboard)
                 impact_df['action_date'] = pd.to_datetime(impact_df['action_date'])
-                impact_df['is_mature'] = (max_date - impact_df['action_date']).dt.days >= 14
+                
+                # Use the maximum action date as reference (or now if no actions)
+                # Dashboard uses full_summary which we don't have, so use action_date max + 14 days as proxy
+                latest_data_date = datetime.now().date()
+                
+                # Apply canonical maturity logic (same as dashboard line 497-500)
+                impact_df['is_mature'] = impact_df['action_date'].apply(
+                    lambda d: get_maturity_status(d, latest_data_date, horizon='14D')['is_mature']
+                )
+                impact_df['maturity_status'] = impact_df['action_date'].apply(
+                    lambda d: get_maturity_status(d, latest_data_date, horizon='14D')['status']
+                )
             
                 # Use dashboard's filter settings
                 current_filters = {
@@ -643,7 +675,10 @@ def _capture_visuals(client_id: str, selected_visuals: List[str], days: int) -> 
                     'total_spend': metrics.total_spend,
                     'impact_df': impact_df  # Store for timeline chart
                 }
+                # DEBUG: Show what was captured
+                print(f"[DEBUG] decision_impact: total_impact={metrics.attributed_impact}, mature_actions={metrics.mature_actions}, impact_df rows={len(impact_df)}")
             else:
+                print(f"[DEBUG] impact_df was empty or missing action_date column, using sample data")
                 visual_data['decision_impact'] = _get_sample_visual_data().get('decision_impact', {})
                 
         except Exception as e:
@@ -658,9 +693,14 @@ def _capture_visuals(client_id: str, selected_visuals: List[str], days: int) -> 
              savings = 0.0
              
              if not impact_df.empty:
-                 # Filter by Report Date Range for correct count
+                 # Standard: Filter by Report Date Range
                  mask = (impact_df['action_date'].dt.date >= start_date) & (impact_df['action_date'].dt.date <= end_date)
                  period_actions = impact_df.loc[mask].copy()
+                 
+                 # FALLBACK: If no actions in window, use MOST RECENT action batch (User Request)
+                 if period_actions.empty:
+                     latest_action_date = impact_df['action_date'].max()
+                     period_actions = impact_df[impact_df['action_date'] == latest_action_date].copy()
                  
                  if not period_actions.empty:
                      # Count Actions
@@ -749,7 +789,6 @@ def _capture_visuals(client_id: str, selected_visuals: List[str], days: int) -> 
     # Executive Summary Data (KPIs + Gauges)
     # This combines data from target_stats for KPIs
     try:
-        from datetime import timedelta
         import numpy as np
         from features.report_card import get_account_health_score
         

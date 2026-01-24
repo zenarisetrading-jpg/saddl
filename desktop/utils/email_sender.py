@@ -9,11 +9,32 @@ class EmailSender:
     Handles sending transactional emails via SMTP.
     """
     def __init__(self):
-        self.smtp_host = os.environ.get("SMTP_HOST")
-        self.smtp_port = int(os.environ.get("SMTP_PORT", 587))
-        self.smtp_user = os.environ.get("SMTP_USER")
-        self.smtp_password = os.environ.get("SMTP_PASSWORD")
-        self.from_email = os.environ.get("SMTP_FROM_EMAIL") or self.smtp_user
+        self.smtp_host = self._get_config("SMTP_HOST")
+        self.smtp_port = int(self._get_config("SMTP_PORT", 587))
+        self.smtp_user = self._get_config("SMTP_USER")
+        self.smtp_password = self._get_config("SMTP_PASSWORD")
+        self.from_email = self._get_config("SMTP_FROM_EMAIL") or self.smtp_user
+
+    def _get_config(self, key: str, default: Optional[str] = None) -> Optional[str]:
+        """Get config from env vars or streamlit secrets."""
+        # 1. Try environment variable
+        val = os.environ.get(key)
+        if val is not None:
+            return val
+        
+        # 2. Try Streamlit secrets
+        try:
+            import streamlit as st
+            # Check root level
+            if key in st.secrets:
+                return str(st.secrets[key])
+            # Check [env] section
+            if "env" in st.secrets and key in st.secrets["env"]:
+                return str(st.secrets["env"][key])
+        except Exception:
+            pass
+            
+        return default
 
     def send_email(self, to_email: str, subject: str, html_content: str) -> bool:
         """

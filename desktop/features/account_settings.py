@@ -134,6 +134,27 @@ def _render_profile(user: User, auth: AuthService):
     st.caption(f"Organization ID: `{user.organization_id}`")
     st.caption(f"User ID: `{user.id}`")
 
+    # 4. Preferences Section
+    st.divider()
+    st.subheader("Preferences")
+    
+    # Onboarding wizard toggle
+    from config.features import FEATURE_ONBOARDING_WIZARD
+    
+    if FEATURE_ONBOARDING_WIZARD:
+        col1, col2 = st.columns([3, 1])
+        with col1:
+            st.markdown("**Welcome Wizard**")
+            st.caption("Re-watch the onboarding tour to learn about SADDL AdPulse features")
+        with col2:
+            if st.button("Show Wizard", key="show_onboarding_btn"):
+                st.session_state['show_onboarding'] = True
+                st.session_state['onboarding_step'] = 1
+                st.session_state['current_module'] = 'home'  # Navigate to home first
+                st.rerun()
+    else:
+        st.caption("Onboarding wizard is currently disabled.")
+
 
 def _render_ad_accounts(user: User):
     """Ad Account Management (Admin Only)."""
