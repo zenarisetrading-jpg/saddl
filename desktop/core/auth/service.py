@@ -48,14 +48,34 @@ class AuthService:
     """
     
     def __init__(self):
-        # Use existing PostgresManager connection logic if possible, 
-        # but for Auth we prefer a direct tight loop or reuse the pool.
-        # For simplicity in Phase 2, we reuse PostgresManager's connection params.
-        self.db_url = os.environ.get("DATABASE_URL") or os.environ.get("SUPABASE_DB_URL")
-        # Reuse existing manager if we want pool benefits (TODO for Phase 3 optimization)
+        # Use shared PostgresManager for connection pooling
+        from core.db_manager import get_db_manager
+        self.db_manager = get_db_manager(test_mode=False) # Auth always uses live/postgres
         
+        # Determine if we are actually using PostgresManager
+        if not hasattr(self.db_manager, '_get_connection'):
+             # Fallback if config is messed up and we got SQLite manager
+             self.db_url = os.environ.get("DATABASE_URL") or os.environ.get("SUPABASE_DB_URL") 
+             
+    from contextlib import contextmanager
+    @contextmanager
     def _get_connection(self):
-        return psycopg2.connect(self.db_url)
+        # Prefer using the pooled connection from PostgresManager
+        if hasattr(self.db_manager, '_get_connection'):
+            with self.db_manager._get_connection() as conn:
+                yield conn
+        else:
+            # Fallback to direct connect
+            import psycopg2
+            conn = psycopg2.connect(self.db_url)
+            try:
+                yield conn
+                conn.commit()
+            except Exception:
+                conn.rollback()
+                raise
+            finally:
+                conn.close()
 
     def sign_in(self, email: str, password: str) -> Dict[str, Any]:
         """
@@ -67,68 +87,69 @@ class AuthService:
              return {"success": False, "error": "Email and password required"}
              
         try:
-            conn = self._get_connection()
-            cur = conn.cursor()
-            
-            # Fetch user + password_hash
-            query = """
-                SELECT id, organization_id, email, password_hash, role, billable, status, must_reset_password, password_updated_at
-                FROM users 
-                WHERE email = %s AND status = 'ACTIVE';
-            """
-            cur.execute(query, (email.lower().strip(),))
-            row = cur.fetchone()
-            
-            cur.close()
-            conn.close()
-            
-            if not row:
-                # Generic error for security
-                return {"success": False, "error": "Invalid credentials"}
+            with self._get_connection() as conn:
+                cur = conn.cursor()
                 
-            (uid, org_id, db_email, db_hash, role_str, billable, status, must_reset, pwd_updated) = row
-            
-            # Verify Password
-            if not verify_password(password, db_hash):
-                return {"success": False, "error": "Invalid credentials"}
+                # Fetch user + password_hash
+                query = """
+                    SELECT id, organization_id, email, password_hash, role, billable, status, must_reset_password, password_updated_at
+                    FROM users 
+                    WHERE email = %s AND status = 'ACTIVE';
+                """
+                cur.execute(query, (email.lower().strip(),))
+                row = cur.fetchone()
                 
-            # Construct User Model
-            # Load Overrides first
-            account_overrides = {}
-            try:
-                cur = conn.cursor() # Re-open cursor if needed or better reuse logic above
-                cur.execute("""
-                    SELECT amazon_account_id, role 
-                    FROM user_account_overrides 
-                    WHERE user_id = %s
-                """, (uid,))
-                for row_ov in cur.fetchall():
-                    # Parse UUID and Role
-                    acc_id = UUID(str(row_ov[0])) # Ensure string if driver returns uuid
-                    ov_role = Role(row_ov[1])
-                    account_overrides[acc_id] = ov_role
-            except Exception as e:
-                print(f"Warning: Failed to load overrides: {e}")
-                # Non-critical, continue login
-            
-            user = User(
-                id=uid,
-                organization_id=org_id,
-                email=db_email,
-                password_hash="REDACTED", # Don't keep hash in memory object
-                role=Role(role_str),
-                billable=billable,
-                status=status,
-                created_at=None, # Not needed for session usually
-                must_reset_password=must_reset,
-                password_updated_at=pwd_updated,
-                account_overrides=account_overrides
-            )
-            
-            # SESSION STORAGE (Canonical)
-            st.session_state["user"] = user
-            
-            return {"success": True, "user": user}
+                # Close cursor inside context (connection stays open until exit)
+                cur.close()
+                
+                if not row:
+                    return {"success": False, "error": "Invalid credentials"}
+                    
+                (uid, org_id, db_email, db_hash, role_str, billable, status, must_reset, pwd_updated) = row
+                
+                # Verify Password
+                if not verify_password(password, db_hash):
+                    return {"success": False, "error": "Invalid credentials"}
+                    
+                # Construct User Model
+                # Load Overrides first
+                account_overrides = {}
+                try:
+                    cur = conn.cursor()
+                    cur.execute("""
+                        SELECT amazon_account_id, role 
+                        FROM user_account_overrides 
+                        WHERE user_id = %s
+                    """, (uid,))
+                    for row_ov in cur.fetchall():
+                        import uuid
+                        # Parse UUID and Role
+                        acc_id = uuid.UUID(str(row_ov[0])) # Ensure string if driver returns uuid
+                        ov_role = Role(row_ov[1])
+                        account_overrides[acc_id] = ov_role
+                    cur.close()
+                except Exception as e:
+                    print(f"Warning: Failed to load overrides: {e}")
+                    # Non-critical, continue login
+                
+                user = User(
+                    id=uid,
+                    organization_id=org_id,
+                    email=db_email,
+                    password_hash="REDACTED", # Don't keep hash in memory object
+                    role=Role(role_str),
+                    billable=billable,
+                    status=status,
+                    created_at=None,
+                    must_reset_password=must_reset,
+                    password_updated_at=pwd_updated,
+                    account_overrides=account_overrides
+                )
+                
+                # SESSION STORAGE (Canonical)
+                st.session_state["user"] = user
+                
+                return {"success": True, "user": user}
             
         except Exception as e:
             print(f"Auth Error: {e}")
@@ -155,17 +176,16 @@ class AuthService:
         """
         try:
             hashed = hash_password(password)
-            conn = self._get_connection()
-            cur = conn.cursor()
-            
-            cur.execute("""
-                INSERT INTO users (email, password_hash, role, organization_id, billable)
-                VALUES (%s, %s, %s, %s, %s)
-            """, (email.lower(), hashed, role.value, org_id, True))
-            
-            conn.commit()
-            conn.close()
-            return True
+            with self._get_connection() as conn:
+                cur = conn.cursor()
+                
+                cur.execute("""
+                    INSERT INTO users (email, password_hash, role, organization_id, billable)
+                    VALUES (%s, %s, %s, %s, %s)
+                """, (email.lower(), hashed, role.value, org_id, True))
+                
+                # context manager auto-commits if successful
+                return True
         except Exception as e:
             print(f"Create Error: {e}")
             return False
@@ -176,30 +196,29 @@ class AuthService:
         Returns list of dicts: {id, email, role, status, billable}
         """
         try:
-            conn = self._get_connection()
-            cur = conn.cursor()
-            
-            cur.execute("""
-                SELECT id, email, role, status, billable 
-                FROM users 
-                WHERE organization_id = %s
-                ORDER BY created_at DESC
-            """, (str(organization_id),))
-            
-            rows = cur.fetchall()
-            cur.close()
-            conn.close()
-            
-            users = []
-            for r in rows:
-                users.append({
-                    "id": r[0],
-                    "email": r[1],
-                    "role": r[2],
-                    "status": r[3],
-                    "billable": r[4]
-                })
-            return users
+            with self._get_connection() as conn:
+                cur = conn.cursor()
+                
+                cur.execute("""
+                    SELECT id, email, role, status, billable 
+                    FROM users 
+                    WHERE organization_id = %s
+                    ORDER BY created_at DESC
+                """, (str(organization_id),))
+                
+                rows = cur.fetchall()
+                cur.close()
+                
+                users = []
+                for r in rows:
+                    users.append({
+                        "id": r[0],
+                        "email": r[1],
+                        "role": r[2],
+                        "status": r[3],
+                        "billable": r[4]
+                    })
+                return users
             
         except Exception as e:
             print(f"List Users Error: {e}")
@@ -216,29 +235,28 @@ class AuthService:
 
         try:
             hashed = hash_password(temp_password)
-            conn = self._get_connection()
-            cur = conn.cursor()
-            
-            # Check for existing
-            cur.execute("SELECT id FROM users WHERE email = %s", (email.lower(),))
-            if cur.fetchone():
-                return {"success": False, "error": "User already exists"}
-            
-            # Insert
-            # Determine billable? (Simplified: Use default from role)
-            from core.auth.permissions import get_billable_default
-            billable = get_billable_default(role.value)
-            
-            cur.execute("""
-                INSERT INTO users (email, password_hash, role, organization_id, billable, status)
-                VALUES (%s, %s, %s, %s, %s, 'ACTIVE')
-            """, (email.lower(), hashed, role.value, org_id, billable))
-            
-            conn.commit()
-            conn.close()
-            
-            # Return instructions for the admin
-            return {"success": True, "temp_password": temp_password}
+            with self._get_connection() as conn:
+                cur = conn.cursor()
+                
+                # Check for existing
+                cur.execute("SELECT id FROM users WHERE email = %s", (email.lower(),))
+                if cur.fetchone():
+                    return {"success": False, "error": "User already exists"}
+                
+                # Insert
+                # Determine billable? (Simplified: Use default from role)
+                from core.auth.permissions import get_billable_default
+                billable = get_billable_default(role.value)
+                
+                cur.execute("""
+                    INSERT INTO users (email, password_hash, role, organization_id, billable, status)
+                    VALUES (%s, %s, %s, %s, %s, 'ACTIVE')
+                """, (email.lower(), hashed, role.value, org_id, billable))
+                
+                # context manager auto-commits
+                
+                # Return instructions for the admin
+                return {"success": True, "temp_password": temp_password}
             
         except Exception as e:
             print(f"Invite Error: {e}")
@@ -251,36 +269,26 @@ class AuthService:
     def update_user_role(self, user_id: str, new_role: Role, updated_by_user_id: str) -> Dict[str, Any]:
         """
         Update user's global role and auto-cleanup invalid overrides.
-        
-        Logic:
-        1. Update global role.
-        2. Clean up any overrides that violate "Override <= Global" rule.
-           (e.g. if downgraded to VIEWER, remove OPERATOR overrides).
         """
         try:
-            conn = self._get_connection()
-            cur = conn.cursor()
-            
-            # 1. Update Global Role
-            cur.execute("""
-                UPDATE users 
-                SET role = %s 
-                WHERE id = %s
-            """, (new_role.value, str(user_id)))
-            
-            # 2. Auto-cleanup: invalid overrides logic
-            # If new role is VIEWER, they cannot have OPERATOR overrides.
-            if new_role == Role.VIEWER:
+            with self._get_connection() as conn:
+                cur = conn.cursor()
+                
+                # 1. Update Global Role
                 cur.execute("""
-                    DELETE FROM user_account_overrides
-                    WHERE user_id = %s AND role = 'OPERATOR'
-                """, (str(user_id),))
-            
-            # Note: If new role is OPERATOR/ADMIN/OWNER, existing VIEWER overrides remain valid.
-            
-            conn.commit()
-            conn.close()
-            return {"success": True}
+                    UPDATE users 
+                    SET role = %s 
+                    WHERE id = %s
+                """, (new_role.value, str(user_id)))
+                
+                # 2. Auto-cleanup: invalid overrides logic
+                if new_role == Role.VIEWER:
+                    cur.execute("""
+                        DELETE FROM user_account_overrides
+                        WHERE user_id = %s AND role = 'OPERATOR'
+                    """, (str(user_id),))
+                
+                return {"success": True}
             
         except Exception as e:
             print(f"Update Role Error: {e}")
@@ -295,42 +303,37 @@ class AuthService:
             return {"success": False, "error": "Overrides can only be VIEWER or OPERATOR"}
 
         try:
-            conn = self._get_connection()
-            cur = conn.cursor()
-            
-            # 1. Fetch user's global role validation (Application level double-check)
-            cur.execute("SELECT role FROM users WHERE id = %s", (str(user_id),))
-            row = cur.fetchone()
-            if not row:
-                conn.close()
-                return {"success": False, "error": "User not found"}
+            with self._get_connection() as conn:
+                cur = conn.cursor()
                 
-            global_role_str = row[0]
-            from core.auth.permissions import ROLE_HIERARCHY_STR
-            
-            global_level = ROLE_HIERARCHY_STR.get(global_role_str, 0)
-            override_level = ROLE_HIERARCHY_STR.get(override_role.value, 0)
-            
-            # Verify downgrade-only rule
-            if override_level > global_level:
-                conn.close()
-                return {"success": False, "error": "Cannot set override higher than global role"}
-            
-            # 2. Upsert Override
-            cur.execute("""
-                INSERT INTO user_account_overrides (user_id, amazon_account_id, role, created_by)
-                VALUES (%s, %s, %s, %s)
-                ON CONFLICT (user_id, amazon_account_id)
-                DO UPDATE SET role = EXCLUDED.role;
-            """, (str(user_id), str(account_id), override_role.value, str(set_by_user_id)))
-            
-            conn.commit()
-            conn.close()
-            return {"success": True}
+                # 1. Fetch user's global role validation (Application level double-check)
+                cur.execute("SELECT role FROM users WHERE id = %s", (str(user_id),))
+                row = cur.fetchone()
+                if not row:
+                    return {"success": False, "error": "User not found"}
+                    
+                global_role_str = row[0]
+                from core.auth.permissions import ROLE_HIERARCHY_STR
+                
+                global_level = ROLE_HIERARCHY_STR.get(global_role_str, 0)
+                override_level = ROLE_HIERARCHY_STR.get(override_role.value, 0)
+                
+                # Verify downgrade-only rule
+                if override_level > global_level:
+                    return {"success": False, "error": "Cannot set override higher than global role"}
+                
+                # 2. Upsert Override
+                cur.execute("""
+                    INSERT INTO user_account_overrides (user_id, amazon_account_id, role, created_by)
+                    VALUES (%s, %s, %s, %s)
+                    ON CONFLICT (user_id, amazon_account_id)
+                    DO UPDATE SET role = EXCLUDED.role;
+                """, (str(user_id), str(account_id), override_role.value, str(set_by_user_id)))
+                
+                return {"success": True}
             
         except Exception as e:
             print(f"Set Override Error: {e}")
-            # Catch DB constraint violations
             if "check_override_downgrade" in str(e):
                  return {"success": False, "error": "Database rejected: Override cannot exceed global role"}
             return {"success": False, "error": str(e)}
@@ -338,17 +341,15 @@ class AuthService:
     def remove_account_override(self, user_id: str, account_id: str) -> Dict[str, Any]:
         """Remove an access override, reverting to global role."""
         try:
-            conn = self._get_connection()
-            cur = conn.cursor()
-            
-            cur.execute("""
-                DELETE FROM user_account_overrides 
-                WHERE user_id = %s AND amazon_account_id = %s
-            """, (str(user_id), str(account_id)))
-            
-            conn.commit()
-            conn.close()
-            return {"success": True}
+            with self._get_connection() as conn:
+                cur = conn.cursor()
+                
+                cur.execute("""
+                    DELETE FROM user_account_overrides 
+                    WHERE user_id = %s AND amazon_account_id = %s
+                """, (str(user_id), str(account_id)))
+                
+                return {"success": True}
         except Exception as e:
             print(f"Remove Override Error: {e}")
             return {"success": False, "error": str(e)}
@@ -363,7 +364,6 @@ class AuthService:
         """
         if len(password) < 8:
             return False
-        # Regex: At least one digit OR one special char
         if not re.search(r'[0-9!@#$%^&*(),.?":{}|<>]', password):
             return False
         return True
@@ -371,41 +371,35 @@ class AuthService:
     def change_password(self, user_id: str, old_password: str, new_password: str) -> PasswordChangeResult:
         """
         Self-service password change.
-        Verifies old password, validates new strength, and updates DB.
         """
         if not self.validate_password_strength(new_password):
             return PasswordChangeResult(False, "Password too weak. Must be 8+ chars with a number or symbol.")
             
         try:
-            conn = self._get_connection()
-            cur = conn.cursor()
-            
-            # 1. Verify Old Password
-            cur.execute("SELECT password_hash FROM users WHERE id = %s", (str(user_id),))
-            row = cur.fetchone()
-            if not row:
-                conn.close()
-                return PasswordChangeResult(False, "User not found.")
+            with self._get_connection() as conn:
+                cur = conn.cursor()
                 
-            db_hash = row[0]
-            if not verify_password(old_password, db_hash):
-                conn.close()
-                return PasswordChangeResult(False, "Current password incorrect.")
+                # 1. Verify Old Password
+                cur.execute("SELECT password_hash FROM users WHERE id = %s", (str(user_id),))
+                row = cur.fetchone()
+                if not row:
+                    return PasswordChangeResult(False, "User not found.")
+                    
+                db_hash = row[0]
+                if not verify_password(old_password, db_hash):
+                    return PasswordChangeResult(False, "Current password incorrect.")
+                    
+                # 2. Update to New Password
+                new_hash = hash_password(new_password)
+                cur.execute("""
+                    UPDATE users 
+                    SET password_hash = %s, 
+                        password_updated_at = NOW(), 
+                        must_reset_password = FALSE 
+                    WHERE id = %s
+                """, (new_hash, str(user_id)))
                 
-            # 2. Update to New Password
-            new_hash = hash_password(new_password)
-            cur.execute("""
-                UPDATE users 
-                SET password_hash = %s, 
-                    password_updated_at = NOW(), 
-                    must_reset_password = FALSE 
-                WHERE id = %s
-            """, (new_hash, str(user_id)))
-            
-            conn.commit()
-            conn.close()
-            
-            return PasswordChangeResult(True, "Password updated successfully.")
+                return PasswordChangeResult(True, "Password updated successfully.")
             
         except Exception as e:
             print(f"Change Password Error: {e}")
@@ -414,52 +408,42 @@ class AuthService:
     def admin_reset_password(self, admin_user: User, target_user_id: str) -> PasswordChangeResult:
         """
         Admin-assisted recovery.
-        Generates a temp password and forces reset on next login.
         """
         # Security: Prevent Admin from resetting Owner
         if admin_user.role == Role.ADMIN:
-            # Check target role
-            # We need to fetch target role first
-            pass # TODO: Optimize query to check role inside SQL or fetch first
+            pass 
             
-        temp_password = "PPC-" + os.urandom(4).hex() + "!" # e.g. PPC-a1b2c3d4!
+        temp_password = "PPC-" + os.urandom(4).hex() + "!" 
         
         try:
-            conn = self._get_connection()
-            cur = conn.cursor()
-            
-            # 1. Fetch Target Role (for protection)
-            cur.execute("SELECT role FROM users WHERE id = %s", (str(target_user_id),))
-            row = cur.fetchone()
-            if not row:
-                conn.close()
-                return PasswordChangeResult(False, "Target user not found.")
+            with self._get_connection() as conn:
+                cur = conn.cursor()
                 
-            target_role = row[0]
-            
-            # RULE: STRICT HIERARCHY CHECK
-            from core.auth.permissions import can_manage_role
-            
-            # handle enum vs string mismatch if any
-            manager_role_str = admin_user.role.value if hasattr(admin_user.role, 'value') else str(admin_user.role)
-            
-            if not can_manage_role(manager_role_str, target_role):
-                conn.close()
-                return PasswordChangeResult(False, f"Insufficient privileges. {manager_role_str} cannot manage {target_role}.")
-            
-            # 2. Update
-            new_hash = hash_password(temp_password)
-            cur.execute("""
-                UPDATE users 
-                SET password_hash = %s, 
-                    must_reset_password = TRUE 
-                WHERE id = %s
-            """, (new_hash, str(target_user_id)))
-            
-            conn.commit()
-            conn.close()
-            
-            return PasswordChangeResult(True, temp_password)
+                # 1. Fetch Target Role (for protection)
+                cur.execute("SELECT role FROM users WHERE id = %s", (str(target_user_id),))
+                row = cur.fetchone()
+                if not row:
+                    return PasswordChangeResult(False, "Target user not found.")
+                    
+                target_role = row[0]
+                
+                # RULE: STRICT HIERARCHY CHECK
+                from core.auth.permissions import can_manage_role
+                manager_role_str = admin_user.role.value if hasattr(admin_user.role, 'value') else str(admin_user.role)
+                
+                if not can_manage_role(manager_role_str, target_role):
+                    return PasswordChangeResult(False, f"Insufficient privileges. {manager_role_str} cannot manage {target_role}.")
+                
+                # 2. Update
+                new_hash = hash_password(temp_password)
+                cur.execute("""
+                    UPDATE users 
+                    SET password_hash = %s, 
+                        must_reset_password = TRUE 
+                    WHERE id = %s
+                """, (new_hash, str(target_user_id)))
+                
+                return PasswordChangeResult(True, temp_password)
             
         except Exception as e:
             print(f"Admin Reset Error: {e}")
@@ -468,40 +452,34 @@ class AuthService:
     def request_password_reset(self, email: str) -> bool:
         """
         Public endpoint for 'Forgot Password'.
-        In a real system, this would generate a token and email it.
-        Here, we just verify existence (silently) and return True to prevent enumeration (or simulated success).
         """
         if not email:
             return False
             
         try:
-            conn = self._get_connection()
-            cur = conn.cursor()
-            cur.execute("SELECT id FROM users WHERE email = %s", (email.lower().strip(),))
-            exists = cur.fetchone() is not None
+            # Check existence first (quick read)
+            exists = False
+            with self._get_connection() as conn:
+                cur = conn.cursor()
+                cur.execute("SELECT id FROM users WHERE email = %s", (email.lower().strip(),))
+                exists = cur.fetchone() is not None
+            
             if exists:
-                # 1. Generate Secure Temp Password
-                # e.g. PPC-a1b2c3d4!
                 temp_password = "PPC-" + os.urandom(4).hex() + "!"
-                
-                # 2. Update DB with new hash + forced reset flag
                 new_hash = hash_password(temp_password)
                 
-                # Re-connect to update
-                # (Optimization: We could have done SELECT FOR UPDATE above, but keeping it simple)
-                conn = self._get_connection()
-                cur = conn.cursor()
-                cur.execute("""
-                    UPDATE users 
-                    SET password_hash = %s, 
-                        must_reset_password = TRUE,
-                        password_updated_at = NOW()
-                    WHERE email = %s
-                """, (new_hash, email.lower().strip()))
-                conn.commit()
-                conn.close()
+                # Update DB
+                with self._get_connection() as conn:
+                    cur = conn.cursor()
+                    cur.execute("""
+                        UPDATE users 
+                        SET password_hash = %s, 
+                            must_reset_password = TRUE,
+                            password_updated_at = NOW()
+                        WHERE email = %s
+                    """, (new_hash, email.lower().strip()))
                 
-                # 3. Send Email
+                # Send Email
                 from utils.email_sender import EmailSender
                 sender = EmailSender()
                 

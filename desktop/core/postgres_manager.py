@@ -199,25 +199,36 @@ class PostgresManager:
     
     @contextmanager
     def _get_connection(self):
-        """Context manager for safe database connections with health check."""
+        """Context manager for safe database connections with robust health check."""
         conn = None
         try:
             conn = PostgresManager._pool.getconn()
             
-            # Health check: test if connection is alive
+            # Health check: test if connection is alive and not in aborted state
             try:
+                # First, rollback any aborted transaction state from previous usage
+                # This ensures we start fresh even if a previous query failed
+                conn.rollback()
+                
                 with conn.cursor() as cur:
                     cur.execute("SELECT 1")
-            except:
-                # Connection is stale, get a fresh one
-                PostgresManager._pool.putconn(conn, close=True)
+            except Exception as health_err:
+                # Connection is stale or broken, get a fresh one
+                print(f"Connection health check failed: {health_err}. Getting fresh connection.")
+                try:
+                    PostgresManager._pool.putconn(conn, close=True)
+                except:
+                    pass  # Ignore errors when closing bad connection
                 conn = PostgresManager._pool.getconn()
             
             yield conn
             conn.commit()
         except Exception as e:
             if conn:
-                conn.rollback()
+                try:
+                    conn.rollback()
+                except:
+                    pass  # Ignore rollback errors on broken connections
             raise e
         finally:
             if conn:
@@ -251,9 +262,11 @@ class PostgresManager:
                         id SERIAL PRIMARY KEY,
                         client_id TEXT NOT NULL,
                         start_date DATE NOT NULL,
+                        end_date DATE,
                         campaign_name TEXT NOT NULL,
                         ad_group_name TEXT NOT NULL,
                         target_text TEXT NOT NULL,
+                        customer_search_term TEXT,
                         match_type TEXT,
                         spend DOUBLE PRECISION DEFAULT 0,
                         sales DOUBLE PRECISION DEFAULT 0,
@@ -262,7 +275,7 @@ class PostgresManager:
                         orders INTEGER DEFAULT 0,
                         created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
                         updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-                        UNIQUE(client_id, start_date, campaign_name, ad_group_name, target_text)
+                        UNIQUE(client_id, start_date, campaign_name, ad_group_name, target_text, customer_search_term, match_type)
                     )
                 """)
                 
@@ -365,6 +378,29 @@ class PostgresManager:
                         updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
                     )
                 """)
+
+                # Raw Search Term Data (Daily Granularity)
+                cursor.execute("""
+                    CREATE TABLE IF NOT EXISTS raw_search_term_data (
+                        id SERIAL PRIMARY KEY,
+                        client_id TEXT NOT NULL,
+                        report_date DATE NOT NULL,
+                        campaign_name TEXT,
+                        ad_group_name TEXT,
+                        targeting TEXT,
+                        customer_search_term TEXT,
+                        match_type TEXT,
+                        impressions INTEGER DEFAULT 0,
+                        clicks INTEGER DEFAULT 0,
+                        spend DOUBLE PRECISION DEFAULT 0,
+                        sales DOUBLE PRECISION DEFAULT 0,
+                        orders INTEGER DEFAULT 0,
+                        uploaded_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                        UNIQUE(client_id, report_date, campaign_name, ad_group_name, targeting, customer_search_term)
+                    )
+                """)
+                
+                cursor.execute("CREATE INDEX IF NOT EXISTS idx_raw_st_week ON raw_search_term_data(client_id, report_date)")
 
     def save_weekly_stats(self, client_id: str, start_date: date, end_date: date, spend: float, sales: float, roas: Optional[float] = None) -> int:
         if roas is None:
@@ -533,14 +569,13 @@ class PostgresManager:
                             (client_id, start_date, campaign_name, ad_group_name, target_text, 
                              customer_search_term, match_type, spend, sales, orders, clicks, impressions)
                             VALUES %s
-                            ON CONFLICT (client_id, start_date, campaign_name, ad_group_name, target_text, customer_search_term, match_type) 
+                            ON CONFLICT (client_id, start_date, campaign_name, ad_group_name, target_text, customer_search_term, match_type)
                             DO UPDATE SET
                                 spend = EXCLUDED.spend,
                                 sales = EXCLUDED.sales,
                                 orders = EXCLUDED.orders,
                                 clicks = EXCLUDED.clicks,
                                 impressions = EXCLUDED.impressions,
-                                match_type = EXCLUDED.match_type,
                                 updated_at = CURRENT_TIMESTAMP
                         """, records)
                 
@@ -617,6 +652,24 @@ class PostgresManager:
                 float(row.get('Sales', 0) or 0),
                 int(row.get('Orders', 0) or 0)
             ))
+        
+        if not records:
+            return 0
+        
+        # Deduplicate records to avoid "ON CONFLICT DO UPDATE command cannot affect row a second time"
+        # The unique constraint is (client_id, report_date, campaign_name, ad_group_name, targeting, customer_search_term)
+        # These correspond to indices 0, 1, 2, 3, 4, 5 in the tuple
+        seen_keys = set()
+        unique_records = []
+        for r in records:
+            # Create a key tuple for the unique constraint
+            # Treat None as a distinct value, but ensure consistent hashing
+            key = (r[0], r[1], r[2], r[3], r[4], r[5])
+            if key not in seen_keys:
+                seen_keys.add(key)
+                unique_records.append(r)
+        
+        records = unique_records
         
         if not records:
             return 0
@@ -704,7 +757,7 @@ class PostgresManager:
                             MAX(report_date)::date as end_date,
                             campaign_name,
                             ad_group_name,
-                            COALESCE(targeting, customer_search_term) as target_text,
+                            COALESCE(targeting, customer_search_term, '-') as target_text,
                             customer_search_term,
                             match_type,
                             SUM(spend) as spend,
@@ -723,9 +776,8 @@ class PostgresManager:
                             targeting,
                             customer_search_term,
                             match_type
-                        ON CONFLICT (client_id, start_date, campaign_name, ad_group_name, target_text, customer_search_term)
+                        ON CONFLICT (client_id, start_date, campaign_name, ad_group_name, target_text, customer_search_term, match_type)
                         DO UPDATE SET
-                            match_type = EXCLUDED.match_type,
                             end_date = EXCLUDED.end_date,
                             spend = EXCLUDED.spend,
                             sales = EXCLUDED.sales,
@@ -934,8 +986,8 @@ class PostgresManager:
                 if res and res[0]:
                     return res[0]
                 
-                # 2. Check ad_group_history (legacy/fallback)
-                cursor.execute("SELECT MAX(date) FROM ad_group_history WHERE client_id = %s", (client_id,))
+                # 2. Check target_stats (fallback)
+                cursor.execute("SELECT MAX(start_date) FROM target_stats WHERE client_id = %s", (client_id,))
                 res = cursor.fetchone()
                 if res and res[0]:
                     return res[0]
@@ -1172,22 +1224,22 @@ class PostgresManager:
                 return cursor.rowcount
 
 
-    def create_account(self, account_id: str, account_name: str, account_type: str = 'brand', metadata: dict = None) -> bool:
+    def create_account(self, account_id: str, account_name: str, account_type: str = 'brand', metadata: dict = None, organization_id: str = None) -> bool:
         import json
         try:
             with self._get_connection() as conn:
                 with conn.cursor(cursor_factory=RealDictCursor) as cursor:
                     metadata_json = json.dumps(metadata) if metadata else '{}'
                     cursor.execute("""
-                        INSERT INTO accounts (account_id, account_name, account_type, metadata)
-                        VALUES (%s, %s, %s, %s)
-                    """, (account_id, account_name, account_type, metadata_json))
+                        INSERT INTO accounts (account_id, account_name, account_type, metadata, organization_id)
+                        VALUES (%s, %s, %s, %s, %s)
+                    """, (account_id, account_name, account_type, metadata_json, organization_id))
                     return True
         except psycopg2.IntegrityError:
             return False
 
     @retry_on_connection_error()
-    def get_all_accounts(self) -> List[tuple]:
+    def get_all_accounts(self, organization_id: str = None) -> List[tuple]:
         """Get all accounts with caching."""
         cache_key = 'all_accounts'
         # cached = _query_cache.get(cache_key)
@@ -1196,7 +1248,10 @@ class PostgresManager:
         
         with self._get_connection() as conn:
             with conn.cursor(cursor_factory=RealDictCursor) as cursor:
-                cursor.execute("SELECT account_id, account_name, account_type FROM accounts ORDER BY account_name")
+                if organization_id:
+                     cursor.execute("SELECT account_id, account_name, account_type FROM accounts WHERE organization_id = %s ORDER BY account_name", (organization_id,))
+                else:
+                    cursor.execute("SELECT account_id, account_name, account_type FROM accounts ORDER BY account_name")
                 result = [(row['account_id'], row['account_name'], row['account_type']) for row in cursor.fetchall()]
         
         # _query_cache.set(cache_key, result)

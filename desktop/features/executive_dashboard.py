@@ -18,6 +18,39 @@ from features.constants import classify_match_type
 from ui.theme import ThemeManager
 
 from features.impact_dashboard import get_maturity_status, _fetch_impact_data
+from core.db_manager import get_db_manager
+
+@st.cache_data(ttl=3600, show_spinner=False)
+def _fetch_and_process_stats(client_id: str, cache_version: str) -> Optional[pd.DataFrame]:
+    """
+    Cached fetcher for target stats.
+    Includes expensive pre-processing:
+    - Date conversion
+    - Match type classification
+    - Base metric calculation
+    """
+    try:
+        db = get_db_manager()
+        df = db.get_target_stats_df(client_id)
+        
+        if df.empty:
+            return None
+            
+        # Calculate metrics
+        df['Date'] = pd.to_datetime(df['Date'])
+        df['ROAS'] = (df['Sales'] / df['Spend']).replace([np.inf, -np.inf], 0).fillna(0)
+        df['CVR'] = (df['Orders'] / df['Clicks'] * 100).replace([np.inf, -np.inf], 0).fillna(0)
+        df['CPC'] = (df['Spend'] / df['Clicks']).replace([np.inf, -np.inf], 0).fillna(0)
+        
+        # Unified Match Type Logic (expensive loop)
+        df['Refined Match Type'] = df['Match Type'].fillna('-').astype(str)
+        if 'Targeting' in df.columns:
+            df['Refined Match Type'] = df.apply(classify_match_type, axis=1)
+            
+        return df
+    except Exception as e:
+        print(f"Stats fetch error: {e}")
+        return None
 
 
 
@@ -421,7 +454,7 @@ class ExecutiveDashboard:
             date_range = st.selectbox(
                 "Period",
                 options=["Last 7 Days", "Last 14 Days", "Last 30 Days", "Last 60 Days"],
-                index=2,  # Default to Last 30 Days
+                index=3,  # Default to Last 60 Days
                 key="exec_dash_date_range",
                 label_visibility="collapsed"
             )
@@ -482,22 +515,16 @@ class ExecutiveDashboard:
     def _fetch_data(self) -> Optional[Dict[str, Any]]:
         """Fetch all data."""
         try:
-            # Get target stats
-            df = self.db_manager.get_target_stats_df(self.client_id)
-            if df.empty:
+            # Use cached fetcher
+            # Version key ensures cache invalidation on new data upload
+            stats_cache_version = "v1_" + str(st.session_state.get('data_upload_timestamp', 'init'))
+            
+            df = _fetch_and_process_stats(self.client_id, stats_cache_version)
+            
+            if df is None or df.empty:
                 return None
             
-            # Calculate metrics
-            df['Date'] = pd.to_datetime(df['Date'])
-            df['ROAS'] = (df['Sales'] / df['Spend']).replace([np.inf, -np.inf], 0).fillna(0)
-            df['CVR'] = (df['Orders'] / df['Clicks'] * 100).replace([np.inf, -np.inf], 0).fillna(0)
-            df['CPC'] = (df['Spend'] / df['Clicks']).replace([np.inf, -np.inf], 0).fillna(0)
-            
-            # Unified Match Type Logic (same as Performance Snapshot)
-            # Create 'Refined Match Type' column
-            df['Refined Match Type'] = df['Match Type'].fillna('-').astype(str)
-            if 'Targeting' in df.columns:
-                df['Refined Match Type'] = df.apply(classify_match_type, axis=1)
+            # Time windows (use selected days from date picker)
             
             # Time windows (use selected days from date picker)
             selected_days = getattr(self, '_selected_days', 30)
@@ -976,10 +1003,15 @@ class ExecutiveDashboard:
             st.info("Not enough data.")
             return
         
-        # Use AVERAGE from campaign-level data for quadrant dividers
-        avg_roas = camp_perf['ROAS'].mean()
-        avg_cvr = camp_perf['CVR'].mean()
-        
+        # Use WEIGHTED AVERAGE for quadrant dividers (total metrics, not mean of ratios)
+        total_spend = camp_perf['Spend'].sum()
+        total_sales = camp_perf['Sales'].sum()
+        total_clicks = camp_perf['Clicks'].sum()
+        total_orders = camp_perf['Orders'].sum()
+
+        avg_roas = (total_sales / total_spend) if total_spend > 0 else 0
+        avg_cvr = (total_orders / total_clicks * 100) if total_clicks > 0 else 0
+
         # Ensure values are never 0 (fallback to reasonable defaults)
         if avg_roas <= 0:
             avg_roas = 3.0  # Default 3x ROAS
@@ -1313,8 +1345,22 @@ class ExecutiveDashboard:
         camp_perf['CVR'] = (camp_perf['Orders'] / camp_perf['Clicks'] * 100).replace([np.inf, -np.inf], 0).fillna(0)
         
         subset = camp_perf[camp_perf['Spend'] > 10]
-        avg_roas = subset['ROAS'].median() if not subset.empty else 3.0
-        avg_cvr = subset['CVR'].median() if not subset.empty else 5.0
+        
+        # Use WEIGHTED AVERAGE for quadrant dividers (total metrics, not mean of ratios)
+        if not subset.empty:
+            total_spend = subset['Spend'].sum()
+            total_sales = subset['Sales'].sum()
+            total_clicks = subset['Clicks'].sum()
+            total_orders = subset['Orders'].sum()
+            avg_roas = (total_sales / total_spend) if total_spend > 0 else 3.0
+            avg_cvr = (total_orders / total_clicks * 100) if total_clicks > 0 else 5.0
+        else:
+            avg_roas = 3.0
+            avg_cvr = 5.0
+
+        # Ensure values are reasonable (same fallback as scatter)
+        if avg_roas <= 0: avg_roas = 3.0
+        if avg_cvr <= 0: avg_cvr = 5.0
         
         # Classify quadrants - SAME LABELS AS SCATTER
         def classify(row):
@@ -1435,15 +1481,18 @@ class ExecutiveDashboard:
         camp_perf['ROAS'] = (camp_perf['Sales'] / camp_perf['Spend']).replace([np.inf, -np.inf], 0).fillna(0)
         camp_perf['CVR'] = (camp_perf['Orders'] / camp_perf['Clicks'] * 100).replace([np.inf, -np.inf], 0).fillna(0)
         
-        # 2. Reuse Threshold Logic (Avg of campaigns with Spend > 10) for Classification
-        # We calculate thresholds on the subset (to match scatter 1:1)
+        # 2. Reuse Threshold Logic - WEIGHTED AVERAGE (to match scatter 1:1)
         subset = camp_perf[camp_perf['Spend'] > 10]
         if subset.empty:
             avg_roas = 3.0
             avg_cvr = 5.0
         else:
-            avg_roas = subset['ROAS'].mean()
-            avg_cvr = subset['CVR'].mean()
+            total_spend = subset['Spend'].sum()
+            total_sales = subset['Sales'].sum()
+            total_clicks = subset['Clicks'].sum()
+            total_orders = subset['Orders'].sum()
+            avg_roas = (total_sales / total_spend) if total_spend > 0 else 3.0
+            avg_cvr = (total_orders / total_clicks * 100) if total_clicks > 0 else 5.0
             # Fallbacks
             if avg_roas <= 0: avg_roas = 3.0
             if avg_cvr <= 0: avg_cvr = 5.0
