@@ -96,7 +96,6 @@ def create_user_from_invitation(
         Tuple of (success, user_id, error_message)
     """
     try:
-    try:
         auth = AuthService()
         # Use context manager for connection pooling
         with auth._get_connection() as conn:
