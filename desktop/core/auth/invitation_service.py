@@ -209,7 +209,11 @@ class InvitationService:
 
     def _get_app_url(self) -> str:
         """Get the base application URL for invitation links."""
-        return os.environ.get("APP_URL", "http://localhost:8501")
+        url = os.environ.get("APP_URL", "http://localhost:8501")
+        # Ensure URL always has a scheme (https preferred for production)
+        if not url.startswith("http://") and not url.startswith("https://"):
+            url = "https://" + url
+        return url
 
     # =========================================================================
     # CORE OPERATIONS
@@ -777,9 +781,9 @@ class InvitationService:
         }
         role_desc = role_descriptions.get(role, "access the platform")
         
-        # Logo URL - default to a publicly accessible placeholder if env var not set
-        # Since we can't embed local images easily in email
-        logo_url = os.environ.get("LOGO_URL_PUBLIC", "https://raw.githubusercontent.com/zenarisetrading-jpg/saddle/dev/landing/logo.png")
+        # Logo URL - use the publicly hosted logo from landing page
+        # saddl.io is the live landing page, logo.png exists there
+        logo_url = os.environ.get("LOGO_URL_PUBLIC", "https://saddl.io/logo.png")
 
         return f"""
 <!DOCTYPE html>
