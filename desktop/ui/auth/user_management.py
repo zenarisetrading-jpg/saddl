@@ -426,7 +426,7 @@ def _render_pending_invitations(auth, current_user):
                 result = invitation_service.resend_invitation(
                     invitation_id=inv.id,
                     inviter_name=inviter_name,
-                    org_name=org_name
+                    inviter_org_name=org_name
                 )
                 if result.success:
                     st.success("Invitation resent!")
