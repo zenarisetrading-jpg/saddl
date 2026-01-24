@@ -28,14 +28,15 @@ def seed_initial_data():
     try:
         with auth_service._get_connection() as conn:
             cur = conn.cursor()
-            cur.execute("SELECT COUNT(*) FROM users")
-            count = cur.fetchone()[0]
+            # Check if default admin explicitly exists
+            cur.execute("SELECT id FROM users WHERE email = %s", (DEFAULT_ADMIN_EMAIL,))
+            admin_check = cur.fetchone()
             
-            if count > 0:
-                print(f"SEED: Found {count} users. Skipping seed.")
+            if admin_check:
+                print(f"SEED: Default admin ({DEFAULT_ADMIN_EMAIL}) exists. Skipping seed.")
                 return
 
-            print("SEED: No users found. Creating default admin...")
+            print("SEED: Default admin not found. Creating...")
             
             # Create Default Organization ID (e.g., 'primary')
             default_org_id = "primary-org"
