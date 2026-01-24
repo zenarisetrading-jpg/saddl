@@ -699,8 +699,9 @@ class InvitationService:
             sender = self._get_email_sender()
 
             # Construct invitation URL
-            app_url = self._get_app_url()
-            invitation_url = f"{app_url}/accept-invite?token={token}"
+            app_url = self._get_app_url().rstrip('/')
+            # Use query parameter on root URL for Streamlit handling
+            invitation_url = f"{app_url}/?token={token}"
 
             # Get email template
             html_content = self._get_invitation_email_html(
@@ -775,6 +776,10 @@ class InvitationService:
             "OWNER": "full administrative access to your organization"
         }
         role_desc = role_descriptions.get(role, "access the platform")
+        
+        # Logo URL - default to a publicly accessible placeholder if env var not set
+        # Since we can't embed local images easily in email
+        logo_url = os.environ.get("LOGO_URL_PUBLIC", "https://raw.githubusercontent.com/zenarisetrading-jpg/saddle/dev/landing/logo.png")
 
         return f"""
 <!DOCTYPE html>
@@ -790,13 +795,24 @@ class InvitationService:
                 <table width="600" cellpadding="0" cellspacing="0" style="background: linear-gradient(135deg, rgba(255,255,255,0.1) 0%, rgba(255,255,255,0.05) 100%); border-radius: 16px; border: 1px solid rgba(255,255,255,0.1); overflow: hidden;">
                     <!-- Header -->
                     <tr>
-                        <td style="padding: 40px 40px 20px 40px; text-align: center;">
-                            <h1 style="color: #f1f5f9; font-size: 28px; margin: 0 0 8px 0; font-weight: 700;">
-                                SADDL AdPulse
-                            </h1>
-                            <p style="color: #64748b; font-size: 14px; margin: 0;">
-                                Decision-First PPC Platform
-                            </p>
+                        <td style="padding: 40px 40px 20px 40px;">
+                            <table width="100%" cellpadding="0" cellspacing="0">
+                                <tr>
+                                    <!-- Icon/Logo Left -->
+                                    <td width="60" style="vertical-align: middle;">
+                                        <img src="{logo_url}" alt="Logo" width="48" height="48" style="display: block; border-radius: 8px;">
+                                    </td>
+                                    <!-- Text Right -->
+                                    <td style="vertical-align: middle; padding-left: 16px;">
+                                        <h1 style="color: #f1f5f9; font-size: 24px; margin: 0 0 4px 0; font-weight: 700;">
+                                            SADDL AdPulse
+                                        </h1>
+                                        <p style="color: #64748b; font-size: 14px; margin: 0;">
+                                            Decision-First PPC Platform
+                                        </p>
+                                    </td>
+                                </tr>
+                            </table>
                         </td>
                     </tr>
 
@@ -821,13 +837,20 @@ class InvitationService:
                                 </p>
                             </div>
 
+                            <!-- Bulletproof Button -->
                             <table width="100%" cellpadding="0" cellspacing="0">
                                 <tr>
                                     <td align="center" style="padding: 8px 0 24px 0;">
-                                        <a href="{invitation_url}"
-                                           style="display: inline-block; background: linear-gradient(135deg, #2563eb 0%, #3b82f6 100%); color: #ffffff; text-decoration: none; padding: 16px 48px; border-radius: 12px; font-size: 16px; font-weight: 600; box-shadow: 0 4px 16px rgba(37, 99, 235, 0.3);">
-                                            Accept Invitation
-                                        </a>
+                                        <table cellpadding="0" cellspacing="0">
+                                            <tr>
+                                                <td bgcolor="#2563eb" style="border-radius: 12px; box-shadow: 0 4px 16px rgba(37, 99, 235, 0.3);">
+                                                    <a href="{invitation_url}" target="_blank"
+                                                       style="display: inline-block; padding: 16px 48px; color: #ffffff; text-decoration: none; font-size: 16px; font-weight: 600; font-family: sans-serif; border: 1px solid #2563eb; border-radius: 12px;">
+                                                        Accept Invitation
+                                                    </a>
+                                                </td>
+                                            </tr>
+                                        </table>
                                     </td>
                                 </tr>
                             </table>
