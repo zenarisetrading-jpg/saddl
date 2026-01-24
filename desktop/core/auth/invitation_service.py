@@ -677,6 +677,7 @@ class InvitationService:
 
                 if email_sent:
                     # DEBUG: Include sender info in message for troubleshooting
+                    sender = self._get_email_sender()
                     debug = sender.get_debug_info()
                     return InvitationResult(
                         success=True,
