@@ -42,10 +42,12 @@ class EmailSender:
         Returns True on success, False on failure.
         """
         if not all([self.smtp_host, self.smtp_user, self.smtp_password]):
-            print("EmailSender Error: Missing SMTP credentials in .env")
+            print("EmailSender Error: Missing SMTP credentials")
             return False
 
         try:
+            print(f"DEBUG EMAIL: Sending from {self.from_email} to {to_email} via {self.smtp_host}")
+            
             msg = MIMEMultipart()
             msg['From'] = self.from_email
             msg['To'] = to_email
@@ -62,3 +64,13 @@ class EmailSender:
         except Exception as e:
             print(f"Email Sending Failed: {e}")
             return False
+
+    def get_debug_info(self) -> dict:
+        """Return debug configuration info."""
+        return {
+            "smtp_host": self.smtp_host,
+            "smtp_port": self.smtp_port,
+            "from_email": self.from_email,
+            "user_set": bool(self.smtp_user),
+            "pass_set": bool(self.smtp_password)
+        }

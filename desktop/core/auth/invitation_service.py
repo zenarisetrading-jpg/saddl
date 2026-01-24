@@ -676,9 +676,11 @@ class InvitationService:
                 )
 
                 if email_sent:
+                    # DEBUG: Include sender info in message for troubleshooting
+                    debug = sender.get_debug_info()
                     return InvitationResult(
                         success=True,
-                        message=f"Invitation resent to {email}"
+                        message=f"Invitation resent to {email} (From: {debug['from_email']})"
                     )
                 else:
                     return InvitationResult(
