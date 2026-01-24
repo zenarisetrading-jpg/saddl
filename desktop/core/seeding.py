@@ -54,5 +54,10 @@ def seed_initial_data():
             else:
                 print("SEED: Failed to create default admin.")
             
+            else:
+                print("SEED: Failed to create default admin.")
+            
     except Exception as e:
-        print(f"SEED: Error during seeding: {e}")
+        import traceback
+        print(f"SEED ERROR: {e}")
+        traceback.print_exc()
