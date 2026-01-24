@@ -97,8 +97,8 @@ def render_sidebar(navigate_to):
     
     st.sidebar.markdown("---")
     
-    if st.sidebar.button("Help", use_container_width=True):
-        safe_navigate('readme')
+    if st.sidebar.button("Help & Support", use_container_width=True, icon="❓"):
+        safe_navigate('help_center')
     
     # Show undo toast if available
     from ui.action_confirmation import show_undo_toast
@@ -111,7 +111,56 @@ def render_sidebar(navigate_to):
     return st.session_state.get('current_module', 'home')
 
 def render_home():
+
     from features.impact_dashboard import get_recent_impact_summary
+    from ui.components.empty_states import render_empty_state
+    
+    # === EMPTY STATE CHECKS ===
+    # === EMPTY STATE CHECKS ===
+    # Support "Test Mode" via query params to verify empty states without deleting data
+    # Usage: ?test_state=no_account or ?test_state=no_data
+    test_state = st.query_params.get("test_state")
+    
+    # 1. Check if any accounts exist at all (No Accounts)
+    db = st.session_state.get('db_manager')
+    has_accounts = False
+    if db:
+        # Get Organization Context
+        from core.auth.service import AuthService
+        auth = AuthService()
+        current_user = auth.get_current_user()
+        org_id = str(current_user.organization_id) if current_user else None
+        
+        accounts = db.get_all_accounts(organization_id=org_id)
+        has_accounts = len(accounts) > 0
+        
+    # Force empty state if requested
+    if test_state == "no_account" or not has_accounts:
+        render_empty_state('no_account')
+        return
+
+    # 2. Check if active account has data (No Data / Syncing)
+    active_account_id = st.session_state.get('active_account_id')
+    account_name = st.session_state.get('active_account_name', 'Account')
+    
+    # Check if data loaded in DataHub or DB has data
+    from core.data_hub import DataHub
+    hub = DataHub()
+    
+    # Try basic data existence check
+    data_exists = False
+    if hub.is_loaded("search_term_report"):
+        data_exists = True
+    elif active_account_id and db:
+        # Quick DB check
+        dates = db.get_available_dates(active_account_id)
+        if dates and len(dates) > 0:
+            data_exists = True
+            
+    if test_state == "no_data" or not data_exists:
+        render_empty_state('no_data', context={'account_name': account_name})
+        return
+
     st.markdown("""
         <style>
         /* Premium Cards */
@@ -270,9 +319,15 @@ def render_home():
         # Determine source badge
         source = st.session_state.get('_cockpit_data_source', 'db')
         sync_badge = '<span style="font-size: 0.55rem; background: rgba(34, 197, 94, 0.15); color: #22c55e; padding: 2px 6px; border-radius: 4px; font-weight: 800;">LIVE SYNC</span>' if source == 'live' else ''
-        st.markdown(f'<div class="cockpit-label" style="text-align:center;"><span>Health Score</span>{sync_badge}</div>', unsafe_allow_html=True)
+        
+        # Header - LEFT ALIGNED (Removed justify-content:center)
+        st.markdown(f'<div class="cockpit-label" style="justify-content: space-between;"><span>Health Score</span>{sync_badge}</div>', unsafe_allow_html=True)
         
         health = get_account_health_score()
+        
+        # Note: The column container itself is flex-column (from CSS on line 118)
+        # We will render items sequentially.
+        
         if health is not None:
             health = round(health)
             import plotly.graph_objects as go
@@ -288,38 +343,57 @@ def render_home():
                 status_text = "ATTENTION"
                 status_color = "#ef4444"
             
-            # Dashboard-consistent gauge (cyan bar, grey arc, clean ticks)
+            # Dashboard-consistent gauge
             fig = go.Figure(go.Indicator(
-                mode="gauge+number",
+                mode="gauge",  # Removed 'number' to render it with Custom HTML for Glow Effect
                 value=health,
-                number={
-                    'suffix': "%",
-                    'font': {'size': 26, 'color': '#06b6d4', 'family': 'Inter, sans-serif'}
-                },
                 gauge={
                     'axis': {
                         'range': [0, 100],
                         'tickwidth': 1,
                         'tickcolor': '#64748b',
-                        'ticklen': 8,
+                        'ticklen': 10,
                         'tickvals': [0, 25, 50, 75, 100],
                         'ticktext': ['0', '25', '50', '75', '100'],
-                        'tickfont': {'size': 9, 'color': '#64748b'}
+                        'tickfont': {'size': 10, 'color': '#64748b'}
                     },
-                    'bar': {'color': '#06b6d4', 'thickness': 0.6},  # Thinner bar to avoid tick overlap
-                    'bgcolor': '#374151',  # Grey background arc
+                    'bar': {'color': '#06b6d4', 'thickness': 0.7}, 
+                    'bgcolor': '#374151',
                     'borderwidth': 0,
                 }
             ))
             
+            # Increased height for visual impact
             fig.update_layout(
-                height=110,
-                margin=dict(l=25, r=25, t=25, b=0),
+                height=145, 
+                margin=dict(l=30, r=30, t=15, b=0),
                 paper_bgcolor="rgba(0,0,0,0)",
                 font={'family': 'Inter, sans-serif'}
             )
             st.plotly_chart(fig, use_container_width=True, config={'displayModeBar': False})
-            st.markdown(f'<div style="text-align: center; color: {status_color}; font-weight: 700; margin-top: -10px; font-size: 0.7rem; letter-spacing: 0.05em;">{status_text}</div>', unsafe_allow_html=True)
+            
+            # Score + Status Text (Overlaid on Gauge with negative margin)
+            st.markdown(f'''
+            <div style="text-align: center; margin-top: -70px; margin-bottom: 25px; position: relative; z-index: 10;">
+                <div style="
+                    color: #06B6D4;
+                    font-size: 2.8rem;
+                    font-weight: 800;
+                    text-shadow: 0 0 20px rgba(6, 182, 212, 0.5);
+                    line-height: 1;
+                    margin-bottom: 4px;
+                    font-family: 'Inter', sans-serif;
+                ">{health}%</div>
+                <div style="
+                    color: {status_color}; 
+                    font-weight: 700; 
+                    font-size: 0.85rem; 
+                    text-transform: uppercase; 
+                    letter-spacing: 1px;
+                    text-shadow: 0 0 10px {status_color}40;
+                ">{status_text}</div>
+            </div>
+            ''', unsafe_allow_html=True)
             
             # Get actual scores from stored health data
             db_manager = st.session_state.get('db_manager')
@@ -335,15 +409,17 @@ def render_home():
                 except:
                     pass
             
-            # Display actual scores - bolder but not loud
-            st.markdown(f'''<div style="display: flex; justify-content: space-around; margin-top: 10px; text-align: center;">
+            # BOTTOM ROW: Display actual scores
+            # Using margin-top: 15px to ensure separation, textual alignment centered
+            st.markdown(f'''<div style="display: flex; justify-content: space-around; text-align: center; width: 100%;">
                 <div><div style="font-size: 0.95rem; font-weight: 700; color: #94a3b8;">{roas_score:.0f}</div><div style="font-size: 0.6rem; color: #64748b;">ROAS</div></div>
                 <div><div style="font-size: 0.95rem; font-weight: 700; color: #94a3b8;">{efficiency_score:.0f}</div><div style="font-size: 0.6rem; color: #64748b;">Efficiency</div></div>
                 <div><div style="font-size: 0.95rem; font-weight: 700; color: #94a3b8;">{cvr_score:.0f}</div><div style="font-size: 0.6rem; color: #64748b;">CVR</div></div>
             </div>''', unsafe_allow_html=True)
+            
         else:
-            st.markdown('<div class="cockpit-value" style="margin-top:20px">—</div>', unsafe_allow_html=True)
-            st.markdown('<div class="cockpit-subtext">Run optimizer to calculate</div>', unsafe_allow_html=True)
+            st.markdown('<div class="cockpit-value" style="text-align:center; padding: 40px 0; color: #64748b;">—</div>', unsafe_allow_html=True)
+            st.markdown('<div class="cockpit-subtext" style="text-align:center;">Run optimizer to calculate</div>', unsafe_allow_html=True)
 
     with t2:
         st.markdown('<div class="cockpit-marker"></div>', unsafe_allow_html=True)
@@ -465,7 +541,8 @@ def render_home():
             
         # Secondary CTA
         if st.button("Executive Summary", use_container_width=True):
-            st.session_state['current_module'] = 'executive'
+            st.session_state['current_module'] = 'performance'
+            st.session_state['active_perf_tab'] = 'Executive Dashboard'
             st.rerun()
 
 

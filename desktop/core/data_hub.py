@@ -157,19 +157,23 @@ class DataHub:
             raw_count = db.save_raw_search_term_data(df_renamed, client_id)
             
             # Step 2: Determine affected weeks from the uploaded data
+            # Let the DB tell us what weeks are present rather than calculating in Python
             affected_weeks = []
+            start_date = None  # Track earliest date for session state
             if date_col and not df_renamed.empty:
                 dates = pd.to_datetime(df_renamed[date_col], errors='coerce')
                 valid_dates = dates.dropna()
                 if not valid_dates.empty:
-                    # Get unique week starts (Monday)
-                    week_starts = valid_dates.dt.to_period('W-MON').dt.start_time.dt.date.unique()
-                    affected_weeks = [w.isoformat() for w in week_starts]
+                    start_date = valid_dates.min().date()  # Earliest date in upload
+                    print(f"DEBUG: Uploaded dates range: {valid_dates.min()} to {valid_dates.max()}")
+                    # Pass None to let reaggregate discover weeks from DB directly
+                    # This avoids any Python/Postgres week calculation mismatch
+                    affected_weeks = None  # Let DB determine weeks
             
             # Step 3: Reaggregate those weeks from raw → target_stats
             agg_count = 0
-            if affected_weeks:
-                agg_count = db.reaggregate_target_stats(client_id, affected_weeks)
+            agg_count = db.reaggregate_target_stats(client_id, affected_weeks)
+            print(f"DEBUG: Reaggregation completed. Rows aggregated: {agg_count}")
             
             saved_count = raw_count  # Report raw rows as the count
             

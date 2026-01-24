@@ -19,8 +19,14 @@ def render_account_selector():
         st.sidebar.warning("⚠️ Database not initialized")
         return
     
-    # Get all accounts
-    accounts = db.get_all_accounts()  # [(id, name, type), ...]
+    # Get current user context for organization Filtering
+    from core.auth.service import AuthService
+    auth = AuthService()
+    current_user = auth.get_current_user()
+    org_id = str(current_user.organization_id) if current_user else None
+
+    # Get accounts scoped to user's organization
+    accounts = db.get_all_accounts(organization_id=org_id)  # [(id, name, type), ...]
     
     # SAFETY CHECK: If active_account_id is set but not in DB (e.g. after DB wipe), clear it.
     if 'active_account_id' in st.session_state:
@@ -76,11 +82,9 @@ def render_account_selector():
     st.session_state['single_account_mode'] = False
     
     # Phase 3.5: Decorate with Effective Role
-    from core.auth.service import AuthService
-    from core.auth.permissions import get_effective_role
+    from core.auth.permissions import get_effective_role  # AuthService already imported above
     
-    auth = AuthService()
-    current_user = auth.get_current_user()
+    # current_user filtered above
     
     options = {}
     for idx, (id, name, _) in enumerate(accounts):
@@ -236,7 +240,13 @@ def _show_account_creation_form():
                     "currency": currency,
                     "notes": notes
                 }
-                success = db.create_account(account_id, name, account_type, metadata)
+                
+                # Get org_id for new account
+                from core.auth.service import AuthService
+                current_user = AuthService().get_current_user()
+                org_id = str(current_user.organization_id) if current_user else None
+                
+                success = db.create_account(account_id, name, account_type, metadata, organization_id=org_id)
                 if success:
                     st.success(f"✅ Created: {name}")
                     st.caption(f"Account ID: `{account_id}`")

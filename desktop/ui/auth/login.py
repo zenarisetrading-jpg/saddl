@@ -5,10 +5,37 @@ Minimal login interface wiring.
 PRD Reference: ORG_USERS_ROLES_PRD.md §12
 
 Note: This is a UI shell. Integration with auth middleware happens in the main app flow.
+
+Views:
+- login: Main login form
+- forgot_password: Password reset request
+- accept_invite: Invitation acceptance (Phase 2)
 """
 
 import streamlit as st
 from core.auth.middleware import AuthError
+
+
+def _check_for_invitation_token() -> bool:
+    """
+    Check if URL contains an invitation token.
+    If so, route to the accept_invite page.
+
+    Returns:
+        True if token found and routing to accept_invite, False otherwise
+    """
+    try:
+        params = st.query_params
+        token = params.get("token")
+
+        if token:
+            # Route to invitation acceptance
+            st.session_state['auth_view'] = 'accept_invite'
+            return True
+    except Exception:
+        pass
+
+    return False
 
 
 
@@ -61,20 +88,30 @@ def render_forgot_password():
 
 def render_login():
     """Renders the login flow (Dispatcher)."""
-    
+
     # State Management
     if 'auth_view' not in st.session_state:
         st.session_state['auth_view'] = 'login'
+
+    # Check for invitation token in URL (Phase 2)
+    # This must happen before CSS to allow accept_invite to apply its own styles
+    _check_for_invitation_token()
+
+    # Route to accept_invite if that's the current view
+    if st.session_state['auth_view'] == 'accept_invite':
+        from ui.auth.accept_invite import render_accept_invite
+        render_accept_invite()
+        return
 
     # Global CSS for Auth Screens
     st.markdown("""
         <style>
         /* Widened container for better desktop experience */
         .block-container { max-width: 600px; padding-top: 2rem; padding-bottom: 5rem; }
-        
+
         /* Ensure image is perfectly centered */
         img { display: block; margin-left: auto; margin-right: auto; }
-        
+
         h1.login-title { font-family: 'Inter', sans-serif; font-weight: 700; font-size: 2.2rem; text-align: center; margin-top: 0; margin-bottom: 0.5rem; color: white; }
         div.login-subtitle { text-align: center; color: #94a3b8; margin-bottom: 2.5rem; font-size: 1rem; }
         div[data-testid="stForm"] { border: 1px solid rgba(255, 255, 255, 0.1); background-color: rgba(255, 255, 255, 0.02); padding: 3rem; border-radius: 16px; }
@@ -146,7 +183,7 @@ def render_login():
 
     st.markdown("""
         <div style="text-align: center; margin-top: 0.5rem; font-size: 0.85rem;">
-            <span style="color: #94a3b8;">New to Saddle?</span> 
-            <a href="#" style="color: white; font-weight: 600; text-decoration: none;">Create an account</a>
+            <span style="color: #94a3b8;">Have an invitation?</span>
+            <span style="color: #64748b;"> Check your email for the invitation link.</span>
         </div>
     """, unsafe_allow_html=True)

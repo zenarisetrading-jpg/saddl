@@ -3,6 +3,11 @@ import sys
 import os
 from pathlib import Path
 
+# Add current directory to path to fix imports on Cloud
+current_dir = Path(__file__).parent.absolute()
+if str(current_dir) not in sys.path:
+    sys.path.insert(0, str(current_dir))
+
 # ==========================================
 
 # ==========================================
@@ -43,6 +48,10 @@ from utils.matchers import ExactMatcher
 from utils.formatters import format_currency
 from core.data_loader import safe_numeric
 from pathlib import Path
+
+# === ONBOARDING ===
+from ui.onboarding import should_show_onboarding, render_onboarding_wizard
+from config.features import FEATURE_ONBOARDING_WIZARD
 
 # === AUTHENTICATION ===
 from core.auth.service import AuthService
@@ -124,6 +133,13 @@ if 'db_manager' not in st.session_state:
 # ==========================================
 def run_performance_hub():
     """Consolidated Account Overview + Report Card."""
+    # Force empty state for testing
+    if st.query_params.get("test_state") == "no_data":
+        from ui.components.empty_states import render_empty_state
+        account = st.session_state.get('active_account_name', 'Account')
+        render_empty_state('no_data', context={'account_name': account})
+        return
+
     # === TAB NAVIGATION (Premium Button Style) ===
     st.markdown("""
     <style>
@@ -188,6 +204,13 @@ def run_performance_hub():
 def run_consolidated_optimizer():
     """Execution logic: Optimizer + ASIN Mapper + AI Insights all in one view."""
     
+    # Force empty state for testing
+    if st.query_params.get("test_state") == "no_data":
+        from ui.components.empty_states import render_empty_state
+        account = st.session_state.get('active_account_name', 'Account')
+        render_empty_state('no_data', context={'account_name': account})
+        return
+
     # Flag to skip execution while still rendering widgets (preserves settings during dialog)
     skip_execution = st.session_state.get('_show_action_confirmation', False)
     
@@ -1105,6 +1128,13 @@ def main():
         st.error("Session type mismatch. Please refresh and login again.")
         st.stop()
 
+    # === PHASE 3: ONBOARDING WIZARD ===
+    # Show wizard for new users who haven't completed onboarding
+    # Must come AFTER authentication but BEFORE any main content
+    if FEATURE_ONBOARDING_WIZARD and should_show_onboarding():
+        render_onboarding_wizard()
+        st.stop()  # Don't render main app while wizard is active
+
     # PHASE 3: FORCED PASSWORD RESET MIDDLEWARE
     if user.must_reset_password:
         # If user must reset, lock them to 'profile' module
@@ -1119,12 +1149,10 @@ def main():
     # simplified: just do it on first load of session
     if 'login_tracked' not in st.session_state:
         try:
-             # Quick direct update
-             conn = auth_service._get_connection()
-             with conn.cursor() as cur:
-                 cur.execute("UPDATE users SET last_login_at = NOW() WHERE id = %s", (str(user.id),))
-             conn.commit()
-             conn.close()
+             # Quick direct update using context manager
+             with auth_service._get_connection() as conn:
+                 with conn.cursor() as cur:
+                     cur.execute("UPDATE users SET last_login_at = NOW() WHERE id = %s", (str(user.id),))
              st.session_state['login_tracked'] = True
         except Exception as e:
             print(f"Login Track Error: {e}")
@@ -1191,7 +1219,7 @@ def main():
         render_account_selector()
         
         # Logout button (compact)
-        from auth.service import AuthService
+        from core.auth.service import AuthService
         auth = AuthService()
         if st.button("⏻ Logout", key="sidebar_logout", use_container_width=True, help="Sign out"):
             auth.sign_out()

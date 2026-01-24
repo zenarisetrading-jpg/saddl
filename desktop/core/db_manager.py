@@ -218,6 +218,7 @@ class DatabaseManager:
             cursor.execute("""
                 CREATE TABLE IF NOT EXISTS accounts (
                     account_id TEXT PRIMARY KEY,
+                    organization_id TEXT,
                     account_name TEXT NOT NULL,
                     account_type TEXT DEFAULT 'brand',
                     metadata TEXT,
@@ -225,6 +226,12 @@ class DatabaseManager:
                     updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
                 )
             """)
+
+            # MIGRATION: Ensure organization_id column exists
+            try:
+                cursor.execute("SELECT organization_id FROM accounts LIMIT 1")
+            except sqlite3.OperationalError:
+                cursor.execute("ALTER TABLE accounts ADD COLUMN organization_id TEXT")
             
             # ==========================================
             # ACCOUNT HEALTH METRICS TABLE (Persistent)
@@ -1485,7 +1492,7 @@ class DatabaseManager:
     # ACCOUNT MANAGEMENT OPERATIONS
     # ==========================================
     
-    def create_account(self, account_id: str, account_name: str, account_type: str = 'brand', metadata: dict = None) -> bool:
+    def create_account(self, account_id: str, account_name: str, account_type: str = 'brand', metadata: dict = None, organization_id: str = None) -> bool:
         """Create a new account."""
         import json
         try:
@@ -1493,18 +1500,21 @@ class DatabaseManager:
                 cursor = conn.cursor()
                 metadata_json = json.dumps(metadata) if metadata else '{}'
                 cursor.execute("""
-                    INSERT INTO accounts (account_id, account_name, account_type, metadata)
-                    VALUES (?, ?, ?, ?)
-                """, (account_id, account_name, account_type, metadata_json))
+                    INSERT INTO accounts (account_id, account_name, account_type, metadata, organization_id)
+                    VALUES (?, ?, ?, ?, ?)
+                """, (account_id, account_name, account_type, metadata_json, organization_id))
                 return True
         except sqlite3.IntegrityError:
             return False  # Account already exists
     
-    def get_all_accounts(self) -> List[tuple]:
-        """Get all accounts as list of (account_id, account_name, account_type) tuples."""
+    def get_all_accounts(self, organization_id: str = None) -> List[tuple]:
+        """Get all accounts, optionally filtered by organization."""
         with self._get_connection() as conn:
             cursor = conn.cursor()
-            cursor.execute("SELECT account_id, account_name, account_type FROM accounts ORDER BY account_name")
+            if organization_id:
+                cursor.execute("SELECT account_id, account_name, account_type FROM accounts WHERE organization_id = ? ORDER BY account_name", (organization_id,))
+            else:
+                cursor.execute("SELECT account_id, account_name, account_type FROM accounts ORDER BY account_name")
             return cursor.fetchall()
     
     def get_account(self, account_id: str) -> Optional[Dict[str, Any]]:
