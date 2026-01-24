@@ -182,8 +182,36 @@ def render_login():
         st.rerun()
 
     st.markdown("""
-        <div style="text-align: center; margin-top: 0.5rem; font-size: 0.85rem;">
-            <span style="color: #94a3b8;">Have an invitation?</span>
-            <span style="color: #64748b;"> Check your email for the invitation link.</span>
         </div>
+        
+        <!-- DEBUG: DB Connection Info -->
+        <div style="text-align: center; margin-top: 2rem; border-top: 1px solid rgba(255,255,255,0.05); padding-top: 15px;">
+            <p style="font-size: 0.7rem; color: #475569; margin: 0;">
+                System Status
+            </p>
     """, unsafe_allow_html=True)
+
+    # Check DB Type
+    try:
+        from core.db_manager import get_db_manager
+        db = get_db_manager()
+        db_type = db.__class__.__name__
+        is_postgres = "Postgres" in db_type
+        
+        status_color = "#10b981" if is_postgres else "#f59e0b"
+        status_text = "🟢 Connected (Postgres)" if is_postgres else "🟠 Local Storage (SQLite)"
+        
+        st.markdown(f"""
+            <div style="text-align: center; font-size: 0.75rem; color: {status_color}; font-weight: 600; margin-top: 4px;">
+                {status_text}
+            </div>
+            <div style="text-align: center; font-size: 0.65rem; color: #475569; margin-top: 4px; font-family: monospace;">
+                v1.2 • {db_type}
+            </div>
+        """, unsafe_allow_html=True)
+    except Exception as e:
+         st.markdown(f"""
+            <div style="text-align: center; font-size: 0.75rem; color: #ef4444; margin-top: 4px;">
+                🔴 System Error: {str(e)[:50]}...
+            </div>
+        """, unsafe_allow_html=True)
