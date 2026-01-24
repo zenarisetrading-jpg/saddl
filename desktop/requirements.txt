@@ -25,6 +25,10 @@ python-dotenv>=1.0.0
 supabase>=2.0.0
 plotly>=5.17.0
 
+# Authentication
+bcrypt>=4.0.1
+
 # PDF Generation
 fpdf2>=2.7.0
 html2image>=2.0.0
+kaleido>=0.2.0
