@@ -187,9 +187,10 @@ class AuthService:
             with self._get_connection() as conn:
                 cur = conn.cursor()
                 
-                cur.execute("""
+                ph = self.db_manager.placeholder
+                cur.execute(f"""
                     INSERT INTO users (email, password_hash, role, organization_id, billable)
-                    VALUES (%s, %s, %s, %s, %s)
+                    VALUES ({ph}, {ph}, {ph}, {ph}, {ph})
                 """, (email.lower(), hashed, role.value, org_id, True))
                 
                 # context manager auto-commits if successful
@@ -207,10 +208,11 @@ class AuthService:
             with self._get_connection() as conn:
                 cur = conn.cursor()
                 
-                cur.execute("""
+                ph = self.db_manager.placeholder
+                cur.execute(f"""
                     SELECT id, email, role, status, billable 
                     FROM users 
-                    WHERE organization_id = %s
+                    WHERE organization_id = {ph}
                     ORDER BY created_at DESC
                 """, (str(organization_id),))
                 
@@ -247,7 +249,8 @@ class AuthService:
                 cur = conn.cursor()
                 
                 # Check for existing
-                cur.execute("SELECT id FROM users WHERE email = %s", (email.lower(),))
+                ph = self.db_manager.placeholder
+                cur.execute(f"SELECT id FROM users WHERE email = {ph}", (email.lower(),))
                 if cur.fetchone():
                     return {"success": False, "error": "User already exists"}
                 
@@ -256,9 +259,9 @@ class AuthService:
                 from core.auth.permissions import get_billable_default
                 billable = get_billable_default(role.value)
                 
-                cur.execute("""
+                cur.execute(f"""
                     INSERT INTO users (email, password_hash, role, organization_id, billable, status)
-                    VALUES (%s, %s, %s, %s, %s, 'ACTIVE')
+                    VALUES ({ph}, {ph}, {ph}, {ph}, {ph}, 'ACTIVE')
                 """, (email.lower(), hashed, role.value, org_id, billable))
                 
                 # context manager auto-commits
