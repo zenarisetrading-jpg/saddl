@@ -153,7 +153,7 @@ class AuthService:
             
         except Exception as e:
             print(f"Auth Error: {e}")
-            return {"success": False, "error": "System error during login"}
+            return {"success": False, "error": f"System error: {str(e)}"}
 
     def get_current_user(self) -> Optional[User]:
         """
