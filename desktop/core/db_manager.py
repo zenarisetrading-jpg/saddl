@@ -254,6 +254,37 @@ class DatabaseManager:
                 )
             """)
             
+            # ==========================================
+            # AUTH TABLE (Users & Roles)
+            # ==========================================
+            cursor.execute("""
+                CREATE TABLE IF NOT EXISTS users (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    organization_id TEXT NOT NULL,
+                    email TEXT NOT NULL UNIQUE,
+                    password_hash TEXT NOT NULL,
+                    role TEXT NOT NULL,
+                    billable BOOLEAN DEFAULT 1,
+                    status TEXT DEFAULT 'ACTIVE',
+                    must_reset_password BOOLEAN DEFAULT 0,
+                    password_updated_at TIMESTAMP,
+                    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+                )
+            """)
+            
+            cursor.execute("""
+                CREATE TABLE IF NOT EXISTS user_account_overrides (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    user_id INTEGER NOT NULL,
+                    amazon_account_id TEXT NOT NULL,
+                    role TEXT NOT NULL,
+                    created_by TEXT,
+                    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                    UNIQUE(user_id, amazon_account_id)
+                )
+            """)
+            
             # default_client auto-creation REMOVED.
             # Explicit account creation required.
 

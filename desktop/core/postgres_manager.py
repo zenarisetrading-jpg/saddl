@@ -379,6 +379,36 @@ class PostgresManager:
                     )
                 """)
 
+                # Users Table (Auth V2)
+                cursor.execute("""
+                    CREATE TABLE IF NOT EXISTS users (
+                        id SERIAL PRIMARY KEY,
+                        organization_id TEXT NOT NULL,
+                        email TEXT NOT NULL UNIQUE,
+                        password_hash TEXT NOT NULL,
+                        role TEXT NOT NULL,
+                        billable BOOLEAN DEFAULT TRUE,
+                        status TEXT DEFAULT 'ACTIVE',
+                        must_reset_password BOOLEAN DEFAULT FALSE,
+                        password_updated_at TIMESTAMP,
+                        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                        updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+                    )
+                """)
+                
+                # User Account Overrides Table
+                cursor.execute("""
+                    CREATE TABLE IF NOT EXISTS user_account_overrides (
+                        id SERIAL PRIMARY KEY,
+                        user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+                        amazon_account_id TEXT NOT NULL,
+                        role TEXT NOT NULL,
+                        created_by TEXT,
+                        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                        UNIQUE(user_id, amazon_account_id)
+                    )
+                """)
+
                 # Raw Search Term Data (Daily Granularity)
                 cursor.execute("""
                     CREATE TABLE IF NOT EXISTS raw_search_term_data (

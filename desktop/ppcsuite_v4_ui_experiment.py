@@ -39,6 +39,13 @@ try:
 except FileNotFoundError:
     pass 
 
+# === SEEDING (CRITICAL FOR STREAMLIT CLOUD) ===
+try:
+    from core.seeding import seed_initial_data
+    seed_initial_data()
+except Exception as e:
+    print(f"Startup Seeding Failed: {e}")
+
 
 # Delay heavy feature imports by moving them into routing/main logic
 from ui.layout import setup_page, render_sidebar, render_home
