@@ -39,8 +39,10 @@ def seed_initial_data():
 
             print("SEED: Default admin not found. Creating...")
             
-            # Create Default Organization ID (e.g., 'primary')
-            default_org_id = "primary-org"
+            # Create Default Organization ID (Use valid UUID for Postgres)
+            import uuid
+            # Deterministic UUID for primary org
+            default_org_id = str(uuid.uuid5(uuid.NAMESPACE_DNS, "saddle.io"))
             
             # Create Admin
             success = auth_service.create_user_manual(
