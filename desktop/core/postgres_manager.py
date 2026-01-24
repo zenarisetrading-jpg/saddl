@@ -379,6 +379,15 @@ class PostgresManager:
                     )
                 """)
 
+                # Organizations Table
+                cursor.execute("""
+                    CREATE TABLE IF NOT EXISTS organizations (
+                        id TEXT PRIMARY KEY,
+                        name TEXT NOT NULL,
+                        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+                    )
+                """)
+
                 # Users Table (Auth V2)
                 cursor.execute("""
                     CREATE TABLE IF NOT EXISTS users (

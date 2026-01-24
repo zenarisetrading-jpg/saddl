@@ -314,7 +314,7 @@ def _render_email_invitation_form(auth, current_user):
                     invited_by_user_id=str(current_user.id),
                     role=new_role_str,
                     inviter_name=inviter_name,
-                    org_name=org_name
+                    inviter_org_name=org_name
                 )
 
                 if result.success:

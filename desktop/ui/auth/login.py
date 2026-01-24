@@ -215,8 +215,9 @@ def render_login():
                  try:
                      from core.seeding import seed_initial_data, DEFAULT_ADMIN_EMAIL, DEFAULT_ADMIN_PASSWORD
                      # Run seeding
-                     seed_initial_data()
-                     st.success(f"Seeding ran. Try logging in as {DEFAULT_ADMIN_EMAIL} / {DEFAULT_ADMIN_PASSWORD}")
+                     result = seed_initial_data()
+                     st.info(f"Seeding Result: {result}")
+                     st.success(f"Try logging in as {DEFAULT_ADMIN_EMAIL} / {DEFAULT_ADMIN_PASSWORD}")
                      
                      # Double check existence
                      from core.auth.service import AuthService
