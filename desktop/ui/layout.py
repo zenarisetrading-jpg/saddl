@@ -10,9 +10,10 @@ import numpy as np
 from datetime import timedelta
 
 from ui.theme import ThemeManager
-from features.impact_dashboard import get_recent_impact_summary
-from features.report_card import get_account_health_score
-from core.account_utils import get_active_account_id
+# Lazy imports moved inside functions to prevent circular dependencies
+# from features.impact_dashboard import get_recent_impact_summary
+# from features.report_card import get_account_health_score
+# from core.account_utils import get_active_account_id
 
 def setup_page():
     """Setup page CSS and styling."""
@@ -113,6 +114,8 @@ def render_sidebar(navigate_to):
 def render_home():
 
     from features.impact_dashboard import get_recent_impact_summary
+    from features.report_card import get_account_health_score
+    from core.account_utils import get_active_account_id
     from ui.components.empty_states import render_empty_state
     
     # === EMPTY STATE CHECKS ===
