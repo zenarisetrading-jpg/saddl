@@ -72,7 +72,36 @@ class PlatformService:
                         ))
         except Exception as e:
             logger.error(f"Error listing organizations: {e}")
+            import streamlit as st
+            st.warning(f"Complex query failed: {str(e)}. Attempting fallback...")
             
+            # Fallback to simple query without user counts
+            try:
+                with self.db._get_connection() as conn:
+                    with conn.cursor() as cur:
+                        cur.execute("SELECT id, name, created_at, status FROM organizations ORDER BY created_at DESC")
+                        rows = cur.fetchall()
+                        for row in rows:
+                             # Handle tuple unpacking based on cursor type (RealDict vs tuple)
+                            if isinstance(row, tuple):
+                                org_id, name, created_at, status = row
+                            else:
+                                org_id = row['id']
+                                name = row['name']
+                                created_at = row['created_at']
+                                status = row['status']
+                                
+                            orgs.append(OrganizationSummary(
+                                id=str(org_id),
+                                name=name,
+                                admin_count=0,
+                                user_count=0,
+                                created_at=created_at,
+                                status=status or 'ACTIVE'
+                            ))
+            except Exception as e2:
+                st.error(f"Critical DB Error: {str(e2)}")
+
         return orgs
 
     def create_organization(
