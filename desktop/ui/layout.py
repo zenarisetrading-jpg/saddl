@@ -123,6 +123,25 @@ def render_home():
     # Support "Test Mode" via query params to verify empty states without deleting data
     # Usage: ?test_state=no_account or ?test_state=no_data
     test_state = st.query_params.get("test_state")
+
+    # DEBUG: SECRETS CHECK (Temporary)
+    try:
+        keys = list(st.secrets.keys())
+        has_db = "DATABASE_URL" in st.secrets
+        # Mask keys for partial safety
+        debug_msg = f"Secrets Found: {len(keys)} | Keys: {keys} | Has DB: {has_db}"
+        if has_db:
+             val = st.secrets["DATABASE_URL"]
+             debug_msg += f" | Val: {val[:10]}..."
+        
+        # Only show if missing DB URL to avoid clutter
+        if not has_db:
+            st.warning(f"⚠️ **Cloud Config Error**: {debug_msg}")
+        else:
+            st.success(f"✅ Cloud Config Loaded: {debug_msg}")
+            
+    except Exception as e:
+        st.error(f"Secrets Access Error: {e}")
     
     # 1. Check if any accounts exist at all (No Accounts)
     db = st.session_state.get('db_manager')
