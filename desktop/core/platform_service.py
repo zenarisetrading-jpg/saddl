@@ -43,7 +43,6 @@ class PlatformService:
         orgs = []
         try:
             with self.db._get_connection() as conn:
-            with self.db._get_connection() as conn:
                 cur = conn.cursor()
                 try:
                     # Query organizations with user counts
