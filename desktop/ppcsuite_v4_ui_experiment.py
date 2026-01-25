@@ -43,8 +43,24 @@ except FileNotFoundError:
 try:
     from core.seeding import seed_initial_data
     seed_initial_data()
-except Exception as e:
     print(f"Startup Seeding Failed: {e}")
+
+# DEBUG: Secrets Visibility (Temporary)
+with st.sidebar.expander("Secrets Debug", expanded=True):
+    has_secret = "DATABASE_URL" in st.secrets
+    st.write(f"In st.secrets: {has_secret}")
+    
+    in_env = "DATABASE_URL" in os.environ
+    st.write(f"In os.environ: {in_env}")
+    
+    if in_env:
+        val = os.environ["DATABASE_URL"]
+        st.code(f"{val[:15]}...{val[-5:]}")
+    elif has_secret:
+        val = st.secrets["DATABASE_URL"]
+        st.code(f"{val[:15]}...{val[-5:]}")
+    else:
+        st.error("No DB URL found!")
 
 
 # Delay heavy feature imports by moving them into routing/main logic
