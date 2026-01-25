@@ -24,6 +24,35 @@ def render_platform_admin():
         if st.button("➕ Add Client", type="primary", use_container_width=True):
             add_client_dialog()
             
+    # --- PROVISIONAL: Data Migration Tool (For User Request) ---
+    with st.expander("System Maintenance & Migration", expanded=False):
+        st.caption("Tools to fix data consistency issues.")
+        if st.button("Migrate Orphaned Accounts to Primary Org"):
+            with st.spinner("Migrating accounts..."):
+                try:
+                    # Logic inline to avoid import issues
+                    db = st.session_state.get('db_manager')
+                    import uuid
+                    # Deterministic ID for 'saddle.io' -> Primary Organization
+                    primary_org_id = str(uuid.uuid5(uuid.NAMESPACE_DNS, "saddle.io"))
+                    
+                    ph = db.placeholder
+                    updated_count = 0
+                    
+                    with db._get_connection() as conn:
+                        cursor = conn.cursor()
+                        # Move all accounts without an org to the Primary Org
+                        cursor.execute(f"""
+                            UPDATE accounts 
+                            SET organization_id = {ph} 
+                            WHERE organization_id IS NULL OR organization_id = ''
+                        """, (primary_org_id,))
+                        updated_count = cursor.rowcount
+                        
+                    st.success(f"Successfully migrated {updated_count} accounts to Primary Organization ({primary_org_id}).")
+                except Exception as e:
+                    st.error(f"Migration failed: {e}")
+
     # --- Organization List ---
     st.markdown("### Client Organizations")
     

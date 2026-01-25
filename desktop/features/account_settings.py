@@ -163,7 +163,10 @@ def _render_ad_accounts(user: User):
         st.error("Database connection missing.")
         return
 
-    accounts = db.get_all_accounts()
+    # Filter by Organization ID (Strict Isolation)
+    # Cast UUID to str just in case, though get_all_accounts expects str
+    org_id_str = str(user.organization_id) if user.organization_id else None
+    accounts = db.get_all_accounts(organization_id=org_id_str)
     
     # List Existing
     st.subheader(f"Connected Accounts ({len(accounts)})")
