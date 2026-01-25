@@ -40,9 +40,9 @@ except FileNotFoundError:
     pass 
 
 # === SEEDING (CRITICAL FOR STREAMLIT CLOUD) ===
-try:
     from core.seeding import seed_initial_data
     seed_initial_data()
+except Exception as e:
     print(f"Startup Seeding Failed: {e}")
 
 # DEBUG: Secrets Visibility (Temporary)
