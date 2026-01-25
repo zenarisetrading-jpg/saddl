@@ -175,13 +175,23 @@ class ReportCardModule(BaseFeature):
                     after_days=14
                 )
                 
-                # Apply maturity logic (CRITICAL for matching values)
+                # Apply maturity logic (CRITICAL for matching Executive Dashboard)
+                # Use latest_data_date from DB to ensure consistency with dashboard
                 if not impact_df.empty and 'action_date' in impact_df.columns:
-                    # Estimate latest date from max action date just for quick maturity check if summary not handy
-                    # Or assume 14 days ago is mature
-                    max_date = pd.Timestamp.now().date()
+                    latest_data_date = None
+                    if hasattr(db_manager, 'get_latest_raw_data_date'):
+                        latest_data_date = db_manager.get_latest_raw_data_date(client_id)
+                    
+                    # Fallback
+                    if not latest_data_date:
+                        # Try to get max date from main table if available
+                        if 'Date' in df.columns:
+                            latest_data_date = df['Date'].max().date()
+                        else:
+                            latest_data_date = pd.Timestamp.now().date()
+                            
                     impact_df['is_mature'] = impact_df['action_date'].apply(
-                        lambda d: get_maturity_status(d, max_date, horizon='14D')['is_mature']
+                        lambda d: get_maturity_status(d, latest_data_date, horizon='14D')['is_mature']
                     )
                     
                 # Canonical metrics calculation
