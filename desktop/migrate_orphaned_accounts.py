@@ -105,8 +105,9 @@ def migrate_orphaned_accounts():
 
             if has_org_col:
                 # Find accounts with NULL organization_id
+                # Use display_name (from migration schema)
                 cur.execute("""
-                    SELECT id, account_id, account_name
+                    SELECT id, display_name, marketplace
                     FROM amazon_accounts
                     WHERE organization_id IS NULL
                 """)
@@ -114,7 +115,7 @@ def migrate_orphaned_accounts():
             else:
                 # Column doesn't exist yet - all accounts are orphaned
                 cur.execute("""
-                    SELECT id, account_id, account_name
+                    SELECT id, display_name, marketplace
                     FROM amazon_accounts
                 """)
                 orphaned_accounts = cur.fetchall()
@@ -130,7 +131,8 @@ def migrate_orphaned_accounts():
 
     print(f"   ✓ Found {len(orphaned_accounts)} orphaned accounts:")
     for acc in orphaned_accounts:
-        print(f"      - {acc[2]} ({acc[1]})")
+        # acc = (id, display_name, marketplace)
+        print(f"      - {acc[1]} ({acc[2]})")
 
     # Add organization_id column if it doesn't exist
     print("\n[3/4] Ensuring schema has organization_id column...")
@@ -171,7 +173,7 @@ def migrate_orphaned_accounts():
 
             for account in orphaned_accounts:
                 account_id = account[0]
-                account_name = account[2]
+                display_name = account[1]
 
                 cur.execute(f"""
                     UPDATE amazon_accounts
@@ -180,7 +182,7 @@ def migrate_orphaned_accounts():
                 """, (primary_org_id, account_id))
 
                 migrated_count += 1
-                print(f"   ✓ Migrated: {account_name}")
+                print(f"   ✓ Migrated: {display_name}")
 
     except Exception as e:
         print(f"   ✗ Error migrating accounts: {e}")
