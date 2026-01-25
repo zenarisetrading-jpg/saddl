@@ -40,6 +40,7 @@ except FileNotFoundError:
     pass 
 
 # === SEEDING (CRITICAL FOR STREAMLIT CLOUD) ===
+try:
     from core.seeding import seed_initial_data
     seed_initial_data()
 except Exception as e:
@@ -1197,10 +1198,16 @@ def main():
     # simplified: just do it on first load of session
     if 'login_tracked' not in st.session_state:
         try:
-             # Quick direct update using context manager
+             # Quick direct update using manual cursor management for SQLite compatibility
+             ph = auth_service.db_manager.placeholder
              with auth_service._get_connection() as conn:
-                 with conn.cursor() as cur:
-                     cur.execute("UPDATE users SET last_login_at = NOW() WHERE id = %s", (str(user.id),))
+                 cur = conn.cursor()
+                 try:
+                     # CURRENT_TIMESTAMP is standard SQL (works in PG and SQLite)
+                     query = f"UPDATE users SET last_login_at = CURRENT_TIMESTAMP WHERE id = {ph}"
+                     cur.execute(query, (str(user.id),))
+                 finally:
+                     cur.close()
              st.session_state['login_tracked'] = True
         except Exception as e:
             print(f"Login Track Error: {e}")
