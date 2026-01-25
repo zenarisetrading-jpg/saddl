@@ -54,7 +54,7 @@ class PlatformService:
                             COUNT(u.id) as total_users,
                             COUNT(CASE WHEN u.role IN ('ADMIN', 'OWNER') THEN 1 END) as admin_users
                         FROM organizations o
-                        LEFT JOIN users u ON o.id = u.organization_id
+                        LEFT JOIN users u ON o.id::text = u.organization_id
                         GROUP BY o.id, o.name, o.created_at, o.status
                         ORDER BY o.created_at DESC
                     """)
