@@ -1,4 +1,5 @@
 .streamlit/secrets.toml
+desktop/.streamlit/secrets.toml
 .env
 data/*.db
 __pycache__/
