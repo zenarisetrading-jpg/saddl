@@ -18,7 +18,7 @@ from core.auth.middleware import require_permission
 from config.features import FEATURE_EMAIL_INVITATIONS, FeatureFlags
 
 # Example price (could come from config/DB)
-SEAT_PRICE = 49.00
+
 
 def render_user_management():
     st.header("User Management")
@@ -287,15 +287,7 @@ def _render_email_invitation_form(auth, current_user):
             help="Select the role this user will have in your organization."
         )
 
-        # Billing Warning Logic
-        is_billable = get_billable_default(new_role_str)
-        if is_billable:
-            st.warning(
-                f"Adding this user will add ${SEAT_PRICE}/month to your bill "
-                "(pro-rated for the rest of this billing cycle)."
-            )
-        else:
-            st.info("This role is non-billable (free).")
+
 
         submitted = st.form_submit_button("Send Invitation", type="primary")
 
@@ -344,15 +336,7 @@ def _render_legacy_invite_form(auth, current_user):
             key="legacy_role_select"
         )
 
-        # Billing Warning Logic
-        is_billable = get_billable_default(new_role_str)
-        if is_billable:
-            st.warning(
-                f"Adding this user will add ${SEAT_PRICE}/month to your bill "
-                "(pro-rated for the rest of this billing cycle)."
-            )
-        else:
-            st.info("This role is non-billable (free).")
+
 
         submitted = st.form_submit_button("Create User", type="primary")
 
