@@ -249,6 +249,28 @@ class ThemeManager:
                 border: 1px solid var(--border-color);
                 border-radius: 8px;
             }}
+            
+            /* HIDE STREAMLIT BRANDING & TOOLBAR */
+            header[data-testid="stHeader"] {{
+                visibility: hidden !important;
+                height: 0px !important;
+                padding-top: 0px !important;
+            }}
+            
+            [data-testid="stToolbar"] {{
+                visibility: hidden !important;
+                display: none !important;
+            }}
+            
+            footer {{
+                visibility: hidden !important;
+                display: none !important;
+            }}
+            
+            /* Adjust top padding since header is gone */
+            .main .block-container {{
+                padding-top: 1rem !important; 
+            }}
         </style>
         """
         st.markdown(css, unsafe_allow_html=True)
