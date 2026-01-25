@@ -208,9 +208,15 @@ class PostgresManager:
     @contextmanager
     def _get_connection(self):
         """Context manager for safe database connections with robust health check."""
+        # Capture specific pool instance to avoid 'unkeyed connection' errors if pool is reset mid-request
+        pool = PostgresManager._pool
+        if pool is None:
+             self._init_pool()
+             pool = PostgresManager._pool
+
         conn = None
         try:
-            conn = PostgresManager._pool.getconn()
+            conn = pool.getconn()
             
             # Health check: test if connection is alive and not in aborted state
             try:
@@ -224,10 +230,10 @@ class PostgresManager:
                 # Connection is stale or broken, get a fresh one
                 print(f"Connection health check failed: {health_err}. Getting fresh connection.")
                 try:
-                    PostgresManager._pool.putconn(conn, close=True)
+                    pool.putconn(conn, close=True)
                 except:
                     pass  # Ignore errors when closing bad connection
-                conn = PostgresManager._pool.getconn()
+                conn = pool.getconn()
             
             yield conn
             conn.commit()
@@ -240,7 +246,12 @@ class PostgresManager:
             raise e
         finally:
             if conn:
-                PostgresManager._pool.putconn(conn)
+                try:
+                    pool.putconn(conn)
+                except Exception:
+                    # If pool is closed or mismatched, ensure connection is closed
+                    try: conn.close() 
+                    except: pass
     
     def _init_schema(self):
         """Create tables if they don't exist."""
