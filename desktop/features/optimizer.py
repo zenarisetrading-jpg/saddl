@@ -2078,7 +2078,7 @@ def _log_optimization_events(results: dict, client_id: str, report_date: str):
     }
     
     # Show user feedback that actions are ready (not saved yet)
-    st.info(f"📋 {len(actions_to_log)} actions ready. Will prompt to save when you leave this tab.", icon="📋")
+    st.info(f"{len(actions_to_log)} actions ready. Will prompt to save when you leave this tab.")
     
     return len(actions_to_log)
 
