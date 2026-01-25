@@ -1468,9 +1468,7 @@ def main():
         # Check against DEFAULT_ADMIN_EMAIL or a config list
         # We hardcode admin@saddl.io here as per plan for simplicity/security
         
-        # DEBUG: Verify email
-        st.error(f"DEBUG: '{user.email}' | Role: {user.role}")
-        
+
         if user.email and user.email.lower().strip() == "admin@saddl.io":
             platform_icon = f'<svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="{nav_icon_color}" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="vertical-align: middle;"><rect x="2" y="3" width="20" height="14" rx="2" ry="2"></rect><line x1="8" y1="21" x2="16" y2="21"></line><line x1="12" y1="17" x2="12" y2="21"></line></svg>'
             nav_button_chiclet("Platform Admin", platform_icon, "platform_admin")
