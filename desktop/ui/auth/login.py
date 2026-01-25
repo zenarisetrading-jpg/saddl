@@ -183,7 +183,4 @@ def render_login():
         st.session_state['auth_view'] = 'forgot_password'
         st.rerun()
 
-    st.markdown("""
-        </div>
-        
 
