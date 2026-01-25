@@ -181,17 +181,74 @@ def run_performance_hub():
     if 'active_perf_tab' not in st.session_state:
         st.session_state['active_perf_tab'] = "Executive Dashboard"
         
+    # Custom Tab Styling with Glassmorphic Icons
+    st.markdown("""
+    <style>
+    /* Wrapper for Tab Buttons */
+    div.tab-btn-wrapper button {
+        height: 54px;
+        border-radius: 12px !important;
+        font-weight: 600 !important;
+        letter-spacing: 0.5px !important;
+        transition: all 0.2s ease !important;
+        padding-left: 52px !important; /* Space for icon */
+        position: relative;
+        overflow: hidden; 
+        text-transform: uppercase;
+    }
+    
+    /* Icon: Executive Dashboard (Cyan Chart) */
+    div.tab-exec button::before {
+        content: "";
+        position: absolute;
+        left: 20px;
+        top: 50%;
+        transform: translateY(-50%);
+        width: 24px;
+        height: 24px;
+        background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='%2322d3ee' stroke-width='2.5' stroke-linecap='round' stroke-linejoin='round'%3E%3Crect x='3' y='3' width='7' height='7' rx='1'%3E%3C/rect%3E%3Crect x='14' y='3' width='7' height='7' rx='1'%3E%3C/rect%3E%3Crect x='14' y='14' width='7' height='7' rx='1'%3E%3C/rect%3E%3Crect x='3' y='14' width='7' height='7' rx='1'%3E%3C/rect%3E%3C/svg%3E");
+        background-repeat: no-repeat;
+        background-position: center;
+        opacity: 0.95;
+        filter: drop-shadow(0 0 6px rgba(34, 211, 238, 0.5));
+    }
+    
+    /* Icon: Account Health (Pink Shield) */
+    div.tab-health button::before {
+        content: "";
+        position: absolute;
+        left: 20px;
+        top: 50%;
+        transform: translateY(-50%);
+        width: 24px;
+        height: 24px;
+        background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='%23F43F5E' stroke-width='2.5' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z'%3E%3C/path%3E%3Cpath d='M12 8v4'%3E%3C/path%3E%3Cpath d='M12 16h.01'%3E%3C/path%3E%3C/svg%3E");
+        background-repeat: no-repeat;
+        background-position: center;
+        opacity: 0.95;
+        filter: drop-shadow(0 0 6px rgba(244, 63, 94, 0.5));
+    }
+    </style>
+    """, unsafe_allow_html=True)
+    
     c1, c2 = st.columns(2)
     with c1:
         is_active = st.session_state['active_perf_tab'] == "Executive Dashboard"
-        if st.button("📊 EXECUTIVE DASHBOARD", key="btn_tab_exec", use_container_width=True, type="primary" if is_active else "secondary"):
+        st.markdown('<div class="tab-btn-wrapper tab-exec">', unsafe_allow_html=True)
+        # Removed emoji 📊
+        if st.button("EXECUTIVE DASHBOARD", key="btn_tab_exec", use_container_width=True, type="primary" if is_active else "secondary"):
             st.session_state['active_perf_tab'] = "Executive Dashboard"
             st.rerun()
+        st.markdown('</div>', unsafe_allow_html=True)
+        
     with c2:
         is_active = st.session_state['active_perf_tab'] == "Account Health"
-        if st.button("🛡️ ACCOUNT HEALTH", key="btn_tab_report", use_container_width=True, type="primary" if is_active else "secondary"):
+        st.markdown('<div class="tab-btn-wrapper tab-health">', unsafe_allow_html=True)
+        # Removed emoji 🛡️
+        if st.button("ACCOUNT HEALTH", key="btn_tab_report", use_container_width=True, type="primary" if is_active else "secondary"):
             st.session_state['active_perf_tab'] = "Account Health"
             st.rerun()
+        st.markdown('</div>', unsafe_allow_html=True)
             
     st.markdown("<br>", unsafe_allow_html=True)
     
