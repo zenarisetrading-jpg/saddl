@@ -1734,6 +1734,9 @@ def get_db_manager(test_mode: bool = False):
             return PostgresManager(db_url)
         except Exception as e:
             print(f"Failed to connect to Cloud DB, falling back to SQLite: {e}")
+            import streamlit as st
+            st.error(f"⚠️ **Database Connection Failed**: {e}")
+            st.warning("Falling back to local SQLite (Data will be empty). Check your 'DATABASE_URL' secret.")
             pass
             
     if test_mode:

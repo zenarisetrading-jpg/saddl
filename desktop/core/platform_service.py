@@ -43,7 +43,9 @@ class PlatformService:
         orgs = []
         try:
             with self.db._get_connection() as conn:
-                with conn.cursor() as cur:
+            with self.db._get_connection() as conn:
+                cur = conn.cursor()
+                try:
                     # Query organizations with user counts
                     cur.execute("""
                         SELECT 
@@ -70,6 +72,8 @@ class PlatformService:
                             created_at=created_at,
                             status=status or 'ACTIVE'
                         ))
+                finally:
+                    cur.close()
         except Exception as e:
             logger.error(f"Error listing organizations: {e}")
             import streamlit as st

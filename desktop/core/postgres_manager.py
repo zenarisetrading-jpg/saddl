@@ -174,7 +174,15 @@ class PostgresManager:
             dsn += '?'
         else:
             dsn += '&'
-        dsn += 'connect_timeout=10&keepalives=1&keepalives_idle=30&keepalives_interval=5&keepalives_count=3'
+        
+        # Performance & Reliability defaults
+        options = 'connect_timeout=10&keepalives=1&keepalives_idle=30&keepalives_interval=5&keepalives_count=3'
+        
+        # Supabase/Cloud requires SSL
+        if 'sslmode' not in dsn:
+            options += '&sslmode=require'
+            
+        dsn += options
         
         PostgresManager._pool = ThreadedConnectionPool(
             minconn=1,
