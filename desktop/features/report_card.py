@@ -1638,11 +1638,9 @@ def get_account_health_score() -> Optional[float]:
         
     try:
         # PRIORITY 1: Check persistent DB for pre-calculated health score
-        stored_health = db_manager.get_account_health(selected_client)
-        print(f"[Health Score] stored_health={stored_health}")
-        if stored_health and stored_health.get('health_score') is not None:
-            st.session_state['_cockpit_data_source'] = 'db_persistent'
-            return stored_health['health_score']
+        # stored_health = db_manager.get_account_health(selected_client)
+        # if stored_health and stored_health.get('health_score') is not None:
+        #    return stored_health['health_score']
         
         # PRIORITY 2: Calculate on-demand from data
         st.session_state['_cockpit_data_source'] = 'calculating'
