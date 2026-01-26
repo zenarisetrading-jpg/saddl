@@ -201,14 +201,29 @@ def inject_premium_styles():
        ============================================ */
 
     .ai-insight-card {
-        background: linear-gradient(135deg, rgba(6, 182, 212, 0.12) 0%, rgba(59, 130, 246, 0.06) 100%);
-        backdrop-filter: blur(12px);
-        -webkit-backdrop-filter: blur(12px);
-        border: 1px solid rgba(6, 182, 212, 0.25);
+        background: linear-gradient(135deg, rgba(6, 182, 212, 0.18) 0%, rgba(59, 130, 246, 0.12) 100%);
+        backdrop-filter: blur(16px);
+        -webkit-backdrop-filter: blur(16px);
+        border: 1px solid rgba(6, 182, 212, 0.3);
+        border-top: 1px solid rgba(6, 182, 212, 0.5);
         border-left: 4px solid var(--accent-cyan);
+        box-shadow: 0 8px 32px rgba(6, 182, 212, 0.15);
         border-radius: var(--radius-lg);
         padding: 1.5rem;
         margin-bottom: 2rem;
+        position: relative;
+        overflow: hidden;
+    }
+
+    .ai-insight-card::after {
+        content: '';
+        position: absolute;
+        top: 0;
+        left: 0;
+        right: 0;
+        bottom: 0;
+        background: linear-gradient(120deg, rgba(255,255,255,0) 30%, rgba(255,255,255,0.05) 50%, rgba(255,255,255,0) 70%);
+        pointer-events: none;
     }
 
     .ai-label {
