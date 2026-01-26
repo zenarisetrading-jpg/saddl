@@ -438,8 +438,29 @@ If Auto outperforms Manual: Discovery is working - harvest more aggressively
             "optimization_opportunities": {
                 "harvest_candidates": int(harvest_count),
                 "negative_candidates": int(negative_count)
-            }
+            },
+            # METRIC RECONCILIATION: Matches Report Card Gauge (ROAS >= 2.5)
+            "gauge_spend_efficiency": self._calculate_gauge_efficiency(df)
         }
+
+    def _calculate_gauge_efficiency(self, df: pd.DataFrame) -> float:
+        """Calculate spend efficiency strictly matching the UI Gauge (Spend in Ad Groups with ROAS >= 2.5)."""
+        if df.empty: return 0.0
+        
+        total_spend = df['Spend'].sum()
+        if total_spend == 0: return 0.0
+
+        if 'Ad Group Name' in df.columns:
+            # Aggregate by Ad Group (Standard Definition)
+            agg = df.groupby('Ad Group Name').agg({'Spend': 'sum', 'Sales': 'sum'}).reset_index()
+            agg['ROAS'] = (agg['Sales'] / agg['Spend']).replace([np.inf, -np.inf], 0).fillna(0)
+            efficient_spend = agg[agg['ROAS'] >= 2.5]['Spend'].sum()
+        else:
+            # Fallback to Term level
+            roas = (df['Sales'] / df['Spend']).replace([np.inf, -np.inf], 0).fillna(0)
+            efficient_spend = df[df['Spend'] > 0][roas >= 2.5]['Spend'].sum()
+            
+        return round((efficient_spend / total_spend * 100), 1)
 
     def _analyze_campaign_portfolio(self, df: pd.DataFrame) -> Dict[str, Any]:
         """Segment campaigns into winners, losers, emerging, stalled."""
@@ -484,7 +505,12 @@ If Auto outperforms Manual: Discovery is working - harvest more aggressively
             "winners": [format_campaign(r) for _, r in winners.iterrows()],
             "losers": [format_campaign(r) for _, r in losers.iterrows()],
             "emerging": [format_campaign(r) for _, r in emerging.iterrows()],
-            "concentration": self._analyze_spend_concentration(camp_stats)
+            "concentration": self._analyze_spend_concentration(camp_stats),
+            "cut_candidates": [format_campaign(r) for _, r in camp_stats[
+                (camp_stats['ROAS'] < 1.5) & 
+                (camp_stats['Orders'] < 5) & 
+                (camp_stats['Spend'] > 0)
+            ].nlargest(3, 'Spend').iterrows()]
         }
 
     def _analyze_spend_concentration(self, camp_stats: pd.DataFrame) -> Dict[str, Any]:
@@ -1802,7 +1828,8 @@ Write 2-3 sentences explaining:
 - What it means for campaign performance
 
 Use simple business language - client should understand immediately.
-""",
+IMPORTANT: When discussing "Efficiency", refer to the 'gauge_spend_efficiency' value (Efficiency Gauge) if available, as this matches the visual report.
+""",,
 
             "portfolio": f"""
 Campaign portfolio breakdown:
@@ -1814,6 +1841,11 @@ Write 2-3 sentences covering:
 - Business recommendation
 
 Client-friendly language only.
+
+CRITICAL INSTRUCTION:
+- Check "cut_candidates" (Campaigns with ROAS < 1.5 and Orders < 5).
+- If there are significant campaigns in this list, you MUST recommend pausing them as the top priority.
+- Explicitly name the top 1-3 "Cut" campaigns if they are bleeding spend.
 """,
 
             "impact": f"""
