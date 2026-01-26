@@ -1782,14 +1782,14 @@ Based on these performance metrics:
 {json.dumps(context, indent=2)}
 
 Write EXACTLY 2-3 sentences for a CLIENT-FACING report:
-- Highlight the most important performance trend
-- Explain what it means for business results
-- Include specific numbers but keep language simple
+- Identify "Stars" (strong metrics) and "Detractors" (weak metrics) from the key data (Spend, Sales, ROAS, CVR, Orders, ACOS).
+- Highlight specific numbers for context.
+- Keep the tone professional and objective.
 
-Requirements:
-- NO PPC jargon (avoid CTR, CPC, ACOS unless explained)
-- Write for a CMO, not a PPC manager
-- Be factual but encouraging where appropriate
+CRITICAL CONSTRAINTS:
+- DO NOT mention "spend efficiency", "efficiency", "waste", or "wasted spend". (There is a separate section for that).
+- DO NOT use the word "efficiency".
+- Focus ONLY on the "Performance Overview" numbers provided.
 """,
 
             "health": f"""
