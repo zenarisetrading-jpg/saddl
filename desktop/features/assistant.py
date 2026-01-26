@@ -1724,7 +1724,7 @@ PLATFORM METHODOLOGY & ENGINE LOGIC (UPDATED JAN 2, 2026)
         panel_contexts = {
             "performance": {
                 "metrics": knowledge.get("dataset_overview", {}),
-                "health": knowledge.get("account_health", {}),
+                # "health" explicitly REMOVED to prevent AI from mentioning health score
                 "date_range": knowledge.get("optimization_impact", {}).get("date_range", "Period Unknown")
             },
 
@@ -1893,20 +1893,20 @@ Generate an EXECUTIVE SUMMARY for a client-facing report.
 
 Provide EXACTLY:
 1. TOP 3 KEY ACHIEVEMENTS (quantified wins with specific numbers)
-2. TOP 2 AREAS TO MONITOR (opportunities or concerns)
-3. TOP 2-3 RECOMMENDED NEXT STEPS (specific, actionable)
+2. TOP 2 AREAS TO MONITOR. Constraint: Focus SOLELY on "spend inefficiency" (defined as segments with < 2.5 ROAS) and "efficiency declines associated with market forces".
+3. TOP 2-3 RECOMMENDED NEXT STEPS. Constraint: You MUST mention "monitoring market forces" affecting ROAS. If optimizer recommendations (bids/negatives/harvests) exist in the data, include them here.
 
 CRITICAL: Return response as VALID JSON ONLY (no markdown, no explanations):
 {{
   "achievements": ["Achievement 1 with numbers", "Achievement 2", "Achievement 3"],
-  "areas_to_watch": ["Area 1", "Area 2"],
-  "next_steps": ["Step 1", "Step 2", "Step 3"]
+  "areas_to_watch": ["Inefficiency Note (ROAS < 2.5)", "Market Force Note"],
+  "next_steps": ["Monitor market forces...", "Implement optimizer recommendations...", "..."]
 }}
 
 Requirements:
 - Include specific $ amounts where available
 - Client-friendly language (NO jargon)
-- Concise but substantive
+- "Areas to Monitor" MUST strictly follow the < 2.5 ROAS definition or market impact.
 - Focus on business impact
 """
 
