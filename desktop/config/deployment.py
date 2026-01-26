@@ -75,6 +75,17 @@ def get_base_url() -> str:
     # METHOD 4: Localhost fallback (development)
     # This is what runs when testing locally
     try:
+        # Check if we are potentially on Streamlit Cloud but detection failed
+        # Streamlit Cloud usually runs on port 8501 inside the container
+        # We can default to the known production URL if we are not explicitly on localhost dev machine
+        # Simple heuristic: If hostname is not 'localhost' or '127.0.0.1', likely cloud.
+        import socket
+        hostname = socket.gethostname()
+        
+        # Streamlit Cloud hostnames are usually random strings (containers), not 'localhost'
+        if "localhost" not in hostname and "127.0.0.1" not in hostname:
+             return "https://saddle-adpulse.streamlit.app"
+             
         port = st.get_option("server.port") or 8501
         return f"http://localhost:{port}"
     except Exception:
