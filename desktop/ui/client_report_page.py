@@ -981,6 +981,15 @@ def run():
     # Render Integrated Header
     render_header(date_str, show_share=not is_shared, share_context=share_context)
 
+    # REGENERATE BUTTON (For refreshing AI insights)
+    if not is_shared:
+        col_reg, _ = st.columns([0.25, 0.75])
+        with col_reg:
+            if st.button("🔄 Regenerate Analysis", help="Force refresh AI insights (useful after running Optimizer)"):
+                if cache_key in st.session_state:
+                    del st.session_state[cache_key]
+                st.rerun()
+
     # Read-Only Banner
     if is_shared:
         st.info("You are viewing a shared report (Read-Only Mode)")
@@ -1069,13 +1078,6 @@ def run():
     # =========================================================================
     # FOOTER
     # =========================================================================
-    # DEBUG PANEL (Temporary)
-    with st.expander("🛠️ Debug Info (Dev Only)"):
-        from utils.formatters import get_account_currency
-        st.write(f"**Active Currency:** {get_account_currency()}")
-        st.write(f"**Cache Key:** {cache_key}")
-        st.write(f"**System Version:** v2026.01.26-60day-fix")
-
     render_footer()
 
 
