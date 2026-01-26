@@ -1835,33 +1835,18 @@ class DatabaseManager:
                 'expired': False,
                 'views': (access_count or 0) + 1
             }
-def get_db_manager(test_mode: bool = False) -> DatabaseManager:
-    """
-    Factory function to get appropriate database manager.
-    
-    Args:
-        test_mode: If True, use test database; otherwise use live database
-        
-    Returns:
-        DatabaseManager instance
-    """
-    base_path = Path(__file__).parent.parent / "data"
-    
-    if test_mode:
-        db_path = base_path / "ppc_test.db"
-    else:
-        db_path = base_path / "ppc_live.db"
-    
-    return DatabaseManager(db_path)
+import streamlit as st
 
 # ==========================================
 # GLOBAL INSTANCE
 # ==========================================
 # Default path for live database
 DEFAULT_DB_PATH = Path("data/ppc_live.db")
-db_manager = DatabaseManager(DEFAULT_DB_PATH)
+# db_manager variable is deprecated in favor of cached factory
+# db_manager = DatabaseManager(DEFAULT_DB_PATH)
 
 
+@st.cache_resource(show_spinner=False)
 def get_db_manager(test_mode: bool = False):
     """Factory to get appropriate DB manager instance."""
     # Check for Cloud Database URL
@@ -1873,13 +1858,13 @@ def get_db_manager(test_mode: bool = False):
             return PostgresManager(db_url)
         except Exception as e:
             print(f"Failed to connect to Cloud DB, falling back to SQLite: {e}")
-            import streamlit as st
             st.error(f"⚠️ **Database Connection Failed**: {e}")
             st.warning("Falling back to local SQLite (Data will be empty). Check your 'DATABASE_URL' secret.")
             pass
             
     if test_mode:
         return DatabaseManager(Path("data/ppc_test.db"))
-    return db_manager
+    
+    return DatabaseManager(DEFAULT_DB_PATH)
 
 

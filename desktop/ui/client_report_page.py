@@ -511,7 +511,7 @@ def inject_premium_styles():
        ============================================ */
 
     .share-btn-wrapper {
-        margin-top: -12px;
+        margin-top: -24px;
     }
 
     .share-btn-wrapper button {
