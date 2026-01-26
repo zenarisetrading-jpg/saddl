@@ -228,10 +228,26 @@ def run_performance_hub():
         opacity: 0.95;
         filter: drop-shadow(0 0 6px rgba(244, 63, 94, 0.5));
     }
+    
+    /* Icon: Client Report (Cyan Document) */
+    div.tab-report button::before {
+        content: "";
+        position: absolute;
+        left: 20px;
+        top: 50%;
+        transform: translateY(-50%);
+        width: 24px;
+        height: 24px;
+        background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='%2322d3ee' stroke-width='2.5' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z'%3E%3C/path%3E%3Cpolyline points='14 2 14 8 20 8'%3E%3C/polyline%3E%3Cline x1='16' y1='13' x2='8' y2='13'%3E%3C/line%3E%3Cline x1='16' y1='17' x2='8' y2='17'%3E%3C/line%3E%3Cpolyline points='10 9 9 9 8 9'%3E%3C/polyline%3E%3C/svg%3E");
+        background-repeat: no-repeat;
+        background-position: center;
+        opacity: 0.95;
+        filter: drop-shadow(0 0 6px rgba(34, 211, 238, 0.5));
+    }
     </style>
     """, unsafe_allow_html=True)
     
-    c1, c2 = st.columns(2)
+    c1, c2, c3 = st.columns(3)
     with c1:
         is_active = st.session_state['active_perf_tab'] == "Executive Dashboard"
         st.markdown('<div class="tab-btn-wrapper tab-exec">', unsafe_allow_html=True)
@@ -249,6 +265,14 @@ def run_performance_hub():
             st.session_state['active_perf_tab'] = "Account Health"
             st.rerun()
         st.markdown('</div>', unsafe_allow_html=True)
+        
+    with c3:
+        is_active = st.session_state['active_perf_tab'] == "Client Report"
+        st.markdown('<div class="tab-btn-wrapper tab-report">', unsafe_allow_html=True)
+        if st.button("CLIENT REPORT", key="btn_tab_client_report", use_container_width=True, type="primary" if is_active else "secondary"):
+            st.session_state['active_perf_tab'] = "Client Report"
+            st.rerun()
+        st.markdown('</div>', unsafe_allow_html=True)
             
     st.markdown("<br>", unsafe_allow_html=True)
     
@@ -258,6 +282,11 @@ def run_performance_hub():
     elif st.session_state['active_perf_tab'] == "Account Health":
         from features.report_card import ReportCardModule
         ReportCardModule().run()
+    elif st.session_state['active_perf_tab'] == "Client Report":
+        import pages.client_report as client_report
+        import importlib
+        importlib.reload(client_report)
+        client_report.run()
     else:
         # Default fallback
         from features.executive_dashboard import ExecutiveDashboard

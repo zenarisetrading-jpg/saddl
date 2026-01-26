@@ -1657,7 +1657,289 @@ PLATFORM METHODOLOGY & ENGINE LOGIC (UPDATED JAN 2, 2026)
             st.session_state.messages.append({"role": "assistant", "content": response})
             st.rerun()
 
+    # =========================================================================
+    # CLIENT REPORT GENERATION (NEW - Jan 2026)
+    # =========================================================================
 
+    def generate_report_narratives(self, panels: List[str]) -> Dict[str, Any]:
+        """
+        Generate AI narratives for client report panels.
+
+        Args:
+            panels: List of panel names e.g., ["performance", "health", "portfolio"]
+
+        Returns:
+            Dict mapping panel name to narrative text or structured data
+
+        Example:
+            narratives = assistant.generate_report_narratives([
+                "performance", "health", "portfolio", "impact",
+                "actions", "match_type", "executive_summary"
+            ])
+        """
+        # Build knowledge graph using EXISTING method
+        df = self._construct_granular_dataset()
+
+        if df.empty:
+            return {
+                panel: "Data analysis pending - upload Search Term Report to generate insights."
+                for panel in panels
+            }
+
+        knowledge = self._build_knowledge_graph(df)
+
+        narratives = {}
+
+        # Generate narrative for each panel
+        for panel in panels:
+            if panel == "executive_summary":
+                # Executive summary returns structured dict, not string
+                narratives[panel] = self._generate_executive_summary(knowledge)
+            else:
+                # Regular panels return narrative string
+                panel_data = self._extract_panel_context(panel, knowledge)
+                narratives[panel] = self._generate_panel_narrative(panel, panel_data)
+
+        return narratives
+
+    def _extract_panel_context(self, panel_name: str, knowledge: Dict) -> Dict:
+        """
+        Extract relevant data for each panel type from knowledge graph.
+
+        Args:
+            panel_name: One of "performance", "health", "portfolio", "impact", "actions", "match_type"
+            knowledge: Full knowledge graph from _build_knowledge_graph()
+
+        Returns:
+            Dict with panel-specific data subset
+        """
+        panel_contexts = {
+            "performance": {
+                "metrics": knowledge.get("dataset_overview", {}),
+                "health": knowledge.get("account_health", {}),
+                "date_range": knowledge.get("optimization_impact", {}).get("date_range", "Period Unknown")
+            },
+
+            "health": {
+                "scores": knowledge.get("account_health", {}),
+                "status": knowledge.get("account_health", {}).get("status", "Unknown"),
+                "opportunities": knowledge.get("account_health", {}).get("optimization_opportunities", {})
+            },
+
+            "portfolio": {
+                "overview": knowledge.get("campaign_portfolio", {}),
+                "winners": knowledge.get("campaign_portfolio", {}).get("winners", []),
+                "losers": knowledge.get("campaign_portfolio", {}).get("losers", []),
+                "concentration": knowledge.get("campaign_portfolio", {}).get("concentration", {})
+            },
+
+            "impact": {
+                "decision_metrics": knowledge.get("module_context", {}).get("decision_impact", {}),
+                "realized": knowledge.get("optimization_impact", {}).get("realized_impact_30d", None),
+                "attribution": knowledge.get("optimization_impact", {}).get("net_summary", {})
+            },
+
+            "actions": {
+                "summary": knowledge.get("optimization_impact", {}),
+                "negatives": knowledge.get("optimization_impact", {}).get("negatives", {}),
+                "harvests": knowledge.get("optimization_impact", {}).get("harvests", {}),
+                "bids": knowledge.get("optimization_impact", {}).get("bids", {})
+            },
+
+            "match_type": {
+                "insights": knowledge.get("strategic_insights", []),
+                "term_analysis": knowledge.get("term_analysis", {}),
+                "efficiency": [i for i in knowledge.get("strategic_insights", [])
+                              if i.get("type") == "match_type_efficiency"]
+            }
+        }
+
+        return panel_contexts.get(panel_name, {})
+
+    def _generate_panel_narrative(self, panel_name: str, context: Dict) -> str:
+        """
+        Generate 2-3 sentence narrative for a panel.
+
+        Args:
+            panel_name: Panel identifier
+            context: Panel-specific data from _extract_panel_context()
+
+        Returns:
+            2-3 sentence narrative string
+        """
+        # Panel-specific prompts for client-facing reports
+        prompts = {
+            "performance": f"""
+Based on these performance metrics:
+{json.dumps(context, indent=2)}
+
+Write EXACTLY 2-3 sentences for a CLIENT-FACING report:
+- Highlight the most important performance trend
+- Explain what it means for business results
+- Include specific numbers but keep language simple
+
+Requirements:
+- NO PPC jargon (avoid CTR, CPC, ACOS unless explained)
+- Write for a CMO, not a PPC manager
+- Be factual but encouraging where appropriate
+""",
+
+            "health": f"""
+Account health analysis:
+{json.dumps(context, indent=2)}
+
+Write 2-3 sentences explaining:
+- Overall account health status in business terms
+- Main strength OR main concern (pick the most important)
+- What it means for campaign performance
+
+Use simple business language - client should understand immediately.
+""",
+
+            "portfolio": f"""
+Campaign portfolio breakdown:
+{json.dumps(context, indent=2)}
+
+Write 2-3 sentences covering:
+- How the campaign portfolio is structured (winners vs underperformers)
+- Key strategic insight about portfolio balance
+- Business recommendation
+
+Client-friendly language only.
+""",
+
+            "impact": f"""
+Decision impact measurement:
+{json.dumps(context, indent=2)}
+
+Write 2-3 sentences explaining:
+- What measurable value your optimization decisions created
+- How we proved it (briefly explain the measurement methodology)
+- Why this demonstrates effective management
+
+Tone: Professional confidence backed by data.
+""",
+
+            "actions": f"""
+Optimization actions executed:
+{json.dumps(context, indent=2)}
+
+Write 2-3 sentences covering:
+- What specific optimization actions were taken
+- Expected financial impact (savings + revenue gains)
+- Next steps or ongoing optimizations
+
+Use concrete numbers to quantify impact.
+""",
+
+            "match_type": f"""
+Match type performance analysis:
+{json.dumps(context, indent=2)}
+
+Write 2-3 sentences explaining:
+- Which targeting types are most efficient
+- Strategic insight about match type strategy
+- Recommendation for optimization
+
+Explain match types simply (e.g., "exact keyword targeting" vs "broad discovery").
+"""
+        }
+
+        prompt = prompts.get(panel_name, f"Analyze this data for a client report: {json.dumps(context)}")
+
+        # Build messages for API call
+        messages = [
+            {"role": "system", "content": self.system_prompt},
+            {"role": "user", "content": prompt}
+        ]
+
+        # Call Claude API using EXISTING _call_llm method
+        try:
+            response = self._call_llm(messages)
+            return response.strip()
+        except Exception as e:
+            # Fallback if API fails
+            return f"Detailed analysis available in full dashboard. (Error: {str(e)})"
+
+    def _generate_executive_summary(self, knowledge: Dict) -> Dict[str, List[str]]:
+        """
+        Generate executive summary with achievements/concerns/next steps.
+
+        Args:
+            knowledge: Full knowledge graph
+
+        Returns:
+            Dict with structure:
+            {
+                "achievements": ["...", "...", "..."],
+                "areas_to_watch": ["...", "..."],
+                "next_steps": ["...", "...", "..."]
+            }
+        """
+        summary_prompt = f"""
+Based on this complete account analysis:
+
+{json.dumps(knowledge, indent=2, default=str)}
+
+Generate an EXECUTIVE SUMMARY for a client-facing report.
+
+Provide EXACTLY:
+1. TOP 3 KEY ACHIEVEMENTS (quantified wins with specific numbers)
+2. TOP 2 AREAS TO MONITOR (opportunities or concerns)
+3. TOP 2-3 RECOMMENDED NEXT STEPS (specific, actionable)
+
+CRITICAL: Return response as VALID JSON ONLY (no markdown, no explanations):
+{{
+  "achievements": ["Achievement 1 with numbers", "Achievement 2", "Achievement 3"],
+  "areas_to_watch": ["Area 1", "Area 2"],
+  "next_steps": ["Step 1", "Step 2", "Step 3"]
+}}
+
+Requirements:
+- Include specific $ amounts where available
+- Client-friendly language (NO jargon)
+- Concise but substantive
+- Focus on business impact
+"""
+
+        messages = [
+            {"role": "system", "content": self.system_prompt},
+            {"role": "user", "content": summary_prompt}
+        ]
+
+        try:
+            response = self._call_llm(messages)
+
+            # Clean response (remove markdown code fences if present)
+            clean = response.replace("```json", "").replace("```", "").strip()
+
+            # Parse JSON
+            summary = json.loads(clean)
+
+            # Validate structure
+            if not all(k in summary for k in ["achievements", "areas_to_watch", "next_steps"]):
+                raise ValueError("Invalid summary structure")
+
+            return summary
+
+        except Exception as e:
+            # Fallback to generic summary
+            return {
+                "achievements": [
+                    "Account performance analyzed across all campaigns",
+                    "Optimization opportunities identified and quantified",
+                    "Decision impact tracking active and validated"
+                ],
+                "areas_to_watch": [
+                    "Review detailed dashboard for specific campaign insights",
+                    "Monitor pending optimization implementations"
+                ],
+                "next_steps": [
+                    "Execute recommended optimization actions",
+                    "Track impact over next 14-30 days",
+                    "Schedule performance review meeting"
+                ]
+            }
 
 
 def get_dynamic_key_insights() -> list:
@@ -1709,6 +1991,7 @@ def get_dynamic_key_insights() -> list:
         # Fail gracefully
         print(f"DEBUG: Error in get_dynamic_key_insights: {str(e)}")
         return default_insights
+
 
 @st.cache_data(ttl=600, show_spinner=False)
 def _generate_insights_core(df: pd.DataFrame, currency: str, target_roas: float) -> list:
