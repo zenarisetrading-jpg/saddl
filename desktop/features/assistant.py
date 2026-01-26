@@ -300,7 +300,8 @@ If Auto outperforms Manual: Discovery is working - harvest more aggressively
                     max_date = valid_dates.max()
                     cutoff_date = max_date - timedelta(days=60)
                     master = master[master[date_col] >= cutoff_date]
-            except:
+            except Exception as e:
+                print(f"⚠️ Date filtering failed: {e}")
                 pass  # If date filtering fails, use full dataset
         
         # 2. Get Optimizer Results (if available)
