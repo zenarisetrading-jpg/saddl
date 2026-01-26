@@ -1705,23 +1705,25 @@ def get_account_health_score() -> Optional[float]:
         spend_quality = (converting_spend / total_spend) * 100
         
         # 1. ROAS Score (Baseline: 4x ROAS)
-        target_roas = 4.0  # Updated from 3.0
+        target_roas = 3.0  # Updated to 3.0 to align with 2025 Industry Benchmarks
         actual_roas = total_sales / total_spend
         roas_score = min(100, (actual_roas / target_roas) * 100)
         
-        # 2. Efficiency Score - % of spend that converts (ROW-LEVEL, not aggregated)
-        # Each row is Campaign->AdGroup->Target->Week, so we check conversion at that granularity
-        if conv_col:
-            # Use row-level: if this specific target-week had orders, count its spend
-            converting_spend = df[safe_numeric(df[conv_col]) > 0][spend_col].sum()
+        # 2. Efficiency Score - % of spend in Ad Groups with ROAS >= 2.5 (Matches UI Gauge)
+        adgroup_col = next((c for c in df.columns if c.lower() in ['ad group', 'ad group name', 'ad_group_name']), None)
+        if adgroup_col:
+            # Aggregate by Ad Group (Standard Definition)
+            agg = df.groupby(adgroup_col).agg({spend_col: 'sum', sales_col: 'sum'}).reset_index()
+            agg['ROAS'] = (agg[sales_col] / agg[spend_col].replace(0, 1))
+            efficient_spend_val = agg[agg['ROAS'] >= 2.5][spend_col].sum()
         else:
-            # Fallback to sales if no orders column
-            converting_spend = df[df[sales_col] > 0][spend_col].sum()
-        
-        efficiency_rate = (converting_spend / total_spend) * 100
-        efficiency_score = efficiency_rate  # Direct mapping: 77% converting = score of 77
-        wasted_spend = total_spend - converting_spend
-        waste_ratio = 100 - efficiency_rate
+            # Fallback to row-level ROAS >= 2.5
+            row_roas = (df[sales_col] / df[spend_col].replace(0, 1))
+            efficient_spend_val = df[row_roas >= 2.5][spend_col].sum()
+            
+        efficiency_score = (efficient_spend_val / total_spend) * 100
+        wasted_spend = total_spend - efficient_spend_val
+        waste_ratio = 100 - efficiency_score
         
         # 3. CVR Score (Baseline: 10% CVR → 100 score)
         clicks_col = next((c for c in df.columns if c.lower() == 'clicks'), None)

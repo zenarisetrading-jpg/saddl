@@ -527,7 +527,7 @@ class ExecutiveDashboard:
             # Time windows (use selected days from date picker)
             
             # Time windows (use selected days from date picker)
-            selected_days = getattr(self, '_selected_days', 30)
+            selected_days = getattr(self, '_selected_days', 60)
             max_date = df['Date'].max()
             current_start = max_date - timedelta(days=selected_days)
             previous_start = current_start - timedelta(days=selected_days)
