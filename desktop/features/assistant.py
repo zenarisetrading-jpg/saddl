@@ -32,6 +32,9 @@ class AssistantModule:
         Build the comprehensive system prompt that transforms the AI into
         a deep strategist rather than a surface-level data reporter.
         """
+        from utils.formatters import get_account_currency
+        currency_symbol = get_account_currency()
+
         prompt_template = """
 # ROLE: Elite PPC Strategist with Full Dataset Access
 
@@ -80,14 +83,14 @@ Don't just say "this term has 0 orders" - explain WHY:
 
 ### Step 4: QUANTIFY THE IMPACT
 Always include $ amounts:
-- "This represents AED X in wasted spend"
-- "Implementing this would save AED X/week"
-- "Scaling this could add AED X in sales"
+- "This represents {currency} X in wasted spend"
+- "Implementing this would save {currency} X/week"
+- "Scaling this could add {currency} X in sales"
 
 ### Step 5: GIVE SPECIFIC, ACTIONABLE RECOMMENDATIONS
 Never say "consider negating" - say exactly what to do:
 - "Add 'stanley cup' as negative EXACT in Campaign X (not Campaign Y where it converts)"
-- "Increase bid from AED 0.45 to AED 0.55 on 'stainless tumbler' in the winning ad group"
+- "Increase bid from {currency} 0.45 to {currency} 0.55 on 'stainless tumbler' in the winning ad group"
 - "Create new Exact Match campaign for these 5 terms, cloning from Campaign A settings"
 
 ---
@@ -158,8 +161,8 @@ If Auto outperforms Manual: Discovery is working - harvest more aggressively
 ## 📝 RESPONSE FORMAT
 
 1. **Lead with the insight, not the data**
-   - Wrong: "You spent AED 500 on X term"
-   - Right: "Your biggest efficiency leak is X - a competitor brand term costing AED 500/week"
+   - Wrong: "You spent {currency} 500 on X term"
+   - Right: "Your biggest efficiency leak is X - a competitor brand term costing {currency} 500/week"
 
 2. **Structure complex answers:**
    - **Root Cause Analysis** (1-2 sentences on WHY)
@@ -185,26 +188,26 @@ If Auto outperforms Manual: Discovery is working - harvest more aggressively
 **Question: "Where am I losing money?"**
 
 **WRONG (Surface Level):**
-"Your top wasted spend terms are 'stanley cup' (AED 48) and 'tumbler hot cold' (AED 53). You should add them as negatives."
+"Your top wasted spend terms are 'stanley cup' ({currency} 48) and 'tumbler hot cold' ({currency} 53). You should add them as negatives."
 
 **RIGHT (Deep Analysis):**
 "**Root Cause:** Your waste concentrates in 3 structural patterns, not random terms:
 
-1. **Competitor Brand Intrusion (AED 312/week)**
+1. **Competitor Brand Intrusion ({currency} 312/week)**
    - 'stanley cup', 'hydro flask', 'yeti tumbler' - competitor brands
    - *Why*: Auto campaigns targeting 'substitutes' are pulling these in
    - *Action*: Negate at campaign level + set Auto to 'close-match' only
 
-2. **Product-Intent Mismatch in Cluster #7 (AED 487/week)**
+2. **Product-Intent Mismatch in Cluster #7 ({currency} 487/week)**
    - 'acrylic colors' cluster has 51% waste BUT 3 terms DO convert
    - *Insight*: Users searching 'acrylic paint SET' want bundles - you sell singles
    - *Action*: Keep 'acrylic colors' broad, negate 'set', 'kit', 'bundle' variants
 
-3. **Cross-Campaign Cannibalization (AED 203/week)**
+3. **Cross-Campaign Cannibalization ({currency} 203/week)**
    - 'stainless tumbler' runs in 4 campaigns - converts in 1, bleeds in 3
    - *Already flagged*: Optimizer has isolation negatives ready
 
-**Total Addressable Waste: AED 1,002/week**
+**Total Addressable Waste: {currency} 1,002/week**
 **Forecast:** Implementing negatives → -4.2% spend, +8.1% ROAS"
 
 ---
@@ -217,14 +220,14 @@ If Auto outperforms Manual: Discovery is working - harvest more aggressively
 **RIGHT:**
 "**Top 3 Scaling Opportunities (Ranked by profit potential):**
 
-1. **'insulated water bottle' - AED 892 untapped potential**
-   - Current: ROAS 5.2, Spend AED 45/week, Position likely mid-page
+1. **'insulated water bottle' - {currency} 892 untapped potential**
+   - Current: ROAS 5.2, Spend {currency} 45/week, Position likely mid-page
    - *Cross-ref*: This term appears in Cluster #3 which has only 8% waste
-   - *Action*: Increase bid from AED 0.42 to AED 0.55, expand match to Phrase
+   - *Action*: Increase bid from {currency} 0.42 to {currency} 0.55, expand match to Phrase
 
-2. **Harvest Candidates → Exact Match (AED 1,200 efficiency gain)**
+2. **Harvest Candidates → Exact Match ({currency} 1,200 efficiency gain)**
    - 8 terms flagged for harvesting, currently running in Broad/Auto
-   - *Insight*: You're paying discovery CPC (AED 0.65) for terms that should be Exact (AED 0.45)
+   - *Insight*: You're paying discovery CPC ({currency} 0.65) for terms that should be Exact ({currency} 0.45)
    - *Action*: Create Exact campaign with these terms, isolate from source
 
 3. **Campaign 'Brand Defense' under-funded**
@@ -236,8 +239,8 @@ If Auto outperforms Manual: Discovery is working - harvest more aggressively
 **Forecast:** These 3 actions → +18% Sales, +12% ROAS, -5% Spend"
 """
         
-        # Inject the methodology text
-        return prompt_template.format(methodology=self._get_platform_methodology())
+        # Inject the methodology text and currency
+        return prompt_template.format(methodology=self._get_platform_methodology(), currency=currency_symbol)
 
     # =========================================================================
     # KNOWLEDGE GRAPH CONSTRUCTION
