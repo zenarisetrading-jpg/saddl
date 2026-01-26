@@ -12,85 +12,70 @@ from typing import Optional
 def get_base_url() -> str:
     """
     Automatically detect the base URL for the current deployment.
-    
+
     Works across:
     - Local development (localhost)
     - Streamlit Cloud (*.streamlit.app)
     - Custom domains (your-domain.com)
-    
+
     Returns:
         Base URL without trailing slash (e.g., "https://app.saddl.io")
     """
-    
-    # METHOD 1: Try to get from Streamlit's internal context
-    # This is the most reliable method for deployed apps
-    try:
-        # Get the current page URL from Streamlit
-        # This works because Streamlit tracks the session URL
-        query_params = st.query_params
-        
-        # Streamlit Cloud and deployed apps expose this
-        if hasattr(st, 'get_script_run_ctx'):
-            ctx = st.get_script_run_ctx()
-            if ctx and hasattr(ctx, 'session_info'):
-                session_info = ctx.session_info
-                if hasattr(session_info, 'client'):
-                    client = session_info.client
-                    
-                    # Construct URL from client info
-                    protocol = "https" if client.get('is_ssl', True) else "http"
-                    host = client.get('host', '')
-                    port = client.get('port', '')
-                    
-                    if host:
-                        # Port 80/443 don't need to be included
-                        if port and port not in [80, 443, '80', '443']:
-                            return f"{protocol}://{host}:{port}"
-                        return f"{protocol}://{host}"
-    except Exception:
-        pass  # Fall through to next method
-    
-    # METHOD 2: Check environment variables
-    # Good for containerized deployments (Docker, Kubernetes)
+
+    # METHOD 1: Check explicit environment variable (highest priority)
+    # Good for containerized deployments (Docker, Kubernetes) or manual override
     base_url = os.environ.get('APP_BASE_URL')
     if base_url:
         return base_url.rstrip('/')
-    
-    # METHOD 3: Try Streamlit config (works on Streamlit Cloud)
+
+    # METHOD 2: Detect Streamlit Cloud via environment variables
+    # Streamlit Cloud sets specific env vars we can check
+    # HOSTNAME on Streamlit Cloud is typically a container ID like "ip-10-..."
+    hostname = os.environ.get('HOSTNAME', '')
+
+    # Check if running on Streamlit Cloud (headless mode + non-local hostname)
     try:
-        server_address = st.get_option("browser.serverAddress")
-        server_port = st.get_option("browser.serverPort")
-        
-        if server_address:
-            # Streamlit Cloud uses HTTPS
-            protocol = "https" if st.get_option("server.headless") else "http"
-            
-            # Don't include port if it's standard (80/443)
-            if server_port and server_port not in [80, 443]:
-                return f"{protocol}://{server_address}:{server_port}"
-            return f"{protocol}://{server_address}"
+        is_headless = st.get_option("server.headless")
+
+        # Streamlit Cloud runs in headless mode with container-style hostnames
+        if is_headless:
+            # Not localhost, likely cloud deployment
+            if hostname and not hostname.startswith('localhost') and not hostname.startswith('127.'):
+                return "https://saddle-adpulse.streamlit.app"
     except Exception:
         pass
-    
-    # METHOD 4: Localhost fallback (development)
-    # This is what runs when testing locally
+
+    # METHOD 3: Check if we're in a cloud environment by checking common indicators
+    # Streamlit Cloud containers have specific characteristics
     try:
-        # Check if we are potentially on Streamlit Cloud but detection failed
-        # Streamlit Cloud usually runs on port 8501 inside the container
-        # We can default to the known production URL if we are not explicitly on localhost dev machine
-        # Simple heuristic: If hostname is not 'localhost' or '127.0.0.1', likely cloud.
         import socket
-        hostname = socket.gethostname()
-        
-        # Streamlit Cloud hostnames are usually random strings (containers), not 'localhost'
-        if "localhost" not in hostname and "127.0.0.1" not in hostname:
-             return "https://saddle-adpulse.streamlit.app"
-             
+        local_hostname = socket.gethostname()
+
+        # Local dev machines usually have recognizable hostnames
+        # Cloud containers have IDs like "ip-10-0-1-234" or random strings
+        is_likely_local = any([
+            'macbook' in local_hostname.lower(),
+            'imac' in local_hostname.lower(),
+            '.local' in local_hostname.lower(),
+            'desktop' in local_hostname.lower(),
+            'laptop' in local_hostname.lower(),
+            local_hostname.lower() == 'localhost',
+            local_hostname.startswith('127.'),
+        ])
+
+        if not is_likely_local:
+            # Likely running on Streamlit Cloud or other cloud platform
+            return "https://saddle-adpulse.streamlit.app"
+    except Exception:
+        pass
+
+    # METHOD 4: Try Streamlit config for local development
+    try:
         port = st.get_option("server.port") or 8501
         return f"http://localhost:{port}"
     except Exception:
         pass
-    
+
     # METHOD 5: Ultimate fallback
     return "http://localhost:8501"
 
