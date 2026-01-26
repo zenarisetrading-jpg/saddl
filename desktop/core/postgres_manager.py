@@ -466,6 +466,21 @@ class PostgresManager:
                 
                 cursor.execute("CREATE INDEX IF NOT EXISTS idx_raw_st_week ON raw_search_term_data(client_id, report_date)")
 
+                # Shared Reports Table (for Portable Share Feature)
+                cursor.execute("""
+                    CREATE TABLE IF NOT EXISTS shared_reports (
+                        id VARCHAR(8) PRIMARY KEY,
+                        client_id TEXT NOT NULL,
+                        date_range TEXT NOT NULL,
+                        metadata JSONB,
+                        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                        expires_at TIMESTAMP NOT NULL,
+                        accessed_count INTEGER DEFAULT 0,
+                        last_accessed TIMESTAMP
+                    )
+                """)
+                cursor.execute("CREATE INDEX IF NOT EXISTS idx_shared_reports_client ON shared_reports(client_id)")
+
     def save_weekly_stats(self, client_id: str, start_date: date, end_date: date, spend: float, sales: float, roas: Optional[float] = None) -> int:
         if roas is None:
             roas = sales / spend if spend > 0 else 0.0
@@ -2700,3 +2715,112 @@ class PostgresManager:
         except Exception as e:
             print(f"Failed to delete account: {e}")
             return False
+    
+    # ==========================================
+    # SHARED REPORT OPERATIONS
+    # ==========================================
+
+    def save_shared_report(self, client_id: str, date_range: str, metadata: dict = None) -> str:
+        """
+        Save shareable report and return unique ID (Postgres).
+        
+        Returns:
+            8-character unique report ID
+        """
+        import uuid
+        import json
+        from datetime import datetime, timedelta
+        
+        report_id = str(uuid.uuid4())[:8]
+        
+        with self._get_connection() as conn:
+            with conn.cursor() as cur:
+                # Rate limit check (10 per 24 hours)
+                cur.execute("""
+                    SELECT COUNT(*) 
+                    FROM shared_reports 
+                    WHERE client_id = %s 
+                    AND created_at > NOW() - INTERVAL '24 hours'
+                """, (client_id,))
+                
+                count = cur.fetchone()[0]
+                if count >= 10:
+                    raise ValueError("Rate limit exceeded: Maximum 10 shares per 24 hours")
+                
+                # Save report (expires in 30 days)
+                expires_at = datetime.now() + timedelta(days=30)
+                
+                cur.execute("""
+                    INSERT INTO shared_reports 
+                    (id, client_id, date_range, expires_at, metadata)
+                    VALUES (%s, %s, %s, %s, %s)
+                """, (
+                    report_id,
+                    client_id,
+                    date_range,
+                    expires_at,
+                    json.dumps(metadata or {})
+                ))
+        
+        return report_id
+
+    def get_shared_report(self, report_id: str) -> dict:
+        """
+        Retrieve shared report data (Postgres).
+        
+        Returns:
+            Dict with report metadata
+            
+        Raises:
+            ValueError if not found or expired
+        """
+        import json
+        from datetime import datetime
+        
+        with self._get_connection() as conn:
+            with conn.cursor() as cur:
+                cur.execute("""
+                    SELECT 
+                        client_id, date_range, created_at, 
+                        expires_at, metadata, accessed_count
+                    FROM shared_reports
+                    WHERE id = %s
+                """, (report_id,))
+                
+                row = cur.fetchone()
+                
+                if not row:
+                    raise ValueError(f"Report not found: {report_id}")
+                
+                # Row is a tuple in psycopg2 unless RealDictCursor is used, 
+                # but let's safely handle tuple or dict access depending on configured factory
+                if isinstance(row, dict):
+                    client_id = row['client_id']
+                    date_range = row['date_range']
+                    created_at = row['created_at']
+                    expires_at = row['expires_at']
+                    metadata_json = row['metadata']
+                    access_count = row['accessed_count']
+                else:
+                    client_id, date_range, created_at, expires_at, metadata_json, access_count = row
+                
+                # Check expiration
+                if datetime.now() > expires_at:
+                    raise ValueError(f"Report expired on {expires_at.strftime('%Y-%m-%d')}")
+                
+                # Increment access counter
+                cur.execute("""
+                    UPDATE shared_reports
+                    SET accessed_count = accessed_count + 1,
+                        last_accessed = CURRENT_TIMESTAMP
+                    WHERE id = %s
+                """, (report_id,))
+                
+                return {
+                    'client_id': client_id,
+                    'date_range': date_range,
+                    'created_at': created_at,
+                    'metadata': metadata_json if isinstance(metadata_json, dict) else json.loads(metadata_json) if metadata_json else {},
+                    'expired': False,
+                    'views': (access_count or 0) + 1
+                }

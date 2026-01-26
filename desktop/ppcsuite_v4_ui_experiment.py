@@ -248,31 +248,34 @@ def run_performance_hub():
     """, unsafe_allow_html=True)
     
     c1, c2, c3 = st.columns(3)
-    with c1:
-        is_active = st.session_state['active_perf_tab'] == "Executive Dashboard"
-        st.markdown('<div class="tab-btn-wrapper tab-exec">', unsafe_allow_html=True)
-        # Removed emoji 📊
-        if st.button("EXECUTIVE DASHBOARD", key="btn_tab_exec", use_container_width=True, type="primary" if is_active else "secondary"):
-            st.session_state['active_perf_tab'] = "Executive Dashboard"
-            st.rerun()
-        st.markdown('</div>', unsafe_allow_html=True)
+    
+    # === HIDE TABS: Option A (Short-term) ===
+    # We are hiding the first two tabs and defaulting to Client Report (Renamed to "Account Overview")
+    
+    # with c1:
+    #     is_active = st.session_state['active_perf_tab'] == "Executive Dashboard"
+    #     st.markdown('<div class="tab-btn-wrapper tab-exec">', unsafe_allow_html=True)
+    #     # Removed emoji 📊
+    #     if st.button("EXECUTIVE DASHBOARD", key="btn_tab_exec", use_container_width=True, type="primary" if is_active else "secondary"):
+    #         st.session_state['active_perf_tab'] = "Executive Dashboard"
+    #         st.rerun()
+    #     st.markdown('</div>', unsafe_allow_html=True)
         
-    with c2:
-        is_active = st.session_state['active_perf_tab'] == "Account Health"
-        st.markdown('<div class="tab-btn-wrapper tab-health">', unsafe_allow_html=True)
-        # Removed emoji 🛡️
-        if st.button("ACCOUNT HEALTH", key="btn_tab_report", use_container_width=True, type="primary" if is_active else "secondary"):
-            st.session_state['active_perf_tab'] = "Account Health"
-            st.rerun()
-        st.markdown('</div>', unsafe_allow_html=True)
+    # with c2:
+    #     is_active = st.session_state['active_perf_tab'] == "Account Health"
+    #     st.markdown('<div class="tab-btn-wrapper tab-health">', unsafe_allow_html=True)
+    #     # Removed emoji 🛡️
+    #     if st.button("ACCOUNT HEALTH", key="btn_tab_report", use_container_width=True, type="primary" if is_active else "secondary"):
+    #         st.session_state['active_perf_tab'] = "Account Health"
+    #         st.rerun()
+    #     st.markdown('</div>', unsafe_allow_html=True)
         
-    with c3:
-        is_active = st.session_state['active_perf_tab'] == "Client Report"
-        st.markdown('<div class="tab-btn-wrapper tab-report">', unsafe_allow_html=True)
-        if st.button("CLIENT REPORT", key="btn_tab_client_report", use_container_width=True, type="primary" if is_active else "secondary"):
-            st.session_state['active_perf_tab'] = "Client Report"
-            st.rerun()
-        st.markdown('</div>', unsafe_allow_html=True)
+    # Force single view for now
+    st.session_state['active_perf_tab'] = "Client Report"
+    
+    # Use full width for the single tab
+    with c2: 
+        pass
             
     st.markdown("<br>", unsafe_allow_html=True)
     
@@ -283,7 +286,7 @@ def run_performance_hub():
         from features.report_card import ReportCardModule
         ReportCardModule().run()
     elif st.session_state['active_perf_tab'] == "Client Report":
-        import pages.client_report as client_report
+        import ui.client_report_page as client_report
         import importlib
         importlib.reload(client_report)
         client_report.run()
@@ -1237,7 +1240,83 @@ def run_consolidated_optimizer():
 # ==========================================
 # MAIN ROUTER
 # ==========================================
+
+def render_shared_report():
+    """
+    Render read-only shared report view.
+    Route: ?page=shared_report&id={report_id}
+    """
+    import streamlit as st
+    from core.db_manager import get_db_manager
+    from pages import client_report
+    
+    # Get report ID from URL
+    query_params = st.query_params
+    report_id = query_params.get("id")
+    
+    if not report_id:
+        st.error("⚠️ **Invalid Share Link**")
+        st.info("This link appears to be incomplete. Please check the URL and try again.")
+        st.stop()
+    
+    try:
+        # Fetch report from database
+        # This automatically uses PostgresManager if DATABASE_URL is set (Production)
+        # Or DatabaseManager (SQLite) for local dev fallback
+        db = get_db_manager()
+        report_data = db.get_shared_report(report_id)
+        
+        # Set session state for report context
+        st.session_state['active_account_id'] = report_data['client_id']
+        st.session_state['date_range'] = report_data['date_range']
+        st.session_state['read_only_mode'] = True
+        
+        # Hydrate AI Narratives (if they exist)
+        narratives = report_data.get('metadata', {}).get('narratives', {})
+        if narratives:
+             cache_key = f"client_report_narratives_{report_data['client_id']}"
+             st.session_state[cache_key] = narratives
+        
+        # Show view counter badge
+        views = report_data.get('views', 1)
+        if views > 1:
+            st.caption(f"👁️ This report has been viewed **{views} times**")
+        
+        # Render report (same page, read-only mode)
+        client_report.run()
+        
+    except ValueError as e:
+        # Report not found or expired
+        error_msg = str(e)
+        
+        st.error(f"⚠️ **{error_msg}**")
+        
+        if "expired" in error_msg.lower():
+            st.info("💡 **Shared reports expire after 30 days.** Please contact the report sender for a new link.")
+        elif "not found" in error_msg.lower():
+            st.info("💡 **This report may have been deleted or the link is incorrect.** Please verify the URL.")
+        else:
+            st.info("💡 **Unable to load report.** Please contact the report sender for assistance.")
+        
+        st.stop()
+        
+    except Exception as e:
+        st.error(f"❌ **Error loading report:** {str(e)}")
+        st.info("Please try refreshing the page. If the issue persists, contact support.")
+        st.stop()
+
+
+# ==========================================
+# MAIN ROUTER
+# ==========================================
 def main():
+    # === SHARED REPORT ROUTE (Public/No Auth) ===
+    # Must be first to bypass auth
+    query_params = st.query_params
+    if query_params.get("page") == "shared_report":
+        render_shared_report()
+        return
+
     setup_page()
     
     # === AUTHENTICATION GATE ===

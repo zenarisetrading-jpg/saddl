@@ -284,6 +284,22 @@ class DatabaseManager:
                     UNIQUE(user_id, amazon_account_id)
                 )
             """)
+
+            # Shared Reports Table (for Portable Share Feature)
+            # Parity with PostgresManager
+            cursor.execute("""
+                CREATE TABLE IF NOT EXISTS shared_reports (
+                    id TEXT PRIMARY KEY,
+                    client_id TEXT NOT NULL,
+                    date_range TEXT NOT NULL,
+                    metadata TEXT,
+                    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                    expires_at TIMESTAMP NOT NULL,
+                    accessed_count INTEGER DEFAULT 0,
+                    last_accessed TIMESTAMP
+                )
+            """)
+            cursor.execute("CREATE INDEX IF NOT EXISTS idx_shared_reports_client ON shared_reports(client_id)")
             
             # default_client auto-creation REMOVED.
             # Explicit account creation required.
@@ -1695,7 +1711,130 @@ class DatabaseManager:
 
 
 # =========================================
+    
+    # ==========================================
+    # SHARED REPORT OPERATIONS
+    # ==========================================
 
+    def save_shared_report(self, client_id: str, date_range: str, metadata: dict = None) -> str:
+        """
+        Save shareable report and return unique ID.
+        
+        Returns:
+            8-character unique report ID
+        """
+        import uuid
+        import json
+        from datetime import datetime, timedelta
+        
+        report_id = str(uuid.uuid4())[:8]
+        
+        with self._get_connection() as conn:
+            cursor = conn.cursor()
+            
+            # Rate limit check (10 per 24 hours)
+            cursor.execute("""
+                SELECT COUNT(*) 
+                FROM shared_reports 
+                WHERE client_id = ? 
+                AND created_at > datetime('now', '-1 day')
+            """, (client_id,))
+            
+            count = cursor.fetchone()[0]
+            if count >= 10:
+                raise ValueError("Rate limit exceeded: Maximum 10 shares per 24 hours")
+            
+            # Save report (expires in 30 days)
+            expires_at = datetime.now() + timedelta(days=30)
+            
+            cursor.execute("""
+                INSERT INTO shared_reports 
+                (id, client_id, date_range, expires_at, metadata)
+                VALUES (?, ?, ?, ?, ?)
+            """, (
+                report_id,
+                client_id,
+                date_range,
+                expires_at,
+                json.dumps(metadata or {})
+            ))
+            
+            return report_id
+
+    def get_shared_report(self, report_id: str) -> dict:
+        """
+        Retrieve shared report data.
+        
+        Returns:
+            Dict with report metadata
+            
+        Raises:
+            ValueError if not found or expired
+        """
+        import json
+        from datetime import datetime
+        
+        with self._get_connection() as conn:
+            cursor = conn.cursor()
+            cursor.execute("""
+                SELECT 
+                    client_id, date_range, created_at, 
+                    expires_at, metadata, accessed_count
+                FROM shared_reports
+                WHERE id = ?
+            """, (report_id,))
+            
+            row = cursor.fetchone()
+            
+            if not row:
+                raise ValueError(f"Report not found: {report_id}")
+            
+            # SQLite Row factory allows index or key access
+            client_id = row['client_id']
+            date_range = row['date_range']
+            
+            # Parse timestamps (SQLite stores as string/isoformat usually)
+            created_at_str = row['created_at']
+            expires_at_str = row['expires_at']
+            
+            try:
+                if isinstance(expires_at_str, str):
+                    expires_at = datetime.fromisoformat(expires_at_str)
+                else:
+                    expires_at = expires_at_str # Already object
+                    
+                if isinstance(created_at_str, str):
+                    created_at = datetime.fromisoformat(created_at_str)
+                else:
+                    created_at = created_at_str
+            except:
+                # Fallback if parsing fails (shouldn't happen with standard insert)
+                expires_at = datetime.now() + timedelta(days=30)
+                created_at = datetime.now()
+
+            metadata_json = row['metadata']
+            access_count = row['accessed_count']
+            
+            # Check expiration
+            if datetime.now() > expires_at:
+                raise ValueError(f"Report expired on {expires_at.strftime('%Y-%m-%d')}")
+            
+            # Increment access counter
+            cursor.execute("""
+                UPDATE shared_reports
+                SET accessed_count = accessed_count + 1,
+                    last_accessed = CURRENT_TIMESTAMP
+                WHERE id = ?
+            """, (report_id,))
+            
+            return {
+                'client_id': client_id,
+                'date_range': date_range,
+                'created_at': created_at,
+                'metadata': json.loads(metadata_json) if metadata_json else {},
+                'expired': False,
+                'views': (access_count or 0) + 1
+            }
 def get_db_manager(test_mode: bool = False) -> DatabaseManager:
     """
     Factory function to get appropriate database manager.

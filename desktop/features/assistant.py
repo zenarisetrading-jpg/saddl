@@ -1681,10 +1681,18 @@ PLATFORM METHODOLOGY & ENGINE LOGIC (UPDATED JAN 2, 2026)
         df = self._construct_granular_dataset()
 
         if df.empty:
-            return {
-                panel: "Data analysis pending - upload Search Term Report to generate insights."
-                for panel in panels
-            }
+            # Return safe empty structures to prevent UI crashes
+            safe_responses = {}
+            for panel in panels:
+                if panel == 'executive_summary':
+                    safe_responses[panel] = {
+                        "overview": "Data analysis pending. Please upload Search Term Report to generate insights.",
+                        "key_metric": "No Data",
+                        "trend": "neutral"
+                    }
+                else:
+                    safe_responses[panel] = "Data analysis pending - upload Search Term Report to generate insights."
+            return safe_responses
 
         knowledge = self._build_knowledge_graph(df)
 
