@@ -1069,6 +1069,13 @@ def run():
     # =========================================================================
     # FOOTER
     # =========================================================================
+    # DEBUG PANEL (Temporary)
+    with st.expander("🛠️ Debug Info (Dev Only)"):
+        from utils.formatters import get_account_currency
+        st.write(f"**Active Currency:** {get_account_currency()}")
+        st.write(f"**Cache Key:** {cache_key}")
+        st.write(f"**System Version:** v2026.01.26-60day-fix")
+
     render_footer()
 
 
