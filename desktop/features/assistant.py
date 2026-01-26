@@ -1829,7 +1829,7 @@ Write 2-3 sentences explaining:
 
 Use simple business language - client should understand immediately.
 IMPORTANT: When discussing "Efficiency", refer to the 'gauge_spend_efficiency' value (Efficiency Gauge) if available, as this matches the visual report.
-""",,
+""",
 
             "portfolio": f"""
 Campaign portfolio breakdown:
