@@ -1976,6 +1976,10 @@ Requirements:
 
         except Exception as e:
             # Fallback to generic summary
+            print(f"❌ [Exec Summary Error] {str(e)}")
+            if 'response' in locals():
+                print(f"❌ [Raw Response] {response}")
+            
             return {
                 "achievements": [
                     "Account performance analyzed across all campaigns",
