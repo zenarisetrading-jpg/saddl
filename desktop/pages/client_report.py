@@ -92,7 +92,8 @@ def inject_premium_styles():
             display: none !important;
         }
 
-        * {
+        /* Apply font to main app wrapper instead of global wildcard to protect icons */
+        .stApp {
             font-family: var(--font-primary) !important;
         }
     }
@@ -162,26 +163,7 @@ def inject_premium_styles():
         border-radius: 50%;
     }
 
-    /* ============================================
-       EXPORT BANNER
-       ============================================ */
 
-    .export-banner {
-        background: rgba(59, 130, 246, 0.08);
-        border: 1px solid rgba(59, 130, 246, 0.2);
-        border-radius: var(--radius-md);
-        padding: 1rem 1.5rem;
-        margin-bottom: 2.5rem;
-        display: flex;
-        align-items: center;
-        gap: 0.75rem;
-        font-size: 0.9rem;
-        color: var(--text-secondary);
-    }
-
-    .export-banner strong {
-        color: var(--text-primary);
-    }
 
     /* ============================================
        SECTION HEADERS
@@ -445,13 +427,7 @@ def render_header(date_range: str):
     ''', unsafe_allow_html=True)
 
 
-def render_export_banner():
-    """Render the PDF export instructions banner."""
-    st.markdown('''
-    <div class="export-banner">
-        📄 <strong>Export as PDF:</strong> Press <strong>Cmd+P</strong> (Mac) or <strong>Ctrl+P</strong> (Windows) → Select "Save as PDF"
-    </div>
-    ''', unsafe_allow_html=True)
+
 
 
 def render_section_header(icon: str, title: str):
@@ -747,9 +723,6 @@ def run():
 
     # Render header with DYNAMIC DATE
     render_header(date_str)
-
-    # Render export banner
-    render_export_banner()
 
     # =========================================================================
     # EXECUTIVE SUMMARY
