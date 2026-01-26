@@ -400,21 +400,27 @@ If Auto outperforms Manual: Discovery is working - harvest more aggressively
         
         # ROAS Score (Uses dynamic Target ROAS)
         target_roas = st.session_state.get('opt_target_roas', 3.0)  # Default updated to 3.0
-        
+        roas_score = min(100, (roas / target_roas) * 100)
+
         # Calculate waste (Inefficient Spend: Ad Groups with ROAS < 2.5) for consistency with Gauge
-        # We calculate efficiency first
         efficiency_pct = self._calculate_gauge_efficiency(df)
         waste_ratio = (100 - efficiency_pct) / 100
         wasted_spend = total_spend * waste_ratio
-        
-        roas_score = min(100, (roas / target_roas) * 100)
         waste_score = max(0, 100 - (waste_ratio * 200))  # 50% waste = 0 score
         
+        # 3. CVR Score (Baseline: 10% CVR)
+        clicks_col = 'Clicks'
+        total_clicks = df[clicks_col].sum() if clicks_col in df.columns else 0
+        total_orders = df['Orders'].sum() if 'Orders' in df.columns else 0
+        cvr = (total_orders / total_clicks * 100) if total_clicks > 0 else 0
+        cvr_score = min(100, (cvr / 10.0) * 100)
+        
+        # Aggregate Health Score (Matches Report Card 40/40/20)
+        health_score = int((roas_score * 0.4) + (efficiency_pct * 0.4) + (cvr_score * 0.2))
+
         # Harvest/Negative optimization potential
         harvest_count = df['Is_Harvest_Candidate'].sum() if 'Is_Harvest_Candidate' in df.columns else 0
         negative_count = df['Is_Negative_Candidate'].sum() if 'Is_Negative_Candidate' in df.columns else 0
-        
-        health_score = int((roas_score * 0.5) + (waste_score * 0.5))
         
         # Health status
         if health_score >= 80:

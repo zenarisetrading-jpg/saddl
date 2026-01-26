@@ -930,7 +930,7 @@ def run():
     report_card = ReportCardModule()
 
     # Generate narratives - Cache in session state
-    cache_key = f"client_report_narratives_{st.session_state.get('active_account_id', 'default')}"
+    cache_key = f"client_report_narratives_{st.session_state.get('active_account_id', 'default')}_v2026_metric_fix"
 
     if cache_key not in st.session_state:
         panels_to_generate = [
