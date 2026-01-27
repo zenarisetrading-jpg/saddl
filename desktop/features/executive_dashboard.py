@@ -526,14 +526,36 @@ class ExecutiveDashboard:
             
             # Time windows (use selected days from date picker)
             
-            # Time windows (use selected days from date picker)
-            selected_days = getattr(self, '_selected_days', 60)
-            max_date = df['Date'].max()
-            current_start = max_date - timedelta(days=selected_days)
-            previous_start = current_start - timedelta(days=selected_days)
+            # Time windows (checks for Client Report override first)
+            report_config = st.session_state.get('report_config', {})
+            override_start = report_config.get('start_date')
+            override_end = report_config.get('end_date')
             
-            df_current = df[df['Date'] >= current_start].copy()
-            df_previous = df[(df['Date'] >= previous_start) & (df['Date'] < current_start)].copy()
+            if override_start and override_end:
+                 # Use explicit range from landing page
+                 current_start = pd.to_datetime(override_start)
+                 current_end = pd.to_datetime(override_end)
+                 
+                 # Calculate previous period based on duration
+                 duration = (current_end - current_start).days
+                 if duration < 1: duration = 1
+                 previous_start = current_start - timedelta(days=duration)
+                 
+                 # Apply strict filtering (start <= date <= end)
+                 df_current = df[(df['Date'] >= current_start) & (df['Date'] <= current_end)].copy()
+                 df_previous = df[(df['Date'] >= previous_start) & (df['Date'] < current_start)].copy()
+                 
+                 # Set max_date for consistency in later logic (though explicit end is used)
+                 max_date = pd.to_datetime(override_end)
+            else:
+                # Default Dashboard Logic (Last X Days from max data)
+                selected_days = getattr(self, '_selected_days', 60)
+                max_date = df['Date'].max()
+                current_start = max_date - timedelta(days=selected_days)
+                previous_start = current_start - timedelta(days=selected_days)
+                
+                df_current = df[df['Date'] >= current_start].copy()
+                df_previous = df[(df['Date'] >= previous_start) & (df['Date'] < current_start)].copy()
             
             # Get decision impact (use pre-calculated metrics from DB)
             # Also fetch the official summary for alignment with Impact Dashboard

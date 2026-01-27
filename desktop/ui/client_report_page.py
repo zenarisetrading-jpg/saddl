@@ -182,6 +182,30 @@ def get_svg_icon(icon_name: str, size: int = 24) -> str:
             </defs>
             <path d="M10 13C10.4295 13.5741 10.9774 14.0491 11.6066 14.3929C12.2357 14.7367 12.9315 14.9411 13.6467 14.9923C14.3618 15.0435 15.0796 14.9403 15.7513 14.6897C16.4231 14.4392 17.0331 14.047 17.54 13.54L20.54 10.54C21.4508 9.59695 21.9548 8.33394 21.9434 7.02296C21.932 5.71198 21.4061 4.45791 20.479 3.52084C19.5519 2.58378 18.2978 2.04785 16.9868 2.03643C15.6758 2.02501 14.4128 2.52904 13.47 3.43999L11.75 5.14999" stroke="url(#linkGrad)" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/>
             <path d="M14 11C13.5705 10.4259 13.0226 9.95083 12.3934 9.60706C11.7643 9.26329 11.0685 9.05886 10.3533 9.00765C9.63819 8.95643 8.92037 9.05966 8.24866 9.31023C7.57694 9.5608 6.96693 9.95294 6.45999 10.46L3.45999 13.46C2.54903 14.403 2.04501 15.666 2.05643 16.977C2.06785 18.288 2.59378 19.5421 3.52084 20.4791C4.44791 21.4162 5.70197 21.9521 7.01295 21.9636C8.32393 21.975 9.58694 21.4709 10.53 20.56L12.24 18.85" stroke="url(#linkGrad)" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/>
+        </svg>''',
+
+        'calendar': f'''<svg width="{size}" height="{size}" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
+            <defs>
+                <linearGradient id="calGrad" x1="0%" y1="0%" x2="100%" y2="100%">
+                    <stop offset="0%" style="stop-color:{blue};stop-opacity:1" />
+                    <stop offset="100%" style="stop-color:#60a5fa;stop-opacity:0.7" />
+                </linearGradient>
+            </defs>
+            <rect x="3" y="4" width="18" height="18" rx="2" ry="2" stroke="url(#calGrad)" stroke-width="1.5" fill="url(#calGrad)" fill-opacity="0.1"/>
+            <line x1="16" y1="2" x2="16" y2="6" stroke="url(#calGrad)" stroke-width="1.5" stroke-linecap="round"/>
+            <line x1="8" y1="2" x2="8" y2="6" stroke="url(#calGrad)" stroke-width="1.5" stroke-linecap="round"/>
+            <line x1="3" y1="10" x2="21" y2="10" stroke="url(#calGrad)" stroke-width="1.5"/>
+        </svg>''',
+
+        'settings': f'''<svg width="{size}" height="{size}" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
+            <defs>
+                <linearGradient id="setGrad" x1="0%" y1="0%" x2="100%" y2="100%">
+                    <stop offset="0%" style="stop-color:{amber};stop-opacity:1" />
+                    <stop offset="100%" style="stop-color:#fbbf24;stop-opacity:0.7" />
+                </linearGradient>
+            </defs>
+            <circle cx="12" cy="12" r="3" stroke="url(#setGrad)" stroke-width="1.5"/>
+            <path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1 0 2.83 2 2 0 0 1-2.83 0l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-2 2 2 2 0 0 1-2-2v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83 0 2 2 0 0 1 0-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1-2-2 2 2 0 0 1 2-2h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 0-2.83 2 2 0 0 1 2.83 0l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 2-2 2 2 0 0 1 2 2v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 0 2 2 0 0 1 0 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 2 2 2 2 0 0 1-2 2h-.09a1.65 1.65 0 0 0-1.51 1z" stroke="url(#setGrad)" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/>
         </svg>'''
     }
 
@@ -626,6 +650,194 @@ def inject_premium_styles():
     """, unsafe_allow_html=True)
 
 
+def render_landing_page():
+    """
+    Premium landing page for report configuration.
+    Allows user to select date range and report type before generating.
+    """
+    from datetime import datetime, timedelta
+    
+    inject_premium_styles()
+    
+    # Hero Header
+    st.markdown(f'''
+    <div class="header-card" style="padding: 48px; text-align: center; margin-bottom: 2.5rem;">
+        <div style="margin-bottom: 20px; display: flex; justify-content: center;">
+            {get_svg_icon('chart', 64)}
+        </div>
+        <h1 class="header-title" style="font-size: 2.5rem; margin-bottom: 16px;">
+            Performance Report Studio
+        </h1>
+        <p style="color: var(--text-secondary); font-size: 1.1rem; margin: 0; max-width: 600px; margin-left: auto; margin-right: auto;">
+            Generate professional performance analysis with AI-powered insights and decision tracking.
+        </p>
+    </div>
+    ''', unsafe_allow_html=True)
+    
+    # Configuration Form
+    with st.form("report_config_form", clear_on_submit=False):
+        
+        # Grid Layout for Inputs
+        c1, c2 = st.columns([1, 1], gap="large")
+        
+        with c1:
+            # ===== DATE RANGE SECTION =====
+            st.markdown(f'''
+            <div style="display: flex; align-items: center; gap: 10px; margin-bottom: 1rem;">
+                {get_svg_icon('calendar', 24)}
+                <span class="section-title" style="font-size: 1.1rem;">Analysis Period</span>
+            </div>
+            ''', unsafe_allow_html=True)
+            
+            date_preset = st.selectbox(
+                "Select date range",
+                [
+                    "Last 7 Days",
+                    "Last 14 Days",
+                    "Last 30 Days",
+                    "Last 60 Days",
+                    "Last 90 Days",
+                    "Custom Range"
+                ],
+                index=2,  # Default: Last 30 Days
+                label_visibility="collapsed"
+            )
+            
+            # Custom date inputs (conditional)
+            custom_start, custom_end = None, None
+            if date_preset == "Custom Range":
+                sc1, sc2 = st.columns(2)
+                with sc1:
+                    custom_start = st.date_input(
+                        "Start Date",
+                        value=datetime.now().date() - timedelta(days=30)
+                    )
+                with sc2:
+                    custom_end = st.date_input(
+                        "End Date",
+                        value=datetime.now().date()
+                    )
+            else:
+                st.caption(f"Analyze data relative to today ({datetime.now().strftime('%b %d')}).")
+
+        with c2:
+            # ===== REPORT TYPE SECTION =====
+            st.markdown(f'''
+            <div style="display: flex; align-items: center; gap: 10px; margin-bottom: 1rem;">
+                {get_svg_icon('settings', 24)}
+                <span class="section-title" style="font-size: 1.1rem;">Report Scope</span>
+            </div>
+            ''', unsafe_allow_html=True)
+            
+            view_type = st.radio(
+                "Select report format",
+                [
+                    "Executive Summary",
+                    "Detailed Analysis"
+                ],
+                label_visibility="collapsed",
+                captions=[
+                    "High-level overview (5 sections)",
+                    "Complete analysis (7 sections)"
+                ]
+            )
+        
+        st.markdown("<br>", unsafe_allow_html=True)
+        
+        # ===== SUBMIT BUTTON =====
+        # Centered button with max width
+        col_L, col_btn, col_R = st.columns([1, 2, 1])
+        with col_btn:
+            submitted = st.form_submit_button(
+                "Generate Analysis Report",
+                use_container_width=True,
+                type="primary"
+            )
+        
+        if submitted:
+            # Calculate date range
+            if date_preset == "Custom Range":
+                if custom_start and custom_end:
+                    if custom_end < custom_start:
+                        st.error("⚠️ End date must be after start date")
+                        st.stop()
+                    start_date = custom_start
+                    end_date = custom_end
+                else:
+                    st.error("⚠️ Please select both start and end dates")
+                    st.stop()
+            else:
+                # Parse preset
+                days_map = {
+                    "Last 7 Days": 7,
+                    "Last 14 Days": 14,
+                    "Last 30 Days": 30,
+                    "Last 60 Days": 60,
+                    "Last 90 Days": 90
+                }
+                days = days_map.get(date_preset, 30)
+                end_date = datetime.now().date()
+                start_date = end_date - timedelta(days=days)
+            
+            # Save configuration to session state
+            st.session_state['report_config'] = {
+                'start_date': start_date,
+                'end_date': end_date,
+                'view_type': view_type,
+                'date_preset': date_preset
+            }
+            st.session_state['show_client_report'] = True
+            
+            # Update date_range for display
+            date_range_str = f"{start_date.strftime('%b %d')} – {end_date.strftime('%b %d, %Y')}"
+            st.session_state['date_range'] = date_range_str
+            
+            # Clear cached narratives to force regeneration with new dates
+            cache_keys = [k for k in st.session_state.keys() if k.startswith('client_report_narratives_')]
+            for key in cache_keys:
+                del st.session_state[key]
+            
+            st.rerun()
+    
+    # Feature Showcase Section
+    st.markdown("<br><br>", unsafe_allow_html=True)
+    
+    f1, f2, f3 = st.columns(3, gap="medium")
+    
+    with f1:
+        st.markdown(f'''
+        <div class="summary-card">
+            <div class="card-header">
+                <div class="card-icon-box">{get_svg_icon('brain', 20)}</div>
+                <h3 class="card-title">AI Powered</h3>
+            </div>
+            <p class="footer-text">Generates natural language insights for every metric, explaining the "why" behind performance.</p>
+        </div>
+        ''', unsafe_allow_html=True)
+        
+    with f2:
+        st.markdown(f'''
+        <div class="summary-card">
+            <div class="card-header">
+                <div class="card-icon-box">{get_svg_icon('bolt', 20)}</div>
+                <h3 class="card-title">Impact Tracking</h3>
+            </div>
+            <p class="footer-text">Visualizes the ROI of your optimizer decisions with a validated causal timeline.</p>
+        </div>
+        ''', unsafe_allow_html=True)
+
+    with f3:
+        st.markdown(f'''
+        <div class="summary-card">
+            <div class="card-header">
+                <div class="card-icon-box">{get_svg_icon('link', 20)}</div>
+                <h3 class="card-title">Secure Sharing</h3>
+            </div>
+            <p class="footer-text">Create read-only public links for clients/stakeholders valid for 30 days.</p>
+        </div>
+        ''', unsafe_allow_html=True)
+
+
 # =============================================================================
 # COMPONENT RENDERERS
 # =============================================================================
@@ -922,53 +1134,82 @@ def _render_spend_breakdown_aligned(data: dict):
 # =============================================================================
 
 def run():
-    """Client Report Page - Premium Dark Theme"""
+    """
+    Client Report Page - Premium Dark Theme with Configuration Landing
+    """
+    
+    # =========================================================================
+    # LANDING PAGE CHECK
+    # =========================================================================
+    if not st.session_state.get('show_client_report', False):
+        render_landing_page()
+        return
+    
+    # =========================================================================
+    # BACK TO CONFIG BUTTON
+    # =========================================================================
+    col_back, col_spacer = st.columns([0.2, 0.8])
+    with col_back:
+        if st.button("← Configure Report", help="Return to configuration page", use_container_width=True):
+            st.session_state['show_client_report'] = False
+            st.rerun()
+    
+    # =========================================================================
+    # REPORT GENERATION
+    # =========================================================================
+    
     inject_premium_styles()
-
+    
     assistant = AssistantModule()
     exec_dash = ExecutiveDashboard()
     report_card = ReportCardModule()
-
+    
+    # Get report configuration
+    report_config = st.session_state.get('report_config', {})
+    view_type = report_config.get('view_type', 'Detailed Analysis')
+    
     # Generate narratives - Cache in session state
     cache_key = f"client_report_narratives_{st.session_state.get('active_account_id', 'default')}_v2026_metric_fix"
-
+    
     if cache_key not in st.session_state:
         panels_to_generate = [
             "performance", "health", "portfolio", "impact",
             "actions", "match_type", "executive_summary"
         ]
-
-        with st.spinner("Generating AI insights..."):
+        
+        with st.spinner("🤖 Generating AI insights..."):
             narratives = assistant.generate_report_narratives(panels_to_generate)
             st.session_state[cache_key] = narratives
     else:
         narratives = st.session_state[cache_key]
-
+    
     # Fetch visual data
-    with st.spinner("Loading visual data..."):
+    with st.spinner("📊 Loading performance data..."):
         exec_data = exec_dash._fetch_data()
-
-        date_str = "Period Unknown"
-        if exec_data and 'date_range' in exec_data:
-            dr = exec_data['date_range']
-            if dr.get('start') and dr.get('end'):
-                s = pd.to_datetime(dr['start']).strftime('%b %d')
-                e = pd.to_datetime(dr['end']).strftime('%b %d, %Y')
-                date_str = f"{s} – {e}"
-
+        
+        # Override date_str if configured
+        date_str = st.session_state.get('date_range', "Period Unknown")
+        if not st.session_state.get('date_range'):
+            if exec_data and 'date_range' in exec_data:
+                dr = exec_data['date_range']
+                if dr.get('start') and dr.get('end'):
+                    s = pd.to_datetime(dr['start']).strftime('%b %d')
+                    e = pd.to_datetime(dr['end']).strftime('%b %d, %Y')
+                    date_str = f"{s} – {e}"
+        
         hub = DataHub()
         rc_df = hub.get_enriched_data()
         if rc_df is None:
             rc_df = hub.get_data("search_term_report")
-
+        
         rc_metrics = None
         if rc_df is not None:
             rc_metrics = report_card.analyze(rc_df)
-
+    
     if not exec_data:
-        st.warning("Data analysis pending. Please ensure data is loaded.")
+        st.warning("⚠️ Data analysis pending. Please ensure data is loaded.")
         return
-
+    
     # Prepare Share Context
     is_shared = st.session_state.get('read_only_mode', False)
     share_context = None
@@ -977,104 +1218,108 @@ def run():
             'client_id': st.session_state.get('active_account_id'),
             'narratives': st.session_state.get(cache_key, {})
         }
-
-    # Render Integrated Header
+    
+    # =========================================================================
+    # RENDER HEADER WITH SHARE
+    # =========================================================================
     render_header(date_str, show_share=not is_shared, share_context=share_context)
-
-    # REGENERATE BUTTON (For refreshing AI insights)
+    
+    # Regenerate button (for refreshing AI)
     if not is_shared:
-        col_reg, _ = st.columns([0.25, 0.75])
+        col_reg, col_space = st.columns([0.25, 0.75])
         with col_reg:
-            if st.button("🔄 Regenerate Analysis", help="Force refresh AI insights (useful after running Optimizer)"):
+            if st.button("🔄 Regenerate Analysis", help="Force refresh AI insights"):
                 if cache_key in st.session_state:
                     del st.session_state[cache_key]
                 st.rerun()
-
-    # Read-Only Banner
+    
+    # Read-only banner
     if is_shared:
-        st.info("You are viewing a shared report (Read-Only Mode)")
-
+        st.info("👁️ You are viewing a shared report (Read-Only Mode)")
+    
     # =========================================================================
-    # EXECUTIVE SUMMARY
+    # SECTION 1: EXECUTIVE SUMMARY (Always Show)
     # =========================================================================
     render_section_header('star', 'Executive Summary')
     render_executive_summary(narratives.get("executive_summary", {}))
-
+    
     # =========================================================================
-    # PERFORMANCE OVERVIEW
+    # SECTION 2: PERFORMANCE OVERVIEW (Always Show)
     # =========================================================================
     render_section_header('chart', 'Performance Overview')
     render_ai_insight(narratives.get("performance", "Analysis in progress..."))
     exec_dash._render_kpi_cards(exec_data)
-
+    
     # =========================================================================
-    # ACCOUNT HEALTH
+    # SECTION 3: ACCOUNT HEALTH (Always Show)
     # =========================================================================
     render_section_header('heart', 'Account Health')
     render_ai_insight(narratives.get("health", "Analysis in progress..."))
     exec_dash._render_gauges(exec_data)
-
+    
     # =========================================================================
-    # PORTFOLIO ANALYSIS
+    # SECTION 4: PORTFOLIO ANALYSIS (Always Show)
     # =========================================================================
     render_section_header('grid', 'Portfolio Analysis')
     render_ai_insight(narratives.get("portfolio", "Analysis in progress..."))
-
+    
     c1, c2 = st.columns([7, 3])
     with c1:
         exec_dash._render_performance_scatter(exec_data)
     with c2:
         exec_dash._render_quadrant_donut(exec_data)
-
+    
     # =========================================================================
-    # DECISION IMPACT (Auto-Hide if no data)
+    # SECTION 5: DECISION IMPACT (Always Show if data exists)
     # =========================================================================
     has_decisions = False
     if exec_data and exec_data.get('impact_df') is not None and not exec_data['impact_df'].empty:
         has_decisions = True
-
+    
     if has_decisions:
         render_section_header('bolt', 'Decision Impact')
         render_ai_insight(narratives.get("impact", "Analysis in progress..."))
-
+        
         c1, c2 = st.columns([3, 7])
         with c1:
             exec_dash._render_decision_impact_card(exec_data)
         with c2:
             exec_dash._render_decision_timeline(exec_data)
-
+    
     # =========================================================================
-    # MATCH TYPE PERFORMANCE (ALIGNED)
+    # DETAILED ANALYSIS ONLY - SECTIONS 6 & 7
     # =========================================================================
-    render_section_header('crosshair', 'Match Type Performance')
-    render_ai_insight(narratives.get("match_type", "Analysis in progress..."))
-
-    c1, c2 = st.columns([7, 3])
-    with c1:
-        _render_match_type_table_aligned(exec_data)
-    with c2:
-        _render_spend_breakdown_aligned(exec_data)
-
-    # =========================================================================
-    # ACTIONS & RESULTS (Auto-Hide if no actions)
-    # =========================================================================
-    has_actions = False
-    if rc_metrics and rc_metrics.get('actions'):
-        acts = rc_metrics['actions']
-        total_actions = sum([
-            acts.get('bid_increases', 0),
-            acts.get('bid_decreases', 0),
-            acts.get('negatives', 0),
-            acts.get('harvests', 0)
-        ])
-        if total_actions > 0:
-            has_actions = True
-
-    if has_actions:
-        render_section_header('award', 'Actions & Results')
-        render_ai_insight(narratives.get("actions", "Analysis in progress..."))
-        report_card._render_section_2_actions(rc_metrics)
-
+    
+    if view_type == "Detailed Analysis":
+        
+        # SECTION 6: MATCH TYPE PERFORMANCE
+        render_section_header('crosshair', 'Match Type Performance')
+        render_ai_insight(narratives.get("match_type", "Analysis in progress..."))
+        
+        c1, c2 = st.columns([7, 3])
+        with c1:
+            _render_match_type_table_aligned(exec_data)
+        with c2:
+            _render_spend_breakdown_aligned(exec_data)
+        
+        # SECTION 7: ACTIONS & RESULTS (if data exists)
+        has_actions = False
+        if rc_metrics and rc_metrics.get('actions'):
+            acts = rc_metrics['actions']
+            total_actions = sum([
+                acts.get('bid_increases', 0),
+                acts.get('bid_decreases', 0),
+                acts.get('negatives', 0),
+                acts.get('harvests', 0)
+            ])
+            if total_actions > 0:
+                has_actions = True
+        
+        if has_actions:
+            render_section_header('award', 'Actions & Results')
+            render_ai_insight(narratives.get("actions", "Analysis in progress..."))
+            report_card._render_section_2_actions(rc_metrics)
+    
     # =========================================================================
     # FOOTER
     # =========================================================================
