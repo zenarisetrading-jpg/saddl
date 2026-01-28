@@ -71,7 +71,7 @@
 
             <!-- Toggle -->
             <div class="mt-10 flex justify-center items-center gap-4">
-                <span class="text-sm font-semibold text-slate-900" id="seller-label">Individual Seller</span>
+                <span class="text-sm font-semibold text-slate-900" id="seller-label">Brands</span>
                 <button id="pricing-toggle"
                     class="relative inline-flex h-8 w-14 items-center rounded-full bg-slate-200 transition-colors focus:outline-none focus:ring-2 focus:ring-[#2A8EC9] focus:ring-offset-2"
                     role="switch" aria-checked="false">
@@ -92,368 +92,276 @@
             <div id="seller-pricing"
                 class="grid md:grid-cols-3 gap-8 max-w-6xl mx-auto transition-opacity duration-300">
 
+                <!-- Free Trial (Badge Only - applies to all) -->
                 <!-- Starter -->
-                <div class="border border-slate-200 rounded-2xl p-8 hover:shadow-xl transition-shadow bg-white">
-                    <h3 class="text-xl font-bold text-slate-900 mb-2">Starter</h3>
-                    <div class="flex items-baseline mb-6">
-                        <span class="text-4xl font-bold text-slate-900">$49</span>
-                        <span class="text-slate-500 ml-2">/month</span>
+                <div
+                    class="border border-slate-200 rounded-2xl p-8 hover:shadow-xl transition-shadow bg-white flex flex-col">
+                    <div class="mb-auto">
+                        <div class="flex justify-between items-start mb-2">
+                            <h3 class="text-xl font-bold text-slate-900">Starter</h3>
+                        </div>
+                        <div class="flex items-baseline mb-2">
+                            <span class="text-4xl font-bold text-slate-900">$99</span>
+                            <span class="text-slate-500 ml-2">/month</span>
+                        </div>
+                        <div class="text-sm font-semibold text-[#2A8EC9] mb-4">14-Day Free Trial</div>
+                        <p class="text-sm text-slate-600 mb-6">Up to $10K monthly ad spend.</p>
+
+                        <ul class="space-y-4 text-sm text-slate-600 mb-8">
+                            <li class="flex items-start gap-3">
+                                <svg class="w-5 h-5 text-green-500 shrink-0" fill="none" viewBox="0 0 24 24"
+                                    stroke="currentColor">
+                                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
+                                        d="M5 13l4 4L19 7" />
+                                </svg>
+                                Decision Dashboard
+                            </li>
+                            <li class="flex items-start gap-3">
+                                <svg class="w-5 h-5 text-green-500 shrink-0" fill="none" viewBox="0 0 24 24"
+                                    stroke="currentColor">
+                                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
+                                        d="M5 13l4 4L19 7" />
+                                </svg>
+                                Optimization Workflows
+                            </li>
+                            <li class="flex items-start gap-3">
+                                <svg class="w-5 h-5 text-green-500 shrink-0" fill="none" viewBox="0 0 24 24"
+                                    stroke="currentColor">
+                                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
+                                        d="M5 13l4 4L19 7" />
+                                </svg>
+                                Basic Impact Metrics
+                            </li>
+                        </ul>
                     </div>
-                    <p class="text-sm text-slate-600 mb-6">Perfect for new brands just starting to optimize their ad
-                        spend.</p>
                     <a href="bookdemo.html"
                         class="block w-full py-3 px-4 bg-slate-100 text-slate-900 font-semibold text-center rounded-lg hover:bg-slate-200 transition-colors">Start
                         Free Trial</a>
-
-                    <ul class="mt-8 space-y-4 text-sm text-slate-600">
-                        <li class="flex items-start gap-3">
-                            <svg class="w-5 h-5 text-green-500 shrink-0" fill="none" viewBox="0 0 24 24"
-                                stroke="currentColor">
-                                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
-                                    d="M5 13l4 4L19 7" />
-                            </svg>
-                            1 Amazon account
-                        </li>
-                        <li class="flex items-start gap-3">
-                            <svg class="w-5 h-5 text-green-500 shrink-0" fill="none" viewBox="0 0 24 24"
-                                stroke="currentColor">
-                                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
-                                    d="M5 13l4 4L19 7" />
-                            </svg>
-                            Audit & diagnostics engine
-                        </li>
-                        <li class="flex items-start gap-3">
-                            <svg class="w-5 h-5 text-green-500 shrink-0" fill="none" viewBox="0 0 24 24"
-                                stroke="currentColor">
-                                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
-                                    d="M5 13l4 4L19 7" />
-                            </svg>
-                            Guided recommendations
-                        </li>
-                        <li class="flex items-start gap-3">
-                            <svg class="w-5 h-5 text-green-500 shrink-0" fill="none" viewBox="0 0 24 24"
-                                stroke="currentColor">
-                                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
-                                    d="M5 13l4 4L19 7" />
-                            </svg>
-                            Basic impact metrics
-                        </li>
-                    </ul>
                 </div>
 
                 <!-- Growth (Popular) -->
                 <div
-                    class="border-2 border-[#2A8EC9] rounded-2xl p-8 shadow-xl bg-white relative overflow-hidden transform md:-translate-y-4">
+                    class="border-2 border-[#2A8EC9] rounded-2xl p-8 shadow-xl bg-white relative overflow-hidden transform md:-translate-y-4 flex flex-col">
                     <div
                         class="absolute top-0 right-0 bg-[#2A8EC9] text-white text-xs font-bold px-3 py-1 rounded-bl-lg">
                         MOST POPULAR</div>
-                    <h3 class="text-xl font-bold text-slate-900 mb-2">Growth</h3>
-                    <div class="flex items-baseline mb-6">
-                        <span class="text-4xl font-bold text-slate-900">$99</span>
-                        <span class="text-slate-500 ml-2">/month</span>
+                    <div class="mb-auto">
+                        <h3 class="text-xl font-bold text-slate-900 mb-2">Growth</h3>
+                        <div class="flex items-baseline mb-2">
+                            <span class="text-4xl font-bold text-slate-900">$149</span>
+                            <span class="text-slate-500 ml-2">/month</span>
+                        </div>
+                        <div class="text-sm font-semibold text-[#2A8EC9] mb-4">14-Day Free Trial</div>
+                        <p class="text-sm text-slate-600 mb-6">Unlimited ad spend.</p>
+
+                        <ul class="space-y-4 text-sm text-slate-600 mb-8">
+                            <li class="flex items-start gap-3">
+                                <svg class="w-5 h-5 text-[#2A8EC9] shrink-0" fill="none" viewBox="0 0 24 24"
+                                    stroke="currentColor">
+                                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
+                                        d="M5 13l4 4L19 7" />
+                                </svg>
+                                <span class="font-medium text-slate-900">Everything in Starter</span>
+                            </li>
+                            <li class="flex items-start gap-3">
+                                <svg class="w-5 h-5 text-[#2A8EC9] shrink-0" fill="none" viewBox="0 0 24 24"
+                                    stroke="currentColor">
+                                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
+                                        d="M5 13l4 4L19 7" />
+                                </svg>
+                                Full Impact Dashboard
+                            </li>
+                            <li class="flex items-start gap-3">
+                                <svg class="w-5 h-5 text-[#2A8EC9] shrink-0" fill="none" viewBox="0 0 24 24"
+                                    stroke="currentColor">
+                                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
+                                        d="M5 13l4 4L19 7" />
+                                </svg>
+                                Multi-horizon Attribution (14/30/60)
+                            </li>
+                            <li class="flex items-start gap-3">
+                                <svg class="w-5 h-5 text-[#2A8EC9] shrink-0" fill="none" viewBox="0 0 24 24"
+                                    stroke="currentColor">
+                                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
+                                        d="M5 13l4 4L19 7" />
+                                </svg>
+                                Priority Support
+                            </li>
+                        </ul>
                     </div>
-                    <p class="text-sm text-slate-600 mb-6">Everything you need to scale profitably and prove your
-                        impact.</p>
                     <a href="bookdemo.html"
                         class="block w-full py-3 px-4 bg-[#2A8EC9] text-white font-semibold text-center rounded-lg hover:bg-[#2276A8] transition-colors shadow-lg">Start
                         Free Trial</a>
-
-                    <ul class="mt-8 space-y-4 text-sm text-slate-600">
-                        <li class="flex items-start gap-3">
-                            <svg class="w-5 h-5 text-[#2A8EC9] shrink-0" fill="none" viewBox="0 0 24 24"
-                                stroke="currentColor">
-                                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
-                                    d="M5 13l4 4L19 7" />
-                            </svg>
-                            <span class="font-medium text-slate-900">1 Amazon account</span>
-                        </li>
-                        <li class="flex items-start gap-3">
-                            <svg class="w-5 h-5 text-[#2A8EC9] shrink-0" fill="none" viewBox="0 0 24 24"
-                                stroke="currentColor">
-                                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
-                                    d="M5 13l4 4L19 7" />
-                            </svg>
-                            Full optimization engine
-                        </li>
-                        <li class="flex items-start gap-3">
-                            <svg class="w-5 h-5 text-[#2A8EC9] shrink-0" fill="none" viewBox="0 0 24 24"
-                                stroke="currentColor">
-                                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
-                                    d="M5 13l4 4L19 7" />
-                            </svg>
-                            <span class="font-medium text-slate-900">Bulk execution</span>
-                        </li>
-                        <li class="flex items-start gap-3">
-                            <svg class="w-5 h-5 text-[#2A8EC9] shrink-0" fill="none" viewBox="0 0 24 24"
-                                stroke="currentColor">
-                                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
-                                    d="M5 13l4 4L19 7" />
-                            </svg>
-                            Simulation & forecasting
-                        </li>
-                        <li class="flex items-start gap-3">
-                            <svg class="w-5 h-5 text-[#2A8EC9] shrink-0" fill="none" viewBox="0 0 24 24"
-                                stroke="currentColor">
-                                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
-                                    d="M5 13l4 4L19 7" />
-                            </svg>
-                            <span class="font-medium text-slate-900">Impact dashboard</span>
-                        </li>
-                        <li class="flex items-start gap-3">
-                            <svg class="w-5 h-5 text-[#2A8EC9] shrink-0" fill="none" viewBox="0 0 24 24"
-                                stroke="currentColor">
-                                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
-                                    d="M5 13l4 4L19 7" />
-                            </svg>
-                            Priority support
-                        </li>
-                    </ul>
                 </div>
 
-                <!-- Scale -->
-                <div class="border border-slate-200 rounded-2xl p-8 hover:shadow-xl transition-shadow bg-white">
-                    <h3 class="text-xl font-bold text-slate-900 mb-2">Scale</h3>
-                    <div class="flex items-baseline mb-6">
-                        <span class="text-4xl font-bold text-slate-900">$199</span>
-                        <span class="text-slate-500 ml-2">/month</span>
-                    </div>
-                    <p class="text-sm text-slate-600 mb-6">For sellers managing multiple brands under one business
-                        entity.</p>
-                    <a href="bookdemo.html"
-                        class="block w-full py-3 px-4 bg-slate-100 text-slate-900 font-semibold text-center rounded-lg hover:bg-slate-200 transition-colors">Start
-                        Free Trial</a>
+                <!-- Managed Service -->
+                <div
+                    class="border border-slate-200 rounded-2xl p-8 hover:shadow-xl transition-shadow bg-slate-50 flex flex-col">
+                    <div class="mb-auto">
+                        <h3 class="text-xl font-bold text-slate-900 mb-2">Managed Service</h3>
+                        <div class="flex items-baseline mb-2">
+                            <div class="flex flex-col">
+                                <span class="text-2xl font-bold text-slate-900">$750<span
+                                        class="text-sm font-normal text-slate-500">/mo flat</span></span>
+                                <span class="text-xs text-slate-400 font-medium">up to $10k spend</span>
+                            </div>
+                        </div>
+                        <p class="text-xs text-slate-500 mb-4 italic">Above $10k: $750 + 3% of addtl spend</p>
+                        <p class="text-sm text-slate-600 mb-6">Expert management for your account.</p>
 
-                    <ul class="mt-8 space-y-4 text-sm text-slate-600">
-                        <li class="flex items-start gap-3">
-                            <svg class="w-5 h-5 text-green-500 shrink-0" fill="none" viewBox="0 0 24 24"
-                                stroke="currentColor">
-                                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
-                                    d="M5 13l4 4L19 7" />
-                            </svg>
-                            <span class="font-medium text-slate-900">Up to 3 Amazon accounts</span>
-                        </li>
-                        <li class="flex items-start gap-3">
-                            <svg class="w-5 h-5 text-green-500 shrink-0" fill="none" viewBox="0 0 24 24"
-                                stroke="currentColor">
-                                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
-                                    d="M5 13l4 4L19 7" />
-                            </svg>
-                            Cross-account insights
-                        </li>
-                        <li class="flex items-start gap-3">
-                            <svg class="w-5 h-5 text-green-500 shrink-0" fill="none" viewBox="0 0 24 24"
-                                stroke="currentColor">
-                                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
-                                    d="M5 13l4 4L19 7" />
-                            </svg>
-                            Consolidated reporting
-                        </li>
-                        <li class="flex items-start gap-3">
-                            <svg class="w-5 h-5 text-green-500 shrink-0" fill="none" viewBox="0 0 24 24"
-                                stroke="currentColor">
-                                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
-                                    d="M5 13l4 4L19 7" />
-                            </svg>
-                            Priority processing
-                        </li>
-                        <li class="flex items-start gap-3">
-                            <svg class="w-5 h-5 text-green-500 shrink-0" fill="none" viewBox="0 0 24 24"
-                                stroke="currentColor">
-                                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
-                                    d="M5 13l4 4L19 7" />
-                            </svg>
-                            Early access features
-                        </li>
-                    </ul>
+                        <ul class="space-y-4 text-sm text-slate-600 mb-8">
+                            <li class="flex items-start gap-3">
+                                <svg class="w-5 h-5 text-slate-900 shrink-0" fill="none" viewBox="0 0 24 24"
+                                    stroke="currentColor">
+                                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
+                                        d="M5 13l4 4L19 7" />
+                                </svg>
+                                Dedicated Account Manager
+                            </li>
+                            <li class="flex items-start gap-3">
+                                <svg class="w-5 h-5 text-slate-900 shrink-0" fill="none" viewBox="0 0 24 24"
+                                    stroke="currentColor">
+                                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
+                                        d="M5 13l4 4L19 7" />
+                                </svg>
+                                Weekly Optimization Reviews
+                            </li>
+                            <li class="flex items-start gap-3">
+                                <svg class="w-5 h-5 text-slate-900 shrink-0" fill="none" viewBox="0 0 24 24"
+                                    stroke="currentColor">
+                                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
+                                        d="M5 13l4 4L19 7" />
+                                </svg>
+                                Custom Strategy Sessions
+                            </li>
+                        </ul>
+                    </div>
+                    <div class="mt-4 p-3 bg-slate-100 rounded text-xs text-slate-500 mb-6">
+                        <strong>Example:</strong> $25K spend = $750 + (3% &times; $15K) = <strong>$1,200/mo</strong>
+                    </div>
+                    <a href="bookdemo.html"
+                        class="block w-full py-3 px-4 bg-slate-900 text-white font-semibold text-center rounded-lg hover:bg-slate-800 transition-colors">Book
+                        Strategy Call</a>
                 </div>
 
             </div>
 
             <!-- Agency Pricing View (Initially Hidden) -->
-            <div id="agency-pricing"
-                class="hidden grid md:grid-cols-3 gap-8 max-w-6xl mx-auto transition-opacity duration-300">
+            <div id="agency-pricing" class="hidden max-w-5xl mx-auto transition-opacity duration-300">
 
-                <!-- Platform Access -->
-                <div class="border border-slate-200 rounded-2xl p-8 hover:shadow-xl transition-shadow bg-slate-50">
-                    <h3 class="text-xl font-bold text-slate-900 mb-2">Platform Access</h3>
-                    <div class="text-xs font-bold text-slate-500 uppercase tracking-wide mb-1">Required Base</div>
-                    <div class="flex items-baseline mb-6">
-                        <span class="text-4xl font-bold text-slate-900">$499</span>
-                        <span class="text-slate-500 ml-2">/month</span>
+                <div class="grid md:grid-cols-2 gap-8 items-center">
+                    <!-- Pricing Card -->
+                    <div class="border-2 border-[#2A8EC9] rounded-2xl p-8 shadow-xl bg-white relative overflow-hidden">
+                        <div
+                            class="absolute top-0 right-0 bg-[#2A8EC9] text-white text-xs font-bold px-3 py-1 rounded-bl-lg">
+                            AGENCY PLAN</div>
+                        <h3 class="text-2xl font-bold text-slate-900 mb-6">Agency Partner</h3>
+
+                        <div class="space-y-6">
+                            <div class="flex justify-between items-baseline border-b border-slate-100 pb-4">
+                                <div>
+                                    <div class="font-bold text-lg text-slate-900">Platform Access</div>
+                                    <div class="text-sm text-slate-500">Workspace & Dashboard</div>
+                                </div>
+                                <div class="text-3xl font-bold text-slate-900">$499<span
+                                        class="text-base text-slate-500 font-normal">/mo</span></div>
+                            </div>
+
+                            <div class="flex justify-between items-baseline pb-2">
+                                <div>
+                                    <div class="font-bold text-lg text-slate-900">Client Fee</div>
+                                    <div class="text-sm text-slate-500">Per active client</div>
+                                </div>
+                                <div class="text-3xl font-bold text-slate-900">+$79<span
+                                        class="text-base text-slate-500 font-normal">/mo</span></div>
+                            </div>
+                        </div>
+
+                        <div class="mt-6 p-4 bg-slate-50 rounded-lg text-center">
+                            <div class="text-sm text-slate-500 mb-1">Example Calculation (10 Clients)</div>
+                            <div class="text-lg font-mono text-slate-700">$499 + ($79 &times; 10) = <strong
+                                    class="text-slate-900">$1,289/mo</strong></div>
+                        </div>
+
+                        <a href="agencies.html"
+                            class="block w-full mt-8 py-3 px-4 bg-[#2A8EC9] text-white font-semibold text-center rounded-lg hover:bg-[#2276A8] transition-colors shadow-lg">Book
+                            Agency Demo</a>
                     </div>
-                    <p class="text-sm text-slate-600 mb-6">The foundation for your agency's standardized operations.</p>
-                    <a href="agencies.html"
-                        class="block w-full py-3 px-4 bg-slate-900 text-white font-semibold text-center rounded-lg hover:bg-slate-800 transition-colors">Book
-                        Agency Demo</a>
 
-                    <ul class="mt-8 space-y-4 text-sm text-slate-600">
-                        <li class="flex items-start gap-3">
-                            <svg class="w-5 h-5 text-slate-900 shrink-0" fill="none" viewBox="0 0 24 24"
-                                stroke="currentColor">
-                                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
-                                    d="M5 13l4 4L19 7" />
-                            </svg>
-                            Agency workspace
-                        </li>
-                        <li class="flex items-start gap-3">
-                            <svg class="w-5 h-5 text-slate-900 shrink-0" fill="none" viewBox="0 0 24 24"
-                                stroke="currentColor">
-                                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
-                                    d="M5 13l4 4L19 7" />
-                            </svg>
-                            Unlimited users
-                        </li>
-                        <li class="flex items-start gap-3">
-                            <svg class="w-5 h-5 text-slate-900 shrink-0" fill="none" viewBox="0 0 24 24"
-                                stroke="currentColor">
-                                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
-                                    d="M5 13l4 4L19 7" />
-                            </svg>
-                            Client segregation
-                        </li>
-                        <li class="flex items-start gap-3">
-                            <svg class="w-5 h-5 text-slate-900 shrink-0" fill="none" viewBox="0 0 24 24"
-                                stroke="currentColor">
-                                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
-                                    d="M5 13l4 4L19 7" />
-                            </svg>
-                            Agency-level dashboards
-                        </li>
-                    </ul>
-                </div>
+                    <!-- Features List -->
+                    <div class="p-8">
+                        <h3 class="text-2xl font-bold text-slate-900 mb-6">Everything you need to scale your agency</h3>
+                        <p class="text-slate-600 mb-8 text-lg">One simple plan. All features included for every client.
+                            No hidden fees.</p>
 
-                <!-- Core -->
-                <div class="border border-slate-200 rounded-2xl p-8 hover:shadow-xl transition-shadow bg-white">
-                    <h3 class="text-xl font-bold text-slate-900 mb-2">Core Account</h3>
-                    <div class="text-xs font-bold text-slate-500 uppercase tracking-wide mb-1">Per Client</div>
-                    <div class="flex items-baseline mb-6">
-                        <span class="text-4xl font-bold text-slate-900">$49</span>
-                        <span class="text-slate-500 ml-2">/client/month</span>
+                        <ul class="space-y-4">
+                            <li class="flex items-start gap-3">
+                                <div class="bg-indigo-100 rounded-full p-1 mt-0.5">
+                                    <svg class="w-5 h-5 text-indigo-600 shrink-0" fill="none" viewBox="0 0 24 24"
+                                        stroke="currentColor">
+                                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
+                                            d="M5 13l4 4L19 7" />
+                                    </svg>
+                                </div>
+                                <div>
+                                    <span class="font-bold text-slate-900">White-label Reports</span>
+                                    <p class="text-sm text-slate-600">Client-ready PDFs with your branding.</p>
+                                </div>
+                            </li>
+                            <li class="flex items-start gap-3">
+                                <div class="bg-indigo-100 rounded-full p-1 mt-0.5">
+                                    <svg class="w-5 h-5 text-indigo-600 shrink-0" fill="none" viewBox="0 0 24 24"
+                                        stroke="currentColor">
+                                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
+                                            d="M5 13l4 4L19 7" />
+                                    </svg>
+                                </div>
+                                <div>
+                                    <span class="font-bold text-slate-900">Client Scorecards</span>
+                                    <p class="text-sm text-slate-600">At-a-glance health metrics for your entire
+                                        portfolio.</p>
+                                </div>
+                            </li>
+                            <li class="flex items-start gap-3">
+                                <div class="bg-indigo-100 rounded-full p-1 mt-0.5">
+                                    <svg class="w-5 h-5 text-indigo-600 shrink-0" fill="none" viewBox="0 0 24 24"
+                                        stroke="currentColor">
+                                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
+                                            d="M5 13l4 4L19 7" />
+                                    </svg>
+                                </div>
+                                <div>
+                                    <span class="font-bold text-slate-900">Impact Attribution</span>
+                                    <p class="text-sm text-slate-600">Prove the value of your optimizations with data.
+                                    </p>
+                                </div>
+                            </li>
+                            <li class="flex items-start gap-3">
+                                <div class="bg-indigo-100 rounded-full p-1 mt-0.5">
+                                    <svg class="w-5 h-5 text-indigo-600 shrink-0" fill="none" viewBox="0 0 24 24"
+                                        stroke="currentColor">
+                                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
+                                            d="M5 13l4 4L19 7" />
+                                    </svg>
+                                </div>
+                                <div>
+                                    <span class="font-bold text-slate-900">Unlimited Team Members</span>
+                                    <p class="text-sm text-slate-600">Bring your whole team without extra costs.</p>
+                                </div>
+                            </li>
+                        </ul>
                     </div>
-                    <p class="text-sm text-slate-600 mb-6">For clients that need optimization without the fancy
-                        reporting.</p>
-                    <a href="agencies.html"
-                        class="block w-full py-3 px-4 bg-slate-100 text-slate-900 font-semibold text-center rounded-lg hover:bg-slate-200 transition-colors">Book
-                        Agency Demo</a>
-
-                    <ul class="mt-8 space-y-4 text-sm text-slate-600">
-                        <li class="flex items-start gap-3">
-                            <svg class="w-5 h-5 text-green-500 shrink-0" fill="none" viewBox="0 0 24 24"
-                                stroke="currentColor">
-                                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
-                                    d="M5 13l4 4L19 7" />
-                            </svg>
-                            Optimization engine
-                        </li>
-                        <li class="flex items-start gap-3">
-                            <svg class="w-5 h-5 text-green-500 shrink-0" fill="none" viewBox="0 0 24 24"
-                                stroke="currentColor">
-                                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
-                                    d="M5 13l4 4L19 7" />
-                            </svg>
-                            Audit & diagnostics
-                        </li>
-                        <li class="flex items-start gap-3">
-                            <svg class="w-5 h-5 text-green-500 shrink-0" fill="none" viewBox="0 0 24 24"
-                                stroke="currentColor">
-                                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
-                                    d="M5 13l4 4L19 7" />
-                            </svg>
-                            Bulk execution
-                        </li>
-                        <li class="flex items-start gap-3">
-                            <svg class="w-5 h-5 text-green-500 shrink-0" fill="none" viewBox="0 0 24 24"
-                                stroke="currentColor">
-                                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
-                                    d="M5 13l4 4L19 7" />
-                            </svg>
-                            Internal tracking
-                        </li>
-                    </ul>
-                </div>
-
-                <!-- Client-Ready -->
-                <div
-                    class="border-2 border-[#2A8EC9] rounded-2xl p-8 shadow-xl bg-white relative overflow-hidden transform md:-translate-y-4">
-                    <div
-                        class="absolute top-0 right-0 bg-[#2A8EC9] text-white text-xs font-bold px-3 py-1 rounded-bl-lg">
-                        PREMIUM</div>
-                    <h3 class="text-xl font-bold text-slate-900 mb-2">Client-Ready</h3>
-                    <div class="text-xs font-bold text-slate-500 uppercase tracking-wide mb-1">Per Client</div>
-                    <div class="flex items-baseline mb-6">
-                        <span class="text-4xl font-bold text-slate-900">$99</span>
-                        <span class="text-slate-500 ml-2">/client/month</span>
-                    </div>
-                    <p class="text-sm text-slate-600 mb-6">Full transparency reporting to prove your agency's value.</p>
-                    <a href="agencies.html"
-                        class="block w-full py-3 px-4 bg-[#2A8EC9] text-white font-semibold text-center rounded-lg hover:bg-[#2276A8] transition-colors shadow-lg">Book
-                        Agency Demo</a>
-
-                    <ul class="mt-8 space-y-4 text-sm text-slate-600">
-                        <li class="flex items-start gap-3">
-                            <svg class="w-5 h-5 text-[#2A8EC9] shrink-0" fill="none" viewBox="0 0 24 24"
-                                stroke="currentColor">
-                                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
-                                    d="M5 13l4 4L19 7" />
-                            </svg>
-                            Everything in Core
-                        </li>
-                        <li class="flex items-start gap-3">
-                            <svg class="w-5 h-5 text-[#2A8EC9] shrink-0" fill="none" viewBox="0 0 24 24"
-                                stroke="currentColor">
-                                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
-                                    d="M5 13l4 4L19 7" />
-                            </svg>
-                            <span class="font-medium text-slate-900">Client-ready report card</span>
-                        </li>
-                        <li class="flex items-start gap-3">
-                            <svg class="w-5 h-5 text-[#2A8EC9] shrink-0" fill="none" viewBox="0 0 24 24"
-                                stroke="currentColor">
-                                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
-                                    d="M5 13l4 4L19 7" />
-                            </svg>
-                            <span class="font-medium text-slate-900">Impact dashboard</span>
-                        </li>
-                        <li class="flex items-start gap-3">
-                            <svg class="w-5 h-5 text-[#2A8EC9] shrink-0" fill="none" viewBox="0 0 24 24"
-                                stroke="currentColor">
-                                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
-                                    d="M5 13l4 4L19 7" />
-                            </svg>
-                            Branded PDF/CSV exports
-                        </li>
-                        <li class="flex items-start gap-3">
-                            <svg class="w-5 h-5 text-[#2A8EC9] shrink-0" fill="none" viewBox="0 0 24 24"
-                                stroke="currentColor">
-                                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
-                                    d="M5 13l4 4L19 7" />
-                            </svg>
-                            Multi-horizon tracking
-                        </li>
-                    </ul>
                 </div>
 
             </div>
 
-            <!-- Flat Plans (Only visible in Agency view) -->
-            <div id="agency-flat-plans"
-                class="hidden mt-16 max-w-4xl mx-auto bg-slate-50 rounded-2xl p-8 border border-slate-200 text-center">
-                <h4 class="text-xl font-bold text-slate-900 mb-6">Prefer a flat package?</h4>
-                <div class="grid md:grid-cols-3 gap-6">
-                    <div class="bg-white p-4 rounded-xl border border-slate-200 shadow-sm">
-                        <div class="text-sm font-semibold text-slate-600">10 Client-Ready Accounts</div>
-                        <div class="text-xl font-bold text-[#2A8EC9] mt-2">$999/mo</div>
-                    </div>
-                    <div
-                        class="bg-white p-4 rounded-xl border border-slate-200 shadow-sm transition-transform hover:scale-105">
-                        <div class="text-sm font-semibold text-slate-600">15 Client-Ready Accounts</div>
-                        <div class="text-xl font-bold text-[#2A8EC9] mt-2">$1,500/mo</div>
-                    </div>
-                    <div class="bg-white p-4 rounded-xl border border-slate-200 shadow-sm">
-                        <div class="text-sm font-semibold text-slate-600">25 Client-Ready Accounts</div>
-                        <div class="text-xl font-bold text-[#2A8EC9] mt-2">$2,250/mo</div>
-                    </div>
-                </div>
+            <!-- Amazon Cost Disclosure -->
+            <div class="max-w-4xl mx-auto mt-16 text-center">
+                <p
+                    class="text-sm text-slate-500 italic bg-slate-50 inline-block px-4 py-2 rounded-lg border border-slate-200">
+                    <strong>Note:</strong> All pricing excludes Amazon advertising costs, which are paid directly to
+                    Amazon.
+                </p>
             </div>
 
         </div>
@@ -481,7 +389,11 @@
             <div class="grid md:grid-cols-4 gap-12">
                 <div>
                     <div class="text-white font-bold text-xl mb-4">SADDL</div>
-                    <p class="text-sm">Decision intelligence for Amazon PPC</p>
+                    <p class="text-sm mb-4">Decision intelligence for Amazon PPC</p>
+                    <div class="text-sm space-y-2">
+                         <p>6th floor, Meydan grandstand,<br>Meydan Road, Nad Al Sheba,<br>Dubai, UAE</p>
+                         <p><a href="mailto:info@saddl.io" class="hover:text-white">info@saddl.io</a></p>
+                    </div>
                 </div>
                 <div>
                     <h4 class="text-white font-semibold mb-4">Product</h4>
@@ -505,6 +417,8 @@
                         <li><a href="about.html" class="hover:text-white">About</a></li>
                         <li><a href="faq.html" class="hover:text-white">FAQ</a></li>
                         <li><a href="privacy.html" class="hover:text-white">Privacy</a></li>
+
+                        <li><a href="terms.html" class="hover:text-white">Terms</a></li>
                         <li><a href="blogs/index.html" class="hover:text-white">Blog</a></li>
                         <li><a href="careers.html" class="hover:text-white">Careers</a></li>
                     </ul>
@@ -520,7 +434,6 @@
     <script>
         const sellerPricing = document.getElementById('seller-pricing');
         const agencyPricing = document.getElementById('agency-pricing');
-        const agencyFlatPlans = document.getElementById('agency-flat-plans');
         const toggleBtn = document.getElementById('pricing-toggle');
         const toggleCircle = document.getElementById('toggle-circle');
         const sellerLabel = document.getElementById('seller-label');
@@ -547,7 +460,6 @@
                 // Show/Hide Content
                 sellerPricing.classList.add('hidden');
                 agencyPricing.classList.remove('hidden');
-                agencyFlatPlans.classList.remove('hidden');
             } else {
                 toggleCircle.classList.add('translate-x-1');
                 toggleCircle.classList.remove('translate-x-7');
@@ -563,7 +475,6 @@
                 // Show/Hide Content
                 sellerPricing.classList.remove('hidden');
                 agencyPricing.classList.add('hidden');
-                agencyFlatPlans.classList.add('hidden');
             }
         });
     </script>
