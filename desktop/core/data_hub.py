@@ -343,8 +343,9 @@ class DataHub:
         found_cols = [c for c in required_cols if c in df_renamed.columns]
         
         if not all(col in df_renamed.columns for col in required_cols):
-             # Fallback: Try to be lenient
-             pass
+            import logging
+            missing = [c for c in required_cols if c not in df_renamed.columns]
+            logging.warning(f"Bulk upload missing columns {missing} — attempting fallback recovery")
 
         # Fallback Check: If 'Campaign Name' is still missing, try manual recovery
         if 'Campaign Name' not in df_renamed.columns:

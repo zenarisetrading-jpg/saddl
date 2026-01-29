@@ -3,8 +3,7 @@ import streamlit as st
 import pandas as pd
 import numpy as np
 from datetime import datetime
-from typing import Dict, Any, List
-from typing import Optional
+from typing import Dict, Any, List, Optional, Tuple
 
 # Core imports
 from features._base import BaseFeature
@@ -67,7 +66,7 @@ class ReportCardModule(BaseFeature):
             </div>
             """, unsafe_allow_html=True)
         
-    def validate_data(self, data: pd.DataFrame) -> tuple[bool, str]:
+    def validate_data(self, data: pd.DataFrame) -> Tuple[bool, str]:
         """Validate input data has required columns."""
         required = ['Spend', 'Sales', 'Orders']
         missing = [c for c in required if c not in data.columns]
@@ -134,12 +133,7 @@ class ReportCardModule(BaseFeature):
         # 1. Performance Health
         total_spend = df['Spend'].sum()
         total_sales = df['Sales'].sum()
-        actual_roas = total_spend / total_sales if total_sales > 0 else 0
-        # Invert for ROAS (Sales/Spend) as commonly used in Amazon PPC, user code used Spend/Sales? 
-        # Wait, usually ROAS = Sales / Spend. ACOS = Spend / Sales.
-        # User's previous code: "actual_roas = total_sales / total_spend if total_spend > 0 else 0"
-        # Let's stick to standard ROAS = Sales/Spend.
-        actual_roas = total_sales / total_spend if total_spend > 0 else 0
+        actual_roas = total_sales / total_spend if total_spend > 0 else 0  # ROAS = Sales/Spend
         
         target_roas = st.session_state.get('target_roas', 3.0) # Default target
         

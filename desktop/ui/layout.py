@@ -47,7 +47,6 @@ def render_sidebar(navigate_to):
                 return
         
         navigate_to(target_module)
-        navigate_to(target_module)
     # Sidebar Logo at TOP (theme-aware, prominent)
     theme_mode = st.session_state.get('theme_mode', 'dark')
     logo_data = ThemeManager.get_cached_logo(theme_mode)
@@ -119,7 +118,6 @@ def render_home():
     from core.account_utils import get_active_account_id
     from ui.components.empty_states import render_empty_state
     
-    # === EMPTY STATE CHECKS ===
     # === EMPTY STATE CHECKS ===
     # Support "Test Mode" via query params to verify empty states without deleting data
     # Usage: ?test_state=no_account or ?test_state=no_data
@@ -622,33 +620,6 @@ def render_home():
                         
 
                         
-                        if not df_curr.empty:
-                            # ROAS Trend
-                            curr_spend = df_curr['Spend'].sum() if 'Spend' in df_curr.columns else 0
-                            curr_sales = df_curr['Sales'].sum() if 'Sales' in df_curr.columns else 0
-                            roas_curr = curr_sales / curr_spend if curr_spend > 0 else 0
-                            
-                            if not df_prev.empty:
-                                prev_spend = df_prev['Spend'].sum() if 'Spend' in df_prev.columns else 0
-                                prev_sales = df_prev['Sales'].sum() if 'Sales' in df_prev.columns else 0
-                                roas_prev = prev_sales / prev_spend if prev_spend > 0 else 0
-                                roas_delta = ((roas_curr - roas_prev) / roas_prev * 100) if roas_prev > 0 else 0
-                        
-                        # Spend Efficiency (Ad Group aggregation)
-                        def calc_efficiency(df):
-                            if 'Ad Group Name' in df.columns:
-                                agg = df.groupby('Ad Group Name').agg({'Spend': 'sum', 'Sales': 'sum'}).reset_index()
-                                agg['ROAS'] = (agg['Sales'] / agg['Spend']).replace([np.inf, -np.inf], 0).fillna(0)
-                                eff_spend = agg[agg['ROAS'] >= 2.5]['Spend'].sum()
-                                total = agg['Spend'].sum()
-                                return (eff_spend / total * 100) if total > 0 else 0
-                            return 0
-                        
-                        efficiency_current = calc_efficiency(df_curr)
-                        if not df_prev.empty:
-                            eff_prev = calc_efficiency(df_prev)
-                            efficiency_delta = efficiency_current - eff_prev
-
                     if not df_curr.empty:
                         # ROAS Trend
                         curr_spend = df_curr['Spend'].sum() if 'Spend' in df_curr.columns else 0
@@ -687,11 +658,9 @@ def render_home():
                             top_campaign = camp_delta.idxmax()
                             top_campaign_delta = camp_delta.max()
         except Exception as e:
-            # Silently handle errors for production
-            # Silently handle errors for production
-            import streamlit as st
+            import logging
+            logging.warning(f"Home insight calculation error: {e}")
             st.error(f"Insight Error: {e}")
-            pass
     
     # Build Row 1 insights
     arrow_up = "↑"

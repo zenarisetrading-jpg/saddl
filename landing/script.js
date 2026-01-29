@@ -1,63 +1,3 @@
-// ========================================
-// PERSONA STATE MANAGEMENT
-// DISABLED FOR PRIVATE BETA - Uncomment when ICP section is reactivated
-// ========================================
-/*
-// Global persona state (default: 'seller')
-let userPersona = 'seller';
-
-// Function to update persona and filter content
-function setUserPersona(persona) {
-    userPersona = persona;
-
-    // Update visual state of ICP cards
-    document.querySelectorAll('.icp-card').forEach(card => {
-        const cardPersona = card.dataset.icp;
-        if (cardPersona === persona) {
-            card.classList.add('selected');
-        } else {
-            card.classList.remove('selected');
-        }
-    });
-
-    // Filter content based on persona
-    filterContentByPersona(persona);
-
-    // Sync pricing toggle with persona
-    const pricingToggleButtons = document.querySelectorAll('.pricing-toggle-option');
-    pricingToggleButtons.forEach(button => {
-        const isActive = button.dataset.plan === persona;
-        button.classList.toggle('active', isActive);
-        button.setAttribute('aria-pressed', isActive);
-    });
-}
-
-// Function to filter content visibility
-function filterContentByPersona(persona) {
-    // Find all elements with data-persona attribute
-    document.querySelectorAll('[data-persona]').forEach(element => {
-        const elementPersona = element.dataset.persona;
-
-        if (elementPersona === 'all') {
-            // Always show elements marked as 'all'
-            element.classList.remove('persona-hidden');
-        } else if (elementPersona === persona) {
-            // Show elements matching current persona
-            element.classList.remove('persona-hidden');
-        } else {
-            // Hide elements not matching current persona
-            element.classList.add('persona-hidden');
-        }
-    });
-}
-
-// Initialize persona on page load
-document.addEventListener('DOMContentLoaded', function() {
-    // Set default persona
-    setUserPersona('seller');
-});
-*/
-
 // Smooth scroll for navigation links
 // IMPORTANT: Exclude modal triggers (.audit-trigger, .beta-signup-trigger) - they have their own handlers
 document.querySelectorAll('a[href^="#"]').forEach(anchor => {
@@ -79,22 +19,25 @@ document.querySelectorAll('a[href^="#"]').forEach(anchor => {
 });
 
 
-// Navbar scroll effect
-let lastScroll = 0;
+// Navbar scroll effect (throttled to ~60fps)
 const navbar = document.querySelector('.navbar');
+let scrollTicking = false;
 
 window.addEventListener('scroll', () => {
-    const currentScroll = window.pageYOffset;
-
-    if (currentScroll <= 0) {
-        navbar.style.boxShadow = '0 1px 3px rgba(43, 45, 66, 0.08)';
-        navbar.style.background = 'rgba(245, 244, 240, 0.95)';
-    } else {
-        navbar.style.boxShadow = '0 4px 12px rgba(43, 45, 66, 0.15)';
-        navbar.style.background = 'rgba(245, 244, 240, 0.98)';
+    if (!scrollTicking) {
+        requestAnimationFrame(() => {
+            const currentScroll = window.pageYOffset;
+            if (currentScroll <= 0) {
+                navbar.style.boxShadow = '0 1px 3px rgba(43, 45, 66, 0.08)';
+                navbar.style.background = 'rgba(245, 244, 240, 0.95)';
+            } else {
+                navbar.style.boxShadow = '0 4px 12px rgba(43, 45, 66, 0.15)';
+                navbar.style.background = 'rgba(245, 244, 240, 0.98)';
+            }
+            scrollTicking = false;
+        });
+        scrollTicking = true;
     }
-
-    lastScroll = currentScroll;
 });
 
 // Intersection Observer for fade-in animations
@@ -209,23 +152,7 @@ function animateCounter(element, target, duration = 2000) {
     }, 16);
 }
 
-// Trigger counter animation when stats come into view
-const statsObserver = new IntersectionObserver((entries) => {
-    entries.forEach(entry => {
-        if (entry.isIntersecting && !entry.target.classList.contains('counted')) {
-            entry.target.classList.add('counted');
-            const statValues = entry.target.querySelectorAll('.stat-value');
-            // Animation would go here if stats were numbers
-        }
-    });
-});
-
-const heroStats = document.querySelector('.hero-stats');
-if (heroStats) {
-    statsObserver.observe(heroStats);
-}
-
-// Form validation (if forms are added)
+// Form validation
 function validateEmail(email) {
     const re = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
     return re.test(email);
@@ -248,124 +175,6 @@ pricingCards.forEach(card => {
 // Console easter egg
 console.log('%cSaddle AdPulse', 'font-size: 20px; font-weight: bold; color: #0891B2;');
 console.log('%cLooking for a career opportunity? Email us at careers@saddle.io', 'font-size: 12px; color: #5F6368;');
-
-// ========================================
-// PRICING TOGGLE & ICP FUNCTIONALITY
-// DISABLED FOR PRIVATE BETA - Uncomment when pricing/ICP sections are reactivated
-// ========================================
-/*
-const pricingToggleButtons = document.querySelectorAll('.pricing-toggle-option');
-const sellerPricing = document.getElementById('seller-pricing');
-const agencyPricing = document.getElementById('agency-pricing');
-const pricingSwitchLink = document.querySelector('.pricing-switch-link');
-
-function switchPricingView(targetPlan) {
-    // Update persona state (this will handle toggle buttons and filtering)
-    setUserPersona(targetPlan);
-
-    // Show/hide pricing views (legacy - now handled by persona filtering)
-    if (targetPlan === 'seller') {
-        sellerPricing.classList.remove('hidden');
-        agencyPricing.classList.add('hidden');
-    } else {
-        sellerPricing.classList.add('hidden');
-        agencyPricing.classList.remove('hidden');
-    }
-
-    // Smooth scroll to pricing section
-    const pricingSection = document.getElementById('pricing');
-    if (pricingSection) {
-        pricingSection.scrollIntoView({ behavior: 'smooth', block: 'start' });
-    }
-}
-
-// Toggle button click handlers
-pricingToggleButtons.forEach(button => {
-    button.addEventListener('click', function() {
-        const targetPlan = this.dataset.plan;
-        switchPricingView(targetPlan);
-    });
-
-    // Keyboard accessibility
-    button.addEventListener('keydown', function(e) {
-        if (e.key === 'Enter' || e.key === ' ') {
-            e.preventDefault();
-            const targetPlan = this.dataset.plan;
-            switchPricingView(targetPlan);
-        }
-    });
-});
-
-// Switch link handler (in seller view footer)
-if (pricingSwitchLink) {
-    pricingSwitchLink.addEventListener('click', function() {
-        const targetPlan = this.dataset.target;
-        switchPricingView(targetPlan);
-    });
-
-    // Keyboard accessibility
-    pricingSwitchLink.addEventListener('keydown', function(e) {
-        if (e.key === 'Enter' || e.key === ' ') {
-            e.preventDefault();
-            const targetPlan = this.dataset.target;
-            switchPricingView(targetPlan);
-        }
-    });
-}
-
-// ICP Card Interactions
-const icpCards = document.querySelectorAll('.icp-card');
-icpCards.forEach(card => {
-    const button = card.querySelector('.icp-cta');
-    if (button) {
-        button.addEventListener('click', function(e) {
-            e.stopPropagation();
-            const icpType = card.dataset.icp;
-
-            // Update persona state
-            setUserPersona(icpType);
-
-            // Scroll to problem section (next section after ICP)
-            const problemSection = document.querySelector('.problem-section-v2');
-            if (problemSection) {
-                problemSection.scrollIntoView({ behavior: 'smooth', block: 'start' });
-            }
-        });
-    }
-
-    // Also make the entire card clickable
-    card.addEventListener('click', function() {
-        const icpType = this.dataset.icp;
-
-        // Update persona state
-        setUserPersona(icpType);
-
-        // Scroll to problem section
-        const problemSection = document.querySelector('.problem-section-v2');
-        if (problemSection) {
-            problemSection.scrollIntoView({ behavior: 'smooth', block: 'start' });
-        }
-    });
-});
-
-// Agency CTA Button
-const agencyCtaButton = document.querySelector('.agency-cta-box .primary-button');
-if (agencyCtaButton) {
-    agencyCtaButton.addEventListener('click', function() {
-        // Switch to agency pricing and scroll
-        switchPricingView('agency');
-    });
-}
-
-// All pricing switch links
-const allPricingSwitchLinks = document.querySelectorAll('.pricing-switch-link');
-allPricingSwitchLinks.forEach(link => {
-    link.addEventListener('click', function() {
-        const targetPlan = this.dataset.target;
-        switchPricingView(targetPlan);
-    });
-});
-*/
 
 // ========================================
 // AUDIT MODAL FUNCTIONALITY
@@ -418,10 +227,11 @@ auditModal.addEventListener('click', function (e) {
     }
 });
 
-// ESC key to close
+// ESC key to close any active modal
 document.addEventListener('keydown', function (e) {
-    if (e.key === 'Escape' && auditModal.classList.contains('active')) {
-        closeAuditModal();
+    if (e.key === 'Escape') {
+        if (auditModal.classList.contains('active')) closeAuditModal();
+        if (betaModal && betaModal.classList.contains('active')) closeBetaModal();
     }
 });
 
@@ -488,13 +298,6 @@ closeBetaSuccess.addEventListener('click', closeBetaModal);
 // Click outside modal to close
 betaModal.addEventListener('click', function (e) {
     if (e.target === betaModal) {
-        closeBetaModal();
-    }
-});
-
-// ESC key to close beta modal
-document.addEventListener('keydown', function (e) {
-    if (e.key === 'Escape' && betaModal.classList.contains('active')) {
         closeBetaModal();
     }
 });
