@@ -80,7 +80,7 @@ def _ensure_impact_columns(df: pd.DataFrame) -> pd.DataFrame:
 # ==========================================
 # MARKET DECOMPOSITION - Import from clean module
 # ==========================================
-from core.roas_attribution import get_roas_attribution
+# from core.roas_attribution import get_roas_attribution  # Moved locally to prevent circular import
 
 
 # ==========================================
@@ -652,6 +652,7 @@ def render_impact_dashboard():
     # ==========================================
     client_id = st.session_state.get('active_account_id', '')  # Fixed: use correct session state key
     if client_id:
+        from core.roas_attribution import get_roas_attribution
         roas_attr = get_roas_attribution(client_id, days=30)
         if roas_attr:
             display_summary.update(roas_attr)  # Adds cpc_impact, cvr_impact, aov_impact, market_impact_roas, periods, etc.

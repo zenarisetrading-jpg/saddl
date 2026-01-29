@@ -2556,7 +2556,7 @@ class OptimizerModule(BaseFeature):
 
     def _display_dashboard_v2(self, results):
         """Delegate to standalone overview module for lazy loading."""
-        from features.overview_tab import render_overview_tab
+        from features.optimizer_overview_ui import render_overview_tab
         render_overview_tab(results)
 
     def _extract_validation_info(self, df):

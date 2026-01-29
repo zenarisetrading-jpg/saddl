@@ -112,6 +112,7 @@ def render_sidebar(navigate_to):
     return st.session_state.get('current_module', 'home')
 
 def render_home():
+    import streamlit as st
 
     from features.impact_dashboard import get_recent_impact_summary
     from features.report_card import get_account_health_score
@@ -328,7 +329,10 @@ def render_home():
         # Header - LEFT ALIGNED (Removed justify-content:center)
         st.markdown(f'<div class="cockpit-label" style="justify-content: space-between;"><span>Health Score</span>{sync_badge}</div>', unsafe_allow_html=True)
         
-        health = get_account_health_score()
+        if active_account_id:
+            health = get_account_health_score(str(active_account_id))
+        else:
+            health = None
         
         # Note: The column container itself is flex-column (from CSS on line 118)
         # We will render items sequentially.
@@ -684,6 +688,9 @@ def render_home():
                             top_campaign_delta = camp_delta.max()
         except Exception as e:
             # Silently handle errors for production
+            # Silently handle errors for production
+            import streamlit as st
+            st.error(f"Insight Error: {e}")
             pass
     
     # Build Row 1 insights

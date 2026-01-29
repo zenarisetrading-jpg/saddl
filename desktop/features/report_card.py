@@ -552,7 +552,8 @@ class ReportCardModule(BaseFeature):
         
         # 1. Account Health Score (Composite)
         # Use existing health_score logic if available, effectively summing up sub-scores
-        account_health = get_account_health_score()
+        client_id = get_active_account_id()
+        account_health = get_account_health_score(client_id)
         if account_health is None:
              # Fallback using local metrics
              roas_score = min(50, (metrics['efficiency_health'] / 100 * 3.0 / 3.0) * 50) # Rough approx
@@ -1762,3 +1763,55 @@ def get_account_health_score() -> Optional[float]:
         
     return None
 
+
+def get_account_health_score(client_id: str) -> Optional[float]:
+    """
+    Public helper to get the latest health score for an account.
+    Used by the Home Dashboard tiles.
+    """
+    from core.db_manager import get_db_manager
+    db_manager = get_db_manager()
+    
+    # Try fetch from DB first (fastest)
+    try:
+        health_data = db_manager.get_account_health(client_id)
+        if health_data and 'health_score' in health_data:
+            return float(health_data['health_score'])
+            
+        # If not in DB, try to compute on fly (slower)
+        # Load small recent dataset
+        hub = DataHub()
+        if hub.is_loaded("search_term_report"):
+            df = hub.get_data("search_term_report")
+            if df is not None and not df.empty:
+                # Basic calculation fallback matches ReportCardModule logic
+                total_spend = df['Spend'].sum()
+                if total_spend == 0: return 0.0
+                
+                # Simple approximation for home tile
+                total_sales = df['Sales'].sum()
+                roas = total_sales / total_spend
+                
+                # Efficiency (Row level ROAS > 2.5)
+                # Note: Exact match to module logic requires more processing, 
+                # this is a robust fallback
+                efficient_spend = df[df['Sales'] / df['Spend'].replace(0, 1) >= 2.5]['Spend'].sum()
+                efficiency = (efficient_spend / total_spend) * 100
+                
+                # CVR
+                orders = df['Orders'].sum() if 'Orders' in df.columns else 0
+                clicks = df['Clicks'].sum() if 'Clicks' in df.columns else 0
+                cvr = (orders / clicks * 100) if clicks > 0 else 0
+                
+                # Score components
+                roas_score = min(100, (roas / 3.0) * 100)
+                cvr_score = min(100, (cvr / 10.0) * 100)
+                
+                score = (roas_score * 0.4) + (efficiency * 0.4) + (cvr_score * 0.2)
+                return min(100, max(0, score))
+                
+    except Exception as e:
+        # print(f"Error fetching health score: {e}")
+        return None
+        
+    return None

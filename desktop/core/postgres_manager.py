@@ -425,10 +425,17 @@ class PostgresManager:
                         status TEXT DEFAULT 'ACTIVE',
                         must_reset_password BOOLEAN DEFAULT FALSE,
                         password_updated_at TIMESTAMP,
+                        last_login_at TIMESTAMP,
                         created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
                         updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
                     )
                 """)
+                
+                # MIGRATION: Ensure last_login_at exists (for existing tables)
+                try:
+                    cursor.execute("ALTER TABLE users ADD COLUMN IF NOT EXISTS last_login_at TIMESTAMP")
+                except Exception:
+                    pass
                 
                 # User Account Overrides Table
                 cursor.execute("""

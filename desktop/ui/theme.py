@@ -251,16 +251,18 @@ class ThemeManager:
             }}
             
             /* HIDE STREAMLIT BRANDING & TOOLBAR */
+            /* RESTORE HEADER VISIBILITY FOR SIDEBAR ACCESS */
             header[data-testid="stHeader"] {{
-                visibility: hidden !important;
-                height: 0px !important;
-                padding-top: 0px !important;
+                background-color: rgba(0,0,0,0) !important;
+                z-index: 99999 !important;
             }}
             
-            [data-testid="stToolbar"] {{
-                visibility: hidden !important;
-                display: none !important;
+            /* Hide the colorful decoration line if desired for cleaner look */
+            div[data-testid="stDecoration"] {{
+                visibility: hidden;
             }}
+
+
             
             footer {{
                 visibility: hidden !important;

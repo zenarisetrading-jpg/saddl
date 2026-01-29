@@ -268,10 +268,18 @@ class DatabaseManager:
                     status TEXT DEFAULT 'ACTIVE',
                     must_reset_password BOOLEAN DEFAULT 0,
                     password_updated_at TIMESTAMP,
+                    last_login_at TIMESTAMP,
                     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
                     updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
                 )
             """)
+
+            # MIGRATION: Ensure last_login_at exists
+            try:
+                cursor.execute("ALTER TABLE users ADD COLUMN last_login_at TIMESTAMP")
+            except Exception:
+                # Column likely already exists
+                pass
             
             cursor.execute("""
                 CREATE TABLE IF NOT EXISTS user_account_overrides (
