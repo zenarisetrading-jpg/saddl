@@ -1336,9 +1336,8 @@ def main():
                 st.session_state[key] = 'expanded'
 
     # === LOCK SIDEBAR OPEN & HIDE HEADER ===
-    # 1. Hide the Sidebar Collapse Button (locks sidebar open if config is 'expanded')
-    # 2. Hide the Streamlit Header/Toolbar entirely
-    # 3. Force sidebar to always be visible and prevent collapse
+    # CSS-only approach that runs before authentication
+    # JavaScript will be injected AFTER authentication to avoid interfering with login
     st.markdown("""
     <style>
         /* CRITICAL: Hide ALL sidebar collapse controls */
@@ -1420,10 +1419,73 @@ def main():
     </style>
     """, unsafe_allow_html=True)
 
-    # Use Streamlit components to inject JavaScript that will force sidebar open
+
+
+    # === AUTHENTICATION GATE ===
+    # Shows login page if not authenticated, blocks access to main app
+    # === AUTHENTICATION GATE (V2) ===
+    # Using strict V2 Auth Service with Type Assertion
+    from core.auth.models import User
+    from core.auth.service import AuthService  # Explicit local import to guarantee scope
+    from core.auth.permissions import has_permission, has_permission_for_account
+    
+    auth_service = AuthService()
+    user = auth_service.get_current_user() # Gets from session
+    
+    if user is None:
+        # Not logged in? Show V2 login screen and stop
+        render_login()
+        st.stop()
+    
+    # STRICT TYPE ASSERTION (Guardrail)
+    if not isinstance(user, User):
+        # This catches session corruption or mixing legacy/v2 usage
+        auth_service.sign_out()
+        st.error("Session type mismatch. Please refresh and login again.")
+        st.stop()
+
+    # === PHASE 3: ONBOARDING WIZARD ===
+    # Show wizard for new users who haven't completed onboarding
+    # Must come AFTER authentication but BEFORE any main content
+    if FEATURE_ONBOARDING_WIZARD and should_show_onboarding():
+        render_onboarding_wizard()
+        st.stop()  # Don't render main app while wizard is active
+
+    # PHASE 3: FORCED PASSWORD RESET MIDDLEWARE
+    if user.must_reset_password:
+        # If user must reset, lock them to 'profile' module
+        if st.session_state.get('current_module') != 'profile':
+            st.session_state['current_module'] = 'profile'
+            st.warning("⚠️ You must change your password to proceed.")
+            st.rerun()
+
+    # PHASE 3 SECURITY: UPDATE LAST LOGIN
+    # We do this here (middleware) to ensure it runs on every fresh session
+    # but to avoid DB spam, we only do it if the session is "fresh" (e.g. not updated in last 5 min)
+    # simplified: just do it on first load of session
+    if 'login_tracked' not in st.session_state:
+        try:
+             # Quick direct update using manual cursor management for SQLite compatibility
+             ph = auth_service.db_manager.placeholder
+             with auth_service._get_connection() as conn:
+                 cur = conn.cursor()
+                 try:
+                     # CURRENT_TIMESTAMP is standard SQL (works in PG and SQLite)
+                     query = f"UPDATE users SET last_login_at = CURRENT_TIMESTAMP WHERE id = {ph}"
+                     cur.execute(query, (str(user.id),))
+                 finally:
+                     cur.close()
+             st.session_state['login_tracked'] = True
+        except Exception as e:
+            print(f"Login Track Error: {e}")
+
+    # User is valid V2 user - proceed
+
+    # === INJECT SIDEBAR LOCK JAVASCRIPT (AFTER AUTHENTICATION) ===
+    # This runs ONLY for authenticated users to avoid interfering with login
     st.components.v1.html("""
     <script>
-        // AGGRESSIVE sidebar expansion script
+        // AGGRESSIVE sidebar expansion script - runs AFTER authentication
         (function() {
             const doc = window.parent.document;
 
@@ -1518,68 +1580,6 @@ def main():
     </script>
     """, height=0)
 
-
-
-    # === AUTHENTICATION GATE ===
-    # Shows login page if not authenticated, blocks access to main app
-    # === AUTHENTICATION GATE (V2) ===
-    # Using strict V2 Auth Service with Type Assertion
-    from core.auth.models import User
-    from core.auth.service import AuthService  # Explicit local import to guarantee scope
-    from core.auth.permissions import has_permission, has_permission_for_account
-    
-    auth_service = AuthService()
-    user = auth_service.get_current_user() # Gets from session
-    
-    if user is None:
-        # Not logged in? Show V2 login screen and stop
-        render_login()
-        st.stop()
-    
-    # STRICT TYPE ASSERTION (Guardrail)
-    if not isinstance(user, User):
-        # This catches session corruption or mixing legacy/v2 usage
-        auth_service.sign_out()
-        st.error("Session type mismatch. Please refresh and login again.")
-        st.stop()
-
-    # === PHASE 3: ONBOARDING WIZARD ===
-    # Show wizard for new users who haven't completed onboarding
-    # Must come AFTER authentication but BEFORE any main content
-    if FEATURE_ONBOARDING_WIZARD and should_show_onboarding():
-        render_onboarding_wizard()
-        st.stop()  # Don't render main app while wizard is active
-
-    # PHASE 3: FORCED PASSWORD RESET MIDDLEWARE
-    if user.must_reset_password:
-        # If user must reset, lock them to 'profile' module
-        if st.session_state.get('current_module') != 'profile':
-            st.session_state['current_module'] = 'profile'
-            st.warning("⚠️ You must change your password to proceed.")
-            st.rerun()
-
-    # PHASE 3 SECURITY: UPDATE LAST LOGIN
-    # We do this here (middleware) to ensure it runs on every fresh session
-    # but to avoid DB spam, we only do it if the session is "fresh" (e.g. not updated in last 5 min)
-    # simplified: just do it on first load of session
-    if 'login_tracked' not in st.session_state:
-        try:
-             # Quick direct update using manual cursor management for SQLite compatibility
-             ph = auth_service.db_manager.placeholder
-             with auth_service._get_connection() as conn:
-                 cur = conn.cursor()
-                 try:
-                     # CURRENT_TIMESTAMP is standard SQL (works in PG and SQLite)
-                     query = f"UPDATE users SET last_login_at = CURRENT_TIMESTAMP WHERE id = {ph}"
-                     cur.execute(query, (str(user.id),))
-                 finally:
-                     cur.close()
-             st.session_state['login_tracked'] = True
-        except Exception as e:
-            print(f"Login Track Error: {e}")
-
-    # User is valid V2 user - proceed
-    
     # === DATABASE INITIALIZATION ===
     
     # Phase 3.5: Set Account Context for Permissions
