@@ -1323,49 +1323,117 @@ def main():
     # === LOCK SIDEBAR OPEN & HIDE HEADER ===
     # 1. Hide the Sidebar Collapse Button (locks sidebar open if config is 'expanded')
     # 2. Hide the Streamlit Header/Toolbar entirely
+    # 3. Force sidebar to always be visible and prevent collapse
     st.markdown("""
     <style>
-        /* Hide the sidebar collapse button (the X or < arrow) */
-        [data-testid="stSidebarCollapseButton"] {
+        /* CRITICAL: Hide ALL sidebar collapse controls */
+        [data-testid="stSidebarCollapsedControl"],
+        [data-testid="stSidebarCollapseButton"],
+        [data-testid="collapsedControl"],
+        button[kind="header"][data-testid="baseButton-header"],
+        button[kind="headerNoPadding"],
+        section[data-testid="stSidebar"] button[kind="header"] {
             display: none !important;
+            visibility: hidden !important;
+            pointer-events: none !important;
+            opacity: 0 !important;
         }
-        
-        /* Hide the collapsed sidebar control (the > arrow if it were collapsed) */
-        [data-testid="collapsedControl"] {
-            display: none !important;
+
+        /* Force sidebar to ALWAYS be visible */
+        section[data-testid="stSidebar"] {
+            display: block !important;
+            visibility: visible !important;
+            position: relative !important;
+            min-width: 244px !important;
+            max-width: 244px !important;
+        }
+
+        /* Prevent any collapse animations or transitions */
+        section[data-testid="stSidebar"][aria-expanded="false"],
+        section[data-testid="stSidebar"].collapsed {
+            display: block !important;
+            visibility: visible !important;
+            min-width: 244px !important;
+            max-width: 244px !important;
         }
 
         /* Hide the main header, toolbar, and decoration */
         header[data-testid="stHeader"],
         [data-testid="stToolbar"],
-        [data-testid="stDecoration"] {
+        [data-testid="stDecoration"],
+        .stApp > header {
             visibility: hidden !important;
             height: 0 !important;
             padding: 0 !important;
             margin: 0 !important;
             display: none !important; /* Force hide to reclaim space */
         }
-        
+
         /* Hide the deploy button specifically */
-        .stDeployButton {
+        .stDeployButton,
+        [data-testid="stStatusWidget"] {
             display: none !important;
         }
-        
-        /* Hide the footer */
-        footer {
+
+        /* Hide the footer and "Made with Streamlit" */
+        footer,
+        footer[data-testid="stFooter"] {
             visibility: hidden !important;
             display: none !important;
         }
-        
+
         /* Adjust top padding since header is gone */
         .main .block-container {
             padding-top: 1rem !important;
         }
     </style>
-    """, unsafe_allow_html=True)
-    
 
-    
+    <script>
+        // JavaScript to forcefully prevent sidebar collapse
+        // This runs on page load and monitors for any collapse attempts
+        document.addEventListener('DOMContentLoaded', function() {
+            // Function to keep sidebar expanded
+            function keepSidebarExpanded() {
+                const sidebar = document.querySelector('[data-testid="stSidebar"]');
+                if (sidebar) {
+                    sidebar.setAttribute('aria-expanded', 'true');
+                    sidebar.style.display = 'block';
+                    sidebar.style.visibility = 'visible';
+                }
+
+                // Hide all collapse buttons
+                const collapseButtons = document.querySelectorAll(
+                    '[data-testid="stSidebarCollapseButton"], ' +
+                    '[data-testid="stSidebarCollapsedControl"], ' +
+                    '[data-testid="collapsedControl"], ' +
+                    'button[kind="header"]'
+                );
+                collapseButtons.forEach(btn => {
+                    btn.style.display = 'none';
+                    btn.style.visibility = 'hidden';
+                    btn.style.pointerEvents = 'none';
+                });
+            }
+
+            // Run on load
+            keepSidebarExpanded();
+
+            // Monitor for changes using MutationObserver
+            const observer = new MutationObserver(keepSidebarExpanded);
+            observer.observe(document.body, {
+                attributes: true,
+                childList: true,
+                subtree: true
+            });
+
+            // Also run periodically as a fallback
+            setInterval(keepSidebarExpanded, 500);
+        });
+    </script>
+    """, unsafe_allow_html=True)
+
+
+
     # === AUTHENTICATION GATE ===
     # Shows login page if not authenticated, blocks access to main app
     # === AUTHENTICATION GATE (V2) ===
