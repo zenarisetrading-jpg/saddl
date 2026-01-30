@@ -46,11 +46,19 @@ except FileNotFoundError:
     pass 
 
 # === SEEDING (CRITICAL FOR STREAMLIT CLOUD) ===
-try:
-    from core.seeding import seed_initial_data
-    seed_initial_data()
-except Exception as e:
-    print(f"Startup Seeding Failed: {e}")
+# Run seeding with @st.cache_resource to execute only once per app instance
+# This prevents connection pool exhaustion from concurrent seeding attempts
+@st.cache_resource
+def run_seeding():
+    try:
+        from core.seeding import seed_initial_data
+        return seed_initial_data()
+    except Exception as e:
+        print(f"Startup Seeding Failed: {e}")
+        return f"Seeding failed: {e}"
+
+# Execute seeding once per app instance (cached)
+run_seeding()
 
 # Delay heavy feature imports by moving them into routing/main logic
 
