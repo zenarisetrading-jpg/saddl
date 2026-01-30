@@ -1335,11 +1335,6 @@ def main():
             else:
                 st.session_state[key] = 'expanded'
 
-    # Force the sidebar to show by checking URL params
-    query_params = st.query_params
-    if 'embed' not in query_params:
-        st.query_params.update({'embed': 'false'})
-
     # === LOCK SIDEBAR OPEN & HIDE HEADER ===
     # 1. Hide the Sidebar Collapse Button (locks sidebar open if config is 'expanded')
     # 2. Hide the Streamlit Header/Toolbar entirely
