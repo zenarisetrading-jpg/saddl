@@ -2211,7 +2211,11 @@ class OptimizerModule(BaseFeature):
             st.warning("⚠️ Please upload a Search Term Report first.")
             return
         
-        df = hub.get_enriched_data() or hub.get_data("search_term_report")
+        enriched_data = hub.get_enriched_data()
+        if enriched_data is not None and not enriched_data.empty:
+            df = enriched_data
+        else:
+            df = hub.get_data("search_term_report")
         self._render_sidebar()
         
         # Share config globally
