@@ -163,3 +163,36 @@ Located in `core/db_manager.py` (SQLite) & `core/postgres_manager.py` (Postgres)
 *   **Postgres**: Uses `psycopg2.pool.ThreadedConnectionPool`.
     *   **Health Check**: Every connection checkout runs `SELECT 1` to ensure vitality.
     *   **Retry Logic**: Decorator `retry_on_connection_error` handles transient network failures (e.g., during deployment or cold starts).
+## 4. Impact Analysis Engine (V2 Architecture - Jan 2026)
+
+### 4.1 Modular Design (`desktop/features/impact/`)
+The impact engine was refactored from a monolithic script to a modular domain service:
+
+- **`roas_attribution.py`**: Pure logic module for ROAS decomposition (Market/Structure/Decision/Residual).
+- **`fetchers.py`**: Cached data aggregation service.
+- **`metrics/canonical.py`**: Shared metric definitions.
+
+### 4.2 Data Flow
+1. **Fetch**: `fetchers.fetch_impact_data` queries `target_stats` and `actions_log`.
+2. **Verify**: Decisions are aggregated and "verified" (impact > 0).
+3. **Decompose**: `roas_attribution.get_roas_attribution` breaks down the Actual vs Baseline ROAS delta.
+   - Requires `decision_impact_value` (passed from step 2) to correctly isolate the Residual.
+4. **Render**: Modular components (`cards.py`, `waterfall.py`) render the results.
+
+### 4.3 Caching Strategy
+- **`@st.cache_data`**: Used heavily in `fetchers.py`.
+- **TTL**: 1 hour default.
+- **Version Key**: Cache invalidated when data upload timestamp changes or version string is bumped (e.g. "v14_impact_tiers").
+
+## 5. Secrets & Configuration (Jan 2026 Update)
+
+### 5.1 Dual-Source Configuration
+To support different deployment environments (Streamlit Cloud vs Local), configuration is handled via a priority fallback mechanism in `features/assistant.py`:
+
+1.  **Streamlit Secrets** (`.streamlit/secrets.toml`): Primary source for Cloud.
+2.  **Environment Variables** (`.env`): Fallback for Local Development.
+3.  **Graceful Checking**: Code explicitly handles cases where `secrets.get()` returns None to ensure fallback logic executes.
+
+### 5.2 Required Secrets
+- `OPENAI_API_KEY`: For AI Assistant.
+- `DATABASE_URL`: Postgres connection string (if using PostgresManager).

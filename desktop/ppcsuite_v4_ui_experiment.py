@@ -16,6 +16,7 @@ if str(current_dir) not in sys.path:
 st.set_page_config(
     page_title="Saddle AdPulse", 
     layout="wide", 
+    initial_sidebar_state="expanded",
     page_icon="🚀"
 )
 
@@ -804,7 +805,7 @@ def run_consolidated_optimizer():
                     else:
                         st.warning("Enter an email first")
     
-    opt._render_sidebar()
+    opt.render_ui()
     
     # CRITICAL: Skip execution if showing confirmation dialog
     # Widgets above have rendered to preserve state, but don't re-run the expensive optimizer
@@ -998,7 +999,7 @@ def run_consolidated_optimizer():
     # ==========================================
     # LOG ACTIONS FOR IMPACT ANALYSIS
     # ==========================================
-    from features.optimizer import _log_optimization_events
+    from features.optimizer.logging import log_optimization_events
     
     # 1. Determine active client
     active_client = (
@@ -1019,7 +1020,7 @@ def run_consolidated_optimizer():
     # Toast removed per user request
     # Only log actions on EXPLICIT button click, not on every rerender
     if st.session_state.get("should_log_actions", False):
-        logged_count = _log_optimization_events(r, active_client, action_log_date)
+        logged_count = log_optimization_events(r, active_client, action_log_date)
         st.session_state["should_log_actions"] = False  # Clear flag to prevent re-logging
 
     # === POST-OPTIMIZATION INSIGHT LAYER ===
@@ -1319,6 +1320,52 @@ def main():
 
     setup_page()
     
+    # === LOCK SIDEBAR OPEN & HIDE HEADER ===
+    # 1. Hide the Sidebar Collapse Button (locks sidebar open if config is 'expanded')
+    # 2. Hide the Streamlit Header/Toolbar entirely
+    st.markdown("""
+    <style>
+        /* Hide the sidebar collapse button (the X or < arrow) */
+        [data-testid="stSidebarCollapseButton"] {
+            display: none !important;
+        }
+        
+        /* Hide the collapsed sidebar control (the > arrow if it were collapsed) */
+        [data-testid="collapsedControl"] {
+            display: none !important;
+        }
+
+        /* Hide the main header, toolbar, and decoration */
+        header[data-testid="stHeader"],
+        [data-testid="stToolbar"],
+        [data-testid="stDecoration"] {
+            visibility: hidden !important;
+            height: 0 !important;
+            padding: 0 !important;
+            margin: 0 !important;
+            display: none !important; /* Force hide to reclaim space */
+        }
+        
+        /* Hide the deploy button specifically */
+        .stDeployButton {
+            display: none !important;
+        }
+        
+        /* Hide the footer */
+        footer {
+            visibility: hidden !important;
+            display: none !important;
+        }
+        
+        /* Adjust top padding since header is gone */
+        .main .block-container {
+            padding-top: 1rem !important;
+        }
+    </style>
+    """, unsafe_allow_html=True)
+    
+
+    
     # === AUTHENTICATION GATE ===
     # Shows login page if not authenticated, blocks access to main app
     # === AUTHENTICATION GATE (V2) ===
@@ -1595,9 +1642,9 @@ def main():
             nav_button_chiclet("Actions Review", check_icon, "optimizer")
             
         nav_button_chiclet("What If (Forecast)", sim_icon, "simulator")
-        nav_button_chiclet("Impact & Results", impact_icon, "impact")
-        
-        
+        nav_button_chiclet("Impact & Results", impact_icon, "impact_v2")
+
+
         # Client Report feature removed
         
         # Launch - Requires 'run_optimizer' (Creating campaigns)
@@ -1744,9 +1791,10 @@ def main():
     elif current == 'ai_insights':
         from features.kw_cluster import AIInsightsModule
         AIInsightsModule().run()
-    elif current == 'impact':
-        from features.impact_dashboard import render_impact_dashboard
-        render_impact_dashboard()
+    # Legacy impact_dashboard.py wiring removed - v2 is now primary
+    elif current == 'impact_v2':
+        from features.impact.main import render_impact_dashboard_v2
+        render_impact_dashboard_v2()
     # Client Report feature removed
 
     # Render Floating Chat Bubble (unless already on assistant page)

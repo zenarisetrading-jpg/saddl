@@ -165,6 +165,23 @@ incremental_pct = attributed_impact / (before_sales + after_sales) × 100
 
 Displayed as badge: `+7.6% of revenue`
 
+### 3.6 ROAS Attribution Waterfall (V2 - Jan 2026)
+
+The V2 Impact Engine attributes ROAS changes to specific factors using a waterfall model in `desktop/core/roas_attribution.py`.
+
+#### Factor Decomposition
+1. **Market Forces**: External CPC/CVR changes.
+   - `cpc_impact`
+   - `cvr_impact`
+   - `aov_impact`
+2. **Structural Effects**:
+   - `scale_effect`: Expected efficiency drop from higher spend.
+   - `portfolio_effect`: Impact of new launches (usually lower ROAS initially).
+3. **Decision Impact**: Verified value from optimization actions.
+   - Formula: `(Total Verified Decision Value) / Current Spend`
+4. **Residual**: "Performance Beat" (Unexplained positive/negative variance).
+   - Formula: `Actual_ROAS - (Baseline + Market + Structure + Decisions)`
+
 ---
 
 ## 4. Dashboard Components
@@ -261,3 +278,22 @@ The application fully supports multi-tenancy at the **Organization** level.
     *   **Global Role**: `OWNER`, `ADMIN`, `OPERATOR`, `VIEWER` (on the Organization).
     *   **Account Override**: Users can have specific roles per Ad Account (e.g., `VIEWER` on Account A, `OPERATOR` on Account B).
 *   **Testing**: Validated via `scripts/generate_test_invite.py` which simulates full multi-user invitation/acceptance flows.
+
+---
+
+## 8. Application Shell & UI (V4 - Jan 2026)
+
+### 8.1 "Native App" Shell
+To reduce visual clutter and provide a SaaS-like experience, the Streamlit shell is customized via CSS injection in `desktop/ui/layout.py` or main entry point.
+
+- **Hidden Header**: The standard Streamlit top bar (running man, hamburger menu) is hidden via `div[data-testid="stHeader"] { display: none; }`.
+- **Locked Sidebar**:
+    - Configured with `initial_sidebar_state="expanded"`.
+    - Collapse controls hidden via `[data-testid="stSidebarCollapseButton"] { display: none; }`.
+    - Result: Persistent navigation pane that users cannot accidentally close.
+
+### 8.2 Visual Standards
+- **Icons**: Transitioned from Emojis (🏆) to **SVG Vector Icons** (Lucide style) for a professional look.
+    - Used in Hero Banners ("Wins", "Gaps") and KPI Cards.
+- **Card Styling**: Consistent glassmorphism with 1px borders and subtle gradients matching the "Dark Premium" theme.
+

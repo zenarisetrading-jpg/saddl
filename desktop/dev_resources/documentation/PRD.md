@@ -684,6 +684,30 @@ Isolate **decision quality** from **market conditions** by comparing actual perf
 - Only NEGATIVE actions have the explicit goal of capital protection
 - Counting only confirmed blocks (spend = 0) provides clear proof
 
+### 4.11 ROAS Attribution Decomposition (V2 - Jan 2026)
+
+#### 4.11.1 Purpose
+Explain the movement from **Baseline ROAS** to **Actual ROAS** by isolating external market forces from internal structural effects and decision impact.
+
+#### 4.11.2 Baseline Definition (Rolling Window)
+- **Methodology**: Rolling Period-over-Period (PoP)
+- **Current Period**: [Latest Date - X Days] to [Latest Date]
+- **Baseline Period**: [Current Start - X Days] to [Current Start]
+- **Rationale**: Accounts for seasonality and recent trend shifts better than fixed historical baselines.
+
+#### 4.11.3 Waterfall Formula
+$$ \text{Actual} = \text{Baseline} + \text{Market} + \text{Structure} + \text{Decisions} + \text{Residual} $$
+
+| Component | Definition | Formula |
+|-----------|------------|---------|
+| **Market Forces** | External tailwinds/headwinds | $\Delta \text{CPC Impact} + \Delta \text{CVR Impact} + \Delta \text{AOV Impact}$ |
+| **Structural Effects** | Drag from scaling or new launches | $\text{Scale Effect} + \text{Portfolio Effect}$ |
+| **Decision Impact** | Value from optimizations | $\text{Verified Impact Value} / \text{Current Spend}$ |
+| **Residual** | Unexplained efficiency change | $\text{Actual} - (\text{Baseline} + \text{Market} + \text{Structure} + \text{Decisions})$ |
+
+#### 4.11.4 Interpretation Guide
+- **Positive Residual**: "Performance Beat" — you maintained efficiency despite scaling (beat the scale penalty) or benefitted from organic halo.
+- **Negative Residual**: Efficiency dropped more than expected (check for unmeasured external factors).
 
 
 ## 5. Forecast Model (Simulator)
