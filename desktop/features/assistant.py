@@ -1534,14 +1534,14 @@ PLATFORM METHODOLOGY & ENGINE LOGIC (UPDATED JAN 2, 2026)
 
     def _call_llm(self, messages):
         """Calls OpenAI API using the requests library."""
-        # Priority 1: Try st.secrets
+        # Safely access secrets - handle missing secrets.toml
         api_key = None
         try:
             api_key = st.secrets.get("OPENAI_API_KEY")
         except Exception:
             pass
             
-        # Priority 2: Fallback to environment variable if not in secrets
+        # Priority 2: Fallback to environment variable if not in secrets or secrets.toml loading failed
         if not api_key:
             import os
             api_key = os.environ.get("OPENAI_API_KEY")
