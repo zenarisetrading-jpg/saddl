@@ -1481,58 +1481,6 @@ def main():
 
     # User is valid V2 user - proceed
 
-    # === INJECT SIDEBAR LOCK JAVASCRIPT (AFTER AUTHENTICATION) ===
-    # This runs ONLY for authenticated users
-    # SIMPLIFIED: No button clicking, just CSS overrides
-    st.components.v1.html("""
-    <script>
-        (function() {
-            const doc = window.parent.document;
-
-            function forceSidebarVisible() {
-                const sidebar = doc.querySelector('[data-testid="stSidebar"]');
-                if (sidebar) {
-                    // Force sidebar to be visible with CSS only
-                    sidebar.style.cssText = 'display: block !important; visibility: visible !important; transform: translateX(0) !important; width: 244px !important; min-width: 244px !important; max-width: 244px !important; position: relative !important; transition: none !important;';
-                    sidebar.setAttribute('aria-expanded', 'true');
-                    sidebar.removeAttribute('data-collapsed');
-                }
-
-                // Hide collapse controls (without clicking or removing)
-                const hideTargets = [
-                    '[data-testid="stSidebarCollapseButton"]',
-                    '[data-testid="stSidebarCollapsedControl"]',
-                    '[data-testid="collapsedControl"]'
-                ];
-
-                hideTargets.forEach(sel => {
-                    doc.querySelectorAll(sel).forEach(el => {
-                        el.style.display = 'none';
-                        el.style.visibility = 'hidden';
-                        el.style.pointerEvents = 'none';
-                    });
-                });
-            }
-
-            // Run once after a short delay
-            setTimeout(forceSidebarVisible, 500);
-            setTimeout(forceSidebarVisible, 1500);
-
-            // Monitor only the sidebar itself for changes
-            const sidebar = doc.querySelector('[data-testid="stSidebar"]');
-            if (sidebar) {
-                const observer = new MutationObserver(() => {
-                    forceSidebarVisible();
-                });
-                observer.observe(sidebar, {
-                    attributes: true,
-                    attributeFilter: ['aria-expanded', 'data-collapsed', 'style']
-                });
-            }
-        })();
-    </script>
-    """, height=0)
-
     # === DATABASE INITIALIZATION ===
     
     # Phase 3.5: Set Account Context for Permissions
