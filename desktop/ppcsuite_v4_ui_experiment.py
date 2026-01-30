@@ -14,10 +14,15 @@ if str(current_dir) not in sys.path:
 # PAGE CONFIGURATION (Must be very first ST command)
 # ==========================================
 st.set_page_config(
-    page_title="Saddle AdPulse", 
-    layout="wide", 
+    page_title="Saddle AdPulse",
+    layout="wide",
     initial_sidebar_state="expanded",
-    page_icon="🚀"
+    page_icon="🚀",
+    menu_items={
+        'Get Help': None,
+        'Report a bug': None,
+        'About': None
+    }
 )
 
 import pandas as pd
@@ -1319,7 +1324,22 @@ def main():
         return
 
     setup_page()
-    
+
+    # === FORCE SIDEBAR STATE TO EXPANDED ===
+    # Reset sidebar state in session to force it expanded
+    # Check multiple possible session state keys that Streamlit uses internally
+    for key in ['_sidebar_state', 'sidebar_state', '_main_menu_visibility']:
+        if key in st.session_state:
+            if key == '_main_menu_visibility':
+                st.session_state[key] = 'hidden'
+            else:
+                st.session_state[key] = 'expanded'
+
+    # Force the sidebar to show by checking URL params
+    query_params = st.query_params
+    if 'embed' not in query_params:
+        st.query_params.update({'embed': 'false'})
+
     # === LOCK SIDEBAR OPEN & HIDE HEADER ===
     # 1. Hide the Sidebar Collapse Button (locks sidebar open if config is 'expanded')
     # 2. Hide the Streamlit Header/Toolbar entirely
@@ -1332,29 +1352,45 @@ def main():
         [data-testid="collapsedControl"],
         button[kind="header"][data-testid="baseButton-header"],
         button[kind="headerNoPadding"],
-        section[data-testid="stSidebar"] button[kind="header"] {
+        section[data-testid="stSidebar"] button[kind="header"],
+        section[data-testid="stSidebar"] > div > button[kind="header"] {
             display: none !important;
             visibility: hidden !important;
             pointer-events: none !important;
             opacity: 0 !important;
+            width: 0 !important;
+            height: 0 !important;
         }
 
-        /* Force sidebar to ALWAYS be visible */
+        /* Force sidebar to ALWAYS be visible and expanded */
         section[data-testid="stSidebar"] {
             display: block !important;
             visibility: visible !important;
             position: relative !important;
             min-width: 244px !important;
             max-width: 244px !important;
+            width: 244px !important;
+            transform: translateX(0) !important;
+            transition: none !important;
         }
 
-        /* Prevent any collapse animations or transitions */
+        /* Override ANY collapsed state styling */
         section[data-testid="stSidebar"][aria-expanded="false"],
-        section[data-testid="stSidebar"].collapsed {
+        section[data-testid="stSidebar"].collapsed,
+        section[data-testid="stSidebar"][data-collapsed="true"] {
             display: block !important;
             visibility: visible !important;
             min-width: 244px !important;
             max-width: 244px !important;
+            width: 244px !important;
+            transform: translateX(0) !important;
+        }
+
+        /* Ensure sidebar content is visible */
+        section[data-testid="stSidebar"] > div {
+            display: block !important;
+            visibility: visible !important;
+            opacity: 1 !important;
         }
 
         /* Hide the main header, toolbar, and decoration */
@@ -1366,7 +1402,7 @@ def main():
             height: 0 !important;
             padding: 0 !important;
             margin: 0 !important;
-            display: none !important; /* Force hide to reclaim space */
+            display: none !important;
         }
 
         /* Hide the deploy button specifically */
@@ -1387,50 +1423,105 @@ def main():
             padding-top: 1rem !important;
         }
     </style>
+    """, unsafe_allow_html=True)
 
+    # Use Streamlit components to inject JavaScript that will force sidebar open
+    st.components.v1.html("""
     <script>
-        // JavaScript to forcefully prevent sidebar collapse
-        // This runs on page load and monitors for any collapse attempts
-        document.addEventListener('DOMContentLoaded', function() {
-            // Function to keep sidebar expanded
-            function keepSidebarExpanded() {
-                const sidebar = document.querySelector('[data-testid="stSidebar"]');
-                if (sidebar) {
-                    sidebar.setAttribute('aria-expanded', 'true');
-                    sidebar.style.display = 'block';
-                    sidebar.style.visibility = 'visible';
+        // AGGRESSIVE sidebar expansion script
+        (function() {
+            const doc = window.parent.document;
+
+            function forceExpand() {
+                // Method 1: Find and click the collapsed control if it exists
+                const collapsedControl = doc.querySelector('[data-testid="stSidebarCollapsedControl"]');
+                if (collapsedControl && collapsedControl.offsetParent !== null) {
+                    // Sidebar is collapsed, click to expand
+                    collapsedControl.click();
+                    setTimeout(hideControls, 100);
                 }
 
-                // Hide all collapse buttons
-                const collapseButtons = document.querySelectorAll(
-                    '[data-testid="stSidebarCollapseButton"], ' +
-                    '[data-testid="stSidebarCollapsedControl"], ' +
-                    '[data-testid="collapsedControl"], ' +
-                    'button[kind="header"]'
-                );
-                collapseButtons.forEach(btn => {
-                    btn.style.display = 'none';
-                    btn.style.visibility = 'hidden';
-                    btn.style.pointerEvents = 'none';
+                // Method 2: Force CSS overrides on the sidebar element
+                const sidebar = doc.querySelector('[data-testid="stSidebar"]');
+                if (sidebar) {
+                    // Remove any inline styles that might hide it
+                    sidebar.style.cssText = 'display: block !important; visibility: visible !important; transform: translateX(0) !important; width: 244px !important; min-width: 244px !important; max-width: 244px !important; position: relative !important; transition: none !important;';
+                    sidebar.setAttribute('aria-expanded', 'true');
+                    sidebar.removeAttribute('data-collapsed');
+
+                    // Force all children visible
+                    const children = sidebar.querySelectorAll('*');
+                    children.forEach(el => {
+                        if (el.hasAttribute('data-testid') && !el.getAttribute('data-testid').includes('Collapse')) {
+                            el.style.display = '';
+                            el.style.visibility = 'visible';
+                            el.style.opacity = '1';
+                        }
+                    });
+                }
+
+                hideControls();
+            }
+
+            function hideControls() {
+                // Hide ALL collapse-related controls
+                const selectors = [
+                    '[data-testid="stSidebarCollapseButton"]',
+                    '[data-testid="stSidebarCollapsedControl"]',
+                    '[data-testid="collapsedControl"]',
+                    'section[data-testid="stSidebar"] button[kind="header"]',
+                    'section[data-testid="stSidebar"] > div > button'
+                ];
+
+                selectors.forEach(sel => {
+                    doc.querySelectorAll(sel).forEach(el => {
+                        if (el.closest('[data-testid="stSidebar"]') || sel.includes('Collapsed') || sel.includes('Collapse')) {
+                            el.style.cssText = 'display: none !important; visibility: hidden !important; opacity: 0 !important; pointer-events: none !important;';
+                            el.remove();
+                        }
+                    });
                 });
             }
 
-            // Run on load
-            keepSidebarExpanded();
+            // Execute immediately
+            forceExpand();
 
-            // Monitor for changes using MutationObserver
-            const observer = new MutationObserver(keepSidebarExpanded);
-            observer.observe(document.body, {
-                attributes: true,
-                childList: true,
-                subtree: true
+            // Execute multiple times to catch async rendering
+            setTimeout(forceExpand, 50);
+            setTimeout(forceExpand, 200);
+            setTimeout(forceExpand, 500);
+            setTimeout(forceExpand, 1000);
+            setTimeout(forceExpand, 2000);
+
+            // Monitor for DOM mutations
+            const observer = new MutationObserver((mutations) => {
+                let shouldExpand = false;
+                mutations.forEach(mutation => {
+                    if (mutation.type === 'attributes') {
+                        const target = mutation.target;
+                        if (target.hasAttribute && target.hasAttribute('data-testid') &&
+                            target.getAttribute('data-testid') === 'stSidebar') {
+                            shouldExpand = true;
+                        }
+                    }
+                });
+                if (shouldExpand) {
+                    forceExpand();
+                }
             });
 
-            // Also run periodically as a fallback
-            setInterval(keepSidebarExpanded, 500);
-        });
+            observer.observe(doc.body, {
+                attributes: true,
+                childList: true,
+                subtree: true,
+                attributeFilter: ['aria-expanded', 'data-collapsed', 'style']
+            });
+
+            // Continuous monitoring every 3 seconds
+            setInterval(forceExpand, 3000);
+        })();
     </script>
-    """, unsafe_allow_html=True)
+    """, height=0)
 
 
 
