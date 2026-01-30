@@ -1012,10 +1012,7 @@ def run_consolidated_optimizer():
     # ==========================================
     # LOG ACTIONS FOR IMPACT ANALYSIS
     # ==========================================
-    # Import from nested module to avoid conflict with optimizer.py file
-    import importlib
-    logging_module = importlib.import_module('features.optimizer.logging')
-    log_optimization_events = logging_module.log_optimization_events
+    from features.optimizer import log_optimization_events
     
     # 1. Determine active client
     active_client = (
