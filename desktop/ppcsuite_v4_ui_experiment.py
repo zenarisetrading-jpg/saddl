@@ -1482,100 +1482,53 @@ def main():
     # User is valid V2 user - proceed
 
     # === INJECT SIDEBAR LOCK JAVASCRIPT (AFTER AUTHENTICATION) ===
-    # This runs ONLY for authenticated users to avoid interfering with login
+    # This runs ONLY for authenticated users
+    # SIMPLIFIED: No button clicking, just CSS overrides
     st.components.v1.html("""
     <script>
-        // AGGRESSIVE sidebar expansion script - runs AFTER authentication
         (function() {
             const doc = window.parent.document;
 
-            function forceExpand() {
-                // Method 1: Find and click the collapsed control if it exists
-                const collapsedControl = doc.querySelector('[data-testid="stSidebarCollapsedControl"]');
-                if (collapsedControl && collapsedControl.offsetParent !== null) {
-                    // Sidebar is collapsed, click to expand
-                    collapsedControl.click();
-                    setTimeout(hideControls, 100);
-                }
-
-                // Method 2: Force CSS overrides on the sidebar element
+            function forceSidebarVisible() {
                 const sidebar = doc.querySelector('[data-testid="stSidebar"]');
                 if (sidebar) {
-                    // Remove any inline styles that might hide it
+                    // Force sidebar to be visible with CSS only
                     sidebar.style.cssText = 'display: block !important; visibility: visible !important; transform: translateX(0) !important; width: 244px !important; min-width: 244px !important; max-width: 244px !important; position: relative !important; transition: none !important;';
                     sidebar.setAttribute('aria-expanded', 'true');
                     sidebar.removeAttribute('data-collapsed');
-
-                    // Force all children visible
-                    const children = sidebar.querySelectorAll('*');
-                    children.forEach(el => {
-                        if (el.hasAttribute('data-testid') && !el.getAttribute('data-testid').includes('Collapse')) {
-                            el.style.display = '';
-                            el.style.visibility = 'visible';
-                            el.style.opacity = '1';
-                        }
-                    });
                 }
 
-                hideControls();
-            }
-
-            function hideControls() {
-                // Hide ALL collapse-related controls
-                const selectors = [
+                // Hide collapse controls (without clicking or removing)
+                const hideTargets = [
                     '[data-testid="stSidebarCollapseButton"]',
                     '[data-testid="stSidebarCollapsedControl"]',
-                    '[data-testid="collapsedControl"]',
-                    'section[data-testid="stSidebar"] button[kind="header"]',
-                    'section[data-testid="stSidebar"] > div > button'
+                    '[data-testid="collapsedControl"]'
                 ];
 
-                selectors.forEach(sel => {
+                hideTargets.forEach(sel => {
                     doc.querySelectorAll(sel).forEach(el => {
-                        if (el.closest('[data-testid="stSidebar"]') || sel.includes('Collapsed') || sel.includes('Collapse')) {
-                            el.style.cssText = 'display: none !important; visibility: hidden !important; opacity: 0 !important; pointer-events: none !important;';
-                            el.remove();
-                        }
+                        el.style.display = 'none';
+                        el.style.visibility = 'hidden';
+                        el.style.pointerEvents = 'none';
                     });
                 });
             }
 
-            // Execute immediately
-            forceExpand();
+            // Run once after a short delay
+            setTimeout(forceSidebarVisible, 500);
+            setTimeout(forceSidebarVisible, 1500);
 
-            // Execute multiple times to catch async rendering
-            setTimeout(forceExpand, 50);
-            setTimeout(forceExpand, 200);
-            setTimeout(forceExpand, 500);
-            setTimeout(forceExpand, 1000);
-            setTimeout(forceExpand, 2000);
-
-            // Monitor for DOM mutations
-            const observer = new MutationObserver((mutations) => {
-                let shouldExpand = false;
-                mutations.forEach(mutation => {
-                    if (mutation.type === 'attributes') {
-                        const target = mutation.target;
-                        if (target.hasAttribute && target.hasAttribute('data-testid') &&
-                            target.getAttribute('data-testid') === 'stSidebar') {
-                            shouldExpand = true;
-                        }
-                    }
+            // Monitor only the sidebar itself for changes
+            const sidebar = doc.querySelector('[data-testid="stSidebar"]');
+            if (sidebar) {
+                const observer = new MutationObserver(() => {
+                    forceSidebarVisible();
                 });
-                if (shouldExpand) {
-                    forceExpand();
-                }
-            });
-
-            observer.observe(doc.body, {
-                attributes: true,
-                childList: true,
-                subtree: true,
-                attributeFilter: ['aria-expanded', 'data-collapsed', 'style']
-            });
-
-            // Continuous monitoring every 3 seconds
-            setInterval(forceExpand, 3000);
+                observer.observe(sidebar, {
+                    attributes: true,
+                    attributeFilter: ['aria-expanded', 'data-collapsed', 'style']
+                });
+            }
         })();
     </script>
     """, height=0)
