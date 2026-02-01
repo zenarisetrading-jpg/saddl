@@ -78,53 +78,7 @@ class ThemeManager:
                 color: var(--text-color);
             }}
 
-            /* === GHOST CONTENT PREVENTION === */
-            /* Smooth fade transitions for page content to prevent lingering UI */
-            .main .block-container {{
-                animation: fadeIn 0.3s ease-in;
-            }}
-
-            @keyframes fadeIn {{
-                from {{
-                    opacity: 0;
-                    transform: translateY(10px);
-                }}
-                to {{
-                    opacity: 1;
-                    transform: translateY(0);
-                }}
-            }}
-
-            /* Loading placeholder styling */
-            .loading-placeholder {{
-                position: fixed;
-                top: 50%;
-                left: 50%;
-                transform: translate(-50%, -50%);
-                text-align: center;
-                z-index: 9999;
-                background: var(--bg-color);
-                padding: 40px;
-                border-radius: 16px;
-                border: 1px solid var(--border-color);
-                box-shadow: 0 8px 32px rgba(0, 0, 0, 0.2);
-            }}
-
-            .loading-spinner {{
-                border: 4px solid var(--border-color);
-                border-top: 4px solid var(--accent);
-                border-radius: 50%;
-                width: 50px;
-                height: 50px;
-                animation: spin 1s linear infinite;
-                margin: 0 auto 20px auto;
-            }}
-
-            @keyframes spin {{
-                0% {{ transform: rotate(0deg); }}
-                100% {{ transform: rotate(360deg); }}
-            }}
-            /* === END GHOST CONTENT PREVENTION === */
+            /* Ghost content prevention CSS removed - will address in polish phase */
             
             /* Sidebar Background */
             [data-testid="stSidebar"] {{

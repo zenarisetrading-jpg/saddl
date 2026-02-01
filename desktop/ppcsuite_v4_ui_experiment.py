@@ -1778,19 +1778,8 @@ def main():
     # Routing
     current = st.session_state.get('current_module', 'home')
 
-    # === GHOST CONTENT PREVENTION ===
-    # Clear previous page content immediately when navigation changes
-    # Track last rendered module to detect page transitions
-    last_module = st.session_state.get('_last_rendered_module')
-
-    if last_module and last_module != current:
-        # Page transition detected - force immediate rerun to clear old content
-        st.session_state['_last_rendered_module'] = current
-        st.rerun()
-
-    # Update last rendered module (only reached if no transition)
-    st.session_state['_last_rendered_module'] = current
-    # === END GHOST CONTENT PREVENTION ===
+    # Ghost content prevention removed - caused pages not to load
+    # Will address in polish phase
 
     # Check for pending actions confirmation dialog - REMOVED per user request
     # Actions are now saved explicitly via "Save Run" button in optimizer
