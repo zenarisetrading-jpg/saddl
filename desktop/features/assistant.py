@@ -1773,14 +1773,29 @@ PLATFORM METHODOLOGY & ENGINE LOGIC (UPDATED JAN 2, 2026)
         narratives = {}
 
         # Generate narrative for each panel
+        api_errors = []
         for panel in panels:
-            if panel == "executive_summary":
-                # Executive summary returns structured dict, not string
-                narratives[panel] = self._generate_executive_summary(knowledge)
-            else:
-                # Regular panels return narrative string
-                panel_data = self._extract_panel_context(panel, knowledge)
-                narratives[panel] = self._generate_panel_narrative(panel, panel_data)
+            try:
+                if panel == "executive_summary":
+                    # Executive summary returns structured dict, not string
+                    narratives[panel] = self._generate_executive_summary(knowledge)
+                else:
+                    # Regular panels return narrative string
+                    panel_data = self._extract_panel_context(panel, knowledge)
+                    narratives[panel] = self._generate_panel_narrative(panel, panel_data)
+            except Exception as e:
+                error_msg = str(e)
+                # Check if it's a rate limit error
+                if "429" in error_msg or "Too Many Requests" in error_msg:
+                    api_errors.append(f"{panel}: Rate limit exceeded")
+                    print(f"[ASSISTANT] Rate limit error for panel '{panel}': {error_msg}")
+                else:
+                    api_errors.append(f"{panel}: {error_msg}")
+                    print(f"[ASSISTANT] API error for panel '{panel}': {error_msg}")
+
+        # If any API errors occurred, raise exception to prevent caching
+        if api_errors:
+            raise Exception(f"AI generation failed due to API errors: {', '.join(api_errors)}")
 
         return narratives
 

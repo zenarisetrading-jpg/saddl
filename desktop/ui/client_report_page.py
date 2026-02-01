@@ -1176,10 +1176,45 @@ def run():
             "performance", "health", "portfolio", "impact",
             "actions", "match_type", "executive_summary"
         ]
-        
+
         with st.spinner("🤖 Generating AI insights..."):
-            narratives = assistant.generate_report_narratives(panels_to_generate)
-            st.session_state[cache_key] = narratives
+            try:
+                narratives = assistant.generate_report_narratives(panels_to_generate)
+                # Only cache if generation succeeded
+                st.session_state[cache_key] = narratives
+            except Exception as e:
+                error_msg = str(e)
+                # Show user-friendly error for rate limits
+                if "429" in error_msg or "Too Many Requests" in error_msg or "Rate limit" in error_msg:
+                    st.warning("⏳ AI service rate limit reached. Using fallback content. Please wait a moment and click 'Regenerate Analysis' to retry.")
+                else:
+                    st.warning(f"⚠️ AI insights temporarily unavailable: {error_msg}. Using fallback content.")
+
+                # Return fallback narratives without caching
+                narratives = {
+                    "executive_summary": {
+                        "achievements": [
+                            "Account performance analyzed across all campaigns",
+                            "Optimization opportunities identified and quantified",
+                            "Decision impact tracking active and validated"
+                        ],
+                        "areas_to_watch": [
+                            "Review detailed dashboard for specific campaign insights",
+                            "Monitor pending optimization implementations"
+                        ],
+                        "next_steps": [
+                            "Execute recommended optimization actions",
+                            "Track impact over next 14-60 days",
+                            "Schedule performance review meeting"
+                        ]
+                    },
+                    "performance": "Detailed analysis available in full dashboard.",
+                    "health": "Detailed analysis available in full dashboard.",
+                    "portfolio": "Detailed analysis available in full dashboard.",
+                    "impact": "Detailed analysis available in full dashboard.",
+                    "actions": "Detailed analysis available in full dashboard.",
+                    "match_type": "Detailed analysis available in full dashboard."
+                }
     else:
         narratives = st.session_state[cache_key]
     
