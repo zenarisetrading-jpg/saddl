@@ -248,7 +248,7 @@ If Auto outperforms Manual: Discovery is working - harvest more aggressively
     
     def _construct_granular_dataset(self) -> pd.DataFrame:
         """
-        Stitch together all dataframes (STR, Harvest, Negatives, Bids) into a single 
+        Stitch together all dataframes (STR, Harvest, Negatives, Bids) into a single
         granular 'Master Dataset' for the AI Analyst.
         """
         # 1. Get Base Data from DataHub
@@ -257,8 +257,28 @@ If Auto outperforms Manual: Discovery is working - harvest more aggressively
             str_df = st.session_state.unified_data['search_term_report']
         elif 'data' in st.session_state and 'search_term_report' in st.session_state['data']:
             str_df = st.session_state['data']['search_term_report']
-             
+
+        # If no session data, try loading from database (for Streamlit Cloud)
         if str_df is None:
+            from core.data_hub import DataHub
+            hub = DataHub()
+
+            # Try enriched data first
+            str_df = hub.get_enriched_data()
+            if str_df is None:
+                str_df = hub.get_data("search_term_report")
+
+            # If still no data, try loading from database
+            if str_df is None or str_df.empty:
+                account_id = st.session_state.get('active_account_id')
+                if account_id:
+                    loaded = hub.load_from_database(account_id)
+                    if loaded:
+                        str_df = hub.get_enriched_data()
+                        if str_df is None:
+                            str_df = hub.get_data("search_term_report")
+
+        if str_df is None or (isinstance(str_df, pd.DataFrame) and str_df.empty):
             return pd.DataFrame()
              
         master = str_df.copy()
