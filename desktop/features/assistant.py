@@ -253,32 +253,44 @@ If Auto outperforms Manual: Discovery is working - harvest more aggressively
         """
         # 1. Get Base Data from DataHub
         str_df = None
+        print(f"[ASSISTANT] Constructing granular dataset...")
+        print(f"[ASSISTANT] Checking session state: unified_data={st.session_state.get('unified_data') is not None}, data={st.session_state.get('data') is not None}")
+
         if 'unified_data' in st.session_state and st.session_state.unified_data.get('search_term_report') is not None:
             str_df = st.session_state.unified_data['search_term_report']
+            print(f"[ASSISTANT] Loaded from unified_data: {len(str_df)} rows")
         elif 'data' in st.session_state and 'search_term_report' in st.session_state['data']:
             str_df = st.session_state['data']['search_term_report']
+            print(f"[ASSISTANT] Loaded from data: {len(str_df)} rows")
 
         # If no session data, try loading from database (for Streamlit Cloud)
         if str_df is None:
+            print(f"[ASSISTANT] No session data, attempting database load...")
             from core.data_hub import DataHub
             hub = DataHub()
 
             # Try enriched data first
             str_df = hub.get_enriched_data()
+            print(f"[ASSISTANT] get_enriched_data result: {len(str_df) if str_df is not None else 'None'}")
             if str_df is None:
                 str_df = hub.get_data("search_term_report")
+                print(f"[ASSISTANT] get_data result: {len(str_df) if str_df is not None else 'None'}")
 
             # If still no data, try loading from database
             if str_df is None or str_df.empty:
                 account_id = st.session_state.get('active_account_id')
+                print(f"[ASSISTANT] Attempting load_from_database for account: {account_id}")
                 if account_id:
                     loaded = hub.load_from_database(account_id)
+                    print(f"[ASSISTANT] load_from_database result: {loaded}")
                     if loaded:
                         str_df = hub.get_enriched_data()
                         if str_df is None:
                             str_df = hub.get_data("search_term_report")
+                        print(f"[ASSISTANT] After DB load: {len(str_df) if str_df is not None else 'None'} rows")
 
         if str_df is None or (isinstance(str_df, pd.DataFrame) and str_df.empty):
+            print(f"[ASSISTANT] Returning empty DataFrame - no data found")
             return pd.DataFrame()
              
         master = str_df.copy()
