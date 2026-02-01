@@ -10,6 +10,30 @@ import numpy as np
 from datetime import timedelta
 
 from ui.theme import ThemeManager
+
+
+@st.cache_data(ttl=300, show_spinner=False)
+def _fetch_home_insights_cached(client_id: str, test_mode: bool):
+    """Cache home page insights calculation - prevents repeated large DB queries."""
+    from core.db_manager import get_db_manager
+    db_manager = get_db_manager(test_mode)
+
+    if not db_manager or not client_id:
+        return None
+
+    return db_manager.get_target_stats_df(client_id)
+
+
+@st.cache_data(ttl=600, show_spinner=False)
+def _fetch_available_dates_cached(client_id: str):
+    """Cache available dates check - rarely changes."""
+    from core.db_manager import get_db_manager
+    db = get_db_manager()
+
+    if not db or not client_id:
+        return []
+
+    return db.get_available_dates(client_id)
 # Lazy imports moved inside functions to prevent circular dependencies
 # from features.impact_dashboard import get_recent_impact_summary
 # from features.report_card import get_account_health_score
@@ -134,8 +158,10 @@ def render_home():
         auth = AuthService()
         current_user = auth.get_current_user()
         org_id = str(current_user.organization_id) if current_user else None
-        
-        accounts = db.get_all_accounts(organization_id=org_id)
+
+        # Use cached account fetcher to avoid repeated DB queries
+        from ui.account_manager import _fetch_accounts_cached
+        accounts = _fetch_accounts_cached(org_id) if org_id else []
         has_accounts = len(accounts) > 0
         
     # Force empty state if requested
@@ -156,8 +182,8 @@ def render_home():
     if hub.is_loaded("search_term_report"):
         data_exists = True
     elif active_account_id and db:
-        # Quick DB check
-        dates = db.get_available_dates(active_account_id)
+        # Quick DB check (CACHED to avoid repeated queries)
+        dates = _fetch_available_dates_cached(active_account_id)
         if dates and len(dates) > 0:
             data_exists = True
             
@@ -581,8 +607,8 @@ def render_home():
     
     if db_manager and client_id:
         try:
-            # Fetch all data and filter locally (get_target_stats_df doesn't accept date params)
-            df_all = db_manager.get_target_stats_df(client_id)
+            # Fetch all data and filter locally (CACHED to avoid repeated large queries)
+            df_all = _fetch_home_insights_cached(client_id, st.session_state.get('test_mode', False))
             
 
 

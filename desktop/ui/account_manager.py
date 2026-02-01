@@ -8,6 +8,16 @@ Supports single-account mode (auto-hides selector) and multi-account management.
 import streamlit as st
 
 
+@st.cache_data(ttl=300, show_spinner=False)
+def _fetch_accounts_cached(org_id: str):
+    """Cache account list query - prevents repeated DB calls on every rerun."""
+    from core.db_manager import get_db_manager
+    db = get_db_manager()
+    if db:
+        return db.get_all_accounts(organization_id=org_id)
+    return []
+
+
 def render_account_selector():
     """
     Universal account selector - works for agencies AND individual sellers.
@@ -25,8 +35,8 @@ def render_account_selector():
     current_user = auth.get_current_user()
     org_id = str(current_user.organization_id) if current_user else None
 
-    # Get accounts scoped to user's organization
-    accounts = db.get_all_accounts(organization_id=org_id)  # [(id, name, type), ...]
+    # Get accounts scoped to user's organization - NOW CACHED!
+    accounts = _fetch_accounts_cached(org_id)  # [(id, name, type), ...]
     
     # SAFETY CHECK: If active_account_id is set but not in DB (e.g. after DB wipe), clear it.
     if 'active_account_id' in st.session_state:
@@ -47,21 +57,28 @@ def render_account_selector():
     # Single account mode - show compact display with add option
     if len(accounts) == 1:
         account_id, account_name, account_type = accounts[0]
-        
-        # Check if we need to initialize/load data
-        # Load data if: 1) Different account, OR 2) Same account but no data loaded
-        data_exists = st.session_state.get('unified_data', {}).get('search_term_report') is not None
-        
-        if st.session_state.get('active_account_id') != account_id or not data_exists:
-            print(f"[DEBUG] Loading data for {account_id}: account_changed={st.session_state.get('active_account_id') != account_id}, data_exists={data_exists}")
+
+        # LAZY LOADING FIX: Only set account ID, don't load data yet
+        # Data will be loaded on-demand when features need it
+        if st.session_state.get('active_account_id') != account_id:
+            # Clear stale optimizer/feature results from previous account
+            keys_to_clear = [
+                'optimizer_results_refactored',  # Refactored optimizer results
+                'latest_optimizer_run',          # Legacy optimizer results
+                'optimizer_results',
+                'optimization_run',
+                'optimizer_css_injected',        # Reset CSS injection flag
+                'impact_analysis_cache',
+                'run_optimizer',
+                'run_optimizer_refactored'
+            ]
+            for key in keys_to_clear:
+                if key in st.session_state:
+                    del st.session_state[key]
+
             st.session_state['active_account_id'] = account_id
             st.session_state['active_account_name'] = account_name
-            
-            # Load from database on initial setup
-            from core.data_hub import DataHub
-            hub = DataHub()
-            result = hub.load_from_database(account_id)
-            print(f"[DEBUG] load_from_database result: {result}")
+            # REMOVED: Eager data loading - now happens on-demand per feature
         
         
         st.session_state['single_account_mode'] = True
@@ -163,33 +180,26 @@ def render_account_selector():
                     },
                     'upload_timestamps': {}
                 }
-            
+
             # Clear cached optimizer/simulator results
             keys_to_clear = [
-                'latest_optimizer_run', 
-                'optimizer_results', 
+                'optimizer_results_refactored',  # Refactored optimizer results
+                'latest_optimizer_run',          # Legacy optimizer results
+                'optimizer_results',
                 'optimization_run',
+                'optimizer_css_injected',        # Reset CSS injection flag
                 'impact_analysis_cache',
-                'run_optimizer'  # Important: prevent auto-run on new account
+                'run_optimizer',
+                'run_optimizer_refactored'
             ]
             for key in keys_to_clear:
                 if key in st.session_state:
                     del st.session_state[key]
-            
-            # Now load data from database for new account
-            from core.data_hub import DataHub
-            hub = DataHub()
-            loaded = hub.load_from_database(account_id)
-            
-            if loaded:
-                st.toast(f"🔄 Switched to {account_name} (Loaded {hub.get_summary().get('search_terms', 0):,} rows)", icon="🔄")
-            else:
-                st.toast(f"🔄 Switched to {account_name} (No data)", icon="🔄")
-        elif not previous_account:
-            # First time loading - initialize data from database
-            from core.data_hub import DataHub
-            hub = DataHub()
-            hub.load_from_database(account_id)
+
+            # LAZY LOADING FIX: Don't load data here - let features load on-demand
+            st.toast(f"🔄 Switched to {account_name}", icon="🔄")
+
+        # REMOVED: Eager first-time data loading - now happens on-demand
         
         st.session_state['active_account_id'] = account_id
         st.session_state['active_account_name'] = account_name
@@ -269,8 +279,14 @@ def _show_account_creation_form():
                         }
                     
                     keys_to_clear = [
-                        'latest_optimizer_run', 'optimizer_results', 'optimization_run',
-                        'impact_analysis_cache', 'run_optimizer'
+                        'optimizer_results_refactored',  # Refactored optimizer results
+                        'latest_optimizer_run',          # Legacy optimizer results
+                        'optimizer_results',
+                        'optimization_run',
+                        'optimizer_css_injected',        # Reset CSS injection flag
+                        'impact_analysis_cache',
+                        'run_optimizer',
+                        'run_optimizer_refactored'
                     ]
                     for key in keys_to_clear:
                         if key in st.session_state:

@@ -703,6 +703,14 @@ class ReportCardModule(BaseFeature):
         </div>
         """, unsafe_allow_html=True)
     
+    @st.cache_data(ttl=300, show_spinner=False)
+    def _fetch_insight_data_cached(_self, client_id: str, start_date, end_date):
+        """Cache report card insight queries to avoid repeated DB hits."""
+        db_manager = st.session_state.get('db_manager')
+        if db_manager and client_id:
+            return db_manager.get_target_stats_df(client_id, start_date=start_date, end_date=end_date)
+        return None
+
     def _compute_insights(self, metrics: Dict[str, Any]) -> List[Dict[str, Any]]:
         """
         Compute 6 key insights:
@@ -712,20 +720,20 @@ class ReportCardModule(BaseFeature):
         from datetime import date, timedelta
         from utils.formatters import get_account_currency
         currency = get_account_currency()
-        
+
         insights = []
-        
+
         # ========================================
         # ROW 1: PERFORMANCE METRICS (14d delta)
         # ========================================
         db_manager = st.session_state.get('db_manager')
         client_id = get_active_account_id()
-        
+
         roas_delta = 0
         efficiency_delta = 0
         top_campaign = "—"
         top_campaign_delta = 0
-        
+
         if db_manager and client_id:
             try:
                 today = date.today()
@@ -733,9 +741,10 @@ class ReportCardModule(BaseFeature):
                 start_curr = today - timedelta(days=14)
                 end_prev = start_curr - timedelta(days=1)
                 start_prev = end_prev - timedelta(days=13)
-                
-                df_curr = db_manager.get_target_stats_df(client_id, start_date=start_curr, end_date=end_curr)
-                df_prev = db_manager.get_target_stats_df(client_id, start_date=start_prev, end_date=end_prev)
+
+                # Use cached version to avoid repeated DB queries
+                df_curr = self._fetch_insight_data_cached(client_id, start_curr, end_curr)
+                df_prev = self._fetch_insight_data_cached(client_id, start_prev, end_prev)
                 
                 if df_curr is not None and not df_curr.empty and df_prev is not None and not df_prev.empty:
                     # ROAS Trend

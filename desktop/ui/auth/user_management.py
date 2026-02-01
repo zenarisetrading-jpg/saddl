@@ -20,9 +20,37 @@ from config.features import FEATURE_EMAIL_INVITATIONS, FeatureFlags
 # Example price (could come from config/DB)
 
 
+@st.cache_data(ttl=60, show_spinner=False)
+def _fetch_users_cached(org_id: str):
+    """Cache user list query - prevents repeated DB calls."""
+    from core.auth.service import AuthService
+    auth = AuthService()
+    return auth.list_users(org_id)
+
+
+@st.cache_data(ttl=300, show_spinner=False)
+def _fetch_org_accounts_cached(org_id: str):
+    """Cache organization accounts query for user management."""
+    import streamlit as st
+    db = st.session_state.get('db_manager')
+    if not db:
+        return []
+
+    accounts_query = "SELECT id, display_name, marketplace FROM amazon_accounts WHERE organization_id = %s ORDER BY display_name"
+
+    try:
+        with db._get_connection() as conn:
+            with conn.cursor() as cur:
+                cur.execute(accounts_query, (org_id,))
+                columns = [desc[0] for desc in cur.description]
+                return [dict(zip(columns, row)) for row in cur.fetchall()]
+    except Exception:
+        return []
+
+
 def render_user_management():
     st.header("User Management")
-    
+
     # NUCLEAR CSS OVERRIDE - Dark Vine Theme
     st.markdown("""
     <style>
@@ -55,7 +83,8 @@ def render_user_management():
 
     # V2 Backend Wiring
     from core.auth.service import AuthService
-    from core.auth.service import AuthService
+
+    # Get current user (AuthService is already initialized in main, so this is fast)
     auth = AuthService()
     current_user = auth.get_current_user()
     
@@ -75,25 +104,8 @@ def render_user_management():
         st.subheader(f"Account Permissions: {user['email']}")
         st.caption(f"Global Role: **{user['role']}** · Overrides can only reduce access, never increase it")
         
-        # Get all org accounts (Need a helper or direct query)
-        db = st.session_state.get('db_manager')
-        if not db:
-             st.error("Database connection missing.")
-             return
-
-        accounts_query = "SELECT id, display_name, marketplace FROM amazon_accounts WHERE organization_id = %s ORDER BY display_name"
-        
-        try:
-            # PostgresManager doesn't have fetch_all, use raw connection
-            with db._get_connection() as conn:
-                with conn.cursor() as cur:
-                    cur.execute(accounts_query, (str(current_user.organization_id),))
-                    # Manual dict mapping
-                    columns = [desc[0] for desc in cur.description]
-                    accounts = [dict(zip(columns, row)) for row in cur.fetchall()]
-        except Exception as e:
-            st.error(f"Error fetching accounts: {e}")
-            accounts = []
+        # Get all org accounts (cached to avoid slow queries)
+        accounts = _fetch_org_accounts_cached(str(current_user.organization_id))
 
         if not accounts:
             st.info("No accounts in this organization.")
@@ -170,7 +182,7 @@ def render_user_management():
                         st.error(res.get("error"))
 
     if current_user:
-        users = auth.list_users(current_user.organization_id)
+        users = _fetch_users_cached(str(current_user.organization_id))
         if not users:
              st.info("No users found (except you?)")
              
