@@ -52,31 +52,16 @@ except FileNotFoundError:
 @st.cache_resource(show_spinner=False, ttl=60)  # Hide spinner, cache for 60s only to allow retries
 def run_seeding():
     # Skip seeding if explicitly disabled via environment variable
+    # NOTE: Seeding disabled by default on Streamlit Cloud to prevent hanging
     if os.getenv("SKIP_SEEDING") == "true":
         print("SEED: Skipping (SKIP_SEEDING=true)")
         return "Seeding skipped"
 
     try:
         from core.seeding import seed_initial_data
-        import signal
-
-        # Add timeout protection (10 seconds max)
-        def timeout_handler(signum, frame):
-            raise TimeoutError("Seeding timed out after 10 seconds")
-
-        # Only set alarm on Unix systems (not Windows)
-        if hasattr(signal, 'SIGALRM'):
-            signal.signal(signal.SIGALRM, timeout_handler)
-            signal.alarm(10)
-
-        try:
-            result = seed_initial_data()
-            if hasattr(signal, 'SIGALRM'):
-                signal.alarm(0)  # Cancel alarm
-            return result
-        except TimeoutError as te:
-            print(f"SEED TIMEOUT: {te}")
-            return f"Seeding timed out: {te}"
+        # Simple execution - no timeout handling to avoid signal/threading issues
+        result = seed_initial_data()
+        return result or "Seeding completed"
 
     except Exception as e:
         import traceback
@@ -1792,98 +1777,118 @@ def main():
             
     # Routing
     current = st.session_state.get('current_module', 'home')
-    
+
+    # === GHOST CONTENT PREVENTION ===
+    # Clear previous page content immediately when navigation changes
+    # Track last rendered module to detect page transitions
+    last_module = st.session_state.get('_last_rendered_module')
+
+    if last_module and last_module != current:
+        # Page transition detected - force immediate rerun to clear old content
+        st.session_state['_last_rendered_module'] = current
+        st.rerun()
+
+    # Update last rendered module (only reached if no transition)
+    st.session_state['_last_rendered_module'] = current
+    # === END GHOST CONTENT PREVENTION ===
+
     # Check for pending actions confirmation dialog - REMOVED per user request
     # Actions are now saved explicitly via "Save Run" button in optimizer
     # from ui.action_confirmation import render_action_confirmation_modal
     # render_action_confirmation_modal()
-    
+
     # Show test mode warning banner
     if st.session_state.get('test_mode', False):
         st.warning("⚠️ **TEST MODE ACTIVE** — All data is being saved to `ppc_test.db`. Switch off to use production database.")
-    
-    if current == 'home':
-        render_home()
-    
-    elif current == 'data_hub':
-        import importlib
-        import sys
-        # Clear module cache to prevent KeyError
-        if 'ui.data_hub' in sys.modules:
-            importlib.reload(sys.modules['ui.data_hub'])
-            from ui.data_hub import render_data_hub
-        else:
-            from ui.data_hub import render_data_hub
-        render_data_hub()
-        
-    elif current == 'platform_admin':
-        # Strictly verify access even if session state thinks we are here
-        if user.email and user.email.lower().strip() == "admin@saddl.io":
-            from features.platform_admin import render_platform_admin
-            render_platform_admin()
-        else:
-            # Unauthorized access attempt or sticky session state - reset to home
-            st.session_state['current_module'] = 'home'
-            st.rerun()
-    
-    elif current == 'account_settings':
-        # Route legacy calls to consolidated module
-        from features.account_settings import run_account_settings
-        run_account_settings()
 
-    elif current == 'team_settings':
-        import importlib
-        import sys
-        # Clear module cache to prevent KeyError
-        if 'ui.auth.user_management' in sys.modules:
-            importlib.reload(sys.modules['ui.auth.user_management'])
-            from ui.auth.user_management import render_user_management
-        else:
-            from ui.auth.user_management import render_user_management
-        render_user_management()
+    # Create main content container for proper clearing
+    main_content = st.container()
 
-    elif current == 'profile':
-        from features.account_settings import run_account_settings
-        run_account_settings()
-        
-    elif current == 'billing':
-        st.info("Billing module coming in Phase 3.")
-        
-    elif current == 'readme':
-        from ui.readme import render_readme
-        render_readme()
-    
-    elif current == 'optimizer':
-        run_consolidated_optimizer()
-        
-    elif current == 'simulator':
-        from features.simulator import SimulatorModule
-        SimulatorModule().run()
-        
-    elif current == 'performance':
-        run_performance_hub()
-    
-    elif current == 'creator':
-        from features.creator import CreatorModule
-        creator = CreatorModule()
-        creator.run()
-    
-    elif current == 'assistant':
-        from features.assistant import AssistantModule
-        AssistantModule().render_interface()
-        
-    # ASIN/AI modules are now inside Optimizer, but we keep routing valid just in case
-    elif current == 'asin_mapper':
-        from features.asin_mapper import ASINMapperModule
-        ASINMapperModule().run()
-    elif current == 'ai_insights':
-        from features.kw_cluster import AIInsightsModule
-        AIInsightsModule().run()
-    # Legacy impact_dashboard.py wiring removed - v2 is now primary
-    elif current == 'impact_v2':
-        from features.impact.main import render_impact_dashboard_v2
-        render_impact_dashboard_v2()
-    # Client Report feature removed
+    with main_content:
+        if current == 'home':
+            render_home()
+
+        elif current == 'data_hub':
+            import importlib
+            import sys
+            # Clear module cache to prevent KeyError
+            if 'ui.data_hub' in sys.modules:
+                importlib.reload(sys.modules['ui.data_hub'])
+                from ui.data_hub import render_data_hub
+            else:
+                from ui.data_hub import render_data_hub
+            render_data_hub()
+
+        elif current == 'platform_admin':
+            # Strictly verify access even if session state thinks we are here
+            if user.email and user.email.lower().strip() == "admin@saddl.io":
+                from features.platform_admin import render_platform_admin
+                render_platform_admin()
+            else:
+                # Unauthorized access attempt or sticky session state - reset to home
+                st.session_state['current_module'] = 'home'
+                st.rerun()
+
+        elif current == 'account_settings':
+            # Route legacy calls to consolidated module
+            from features.account_settings import run_account_settings
+            run_account_settings()
+
+        elif current == 'team_settings':
+            import importlib
+            import sys
+            # Clear module cache to prevent KeyError
+            if 'ui.auth.user_management' in sys.modules:
+                importlib.reload(sys.modules['ui.auth.user_management'])
+                from ui.auth.user_management import render_user_management
+            else:
+                from ui.auth.user_management import render_user_management
+            render_user_management()
+
+        elif current == 'profile':
+            from features.account_settings import run_account_settings
+            run_account_settings()
+
+        elif current == 'billing':
+            st.info("Billing module coming in Phase 3.")
+
+        elif current == 'readme':
+            from ui.readme import render_readme
+            render_readme()
+
+        elif current == 'optimizer':
+            run_consolidated_optimizer()
+
+        elif current == 'simulator':
+            from features.simulator import SimulatorModule
+            SimulatorModule().run()
+
+        elif current == 'performance':
+            run_performance_hub()
+
+        elif current == 'creator':
+            from features.creator import CreatorModule
+            creator = CreatorModule()
+            creator.run()
+
+        elif current == 'assistant':
+            from features.assistant import AssistantModule
+            AssistantModule().render_interface()
+
+        # ASIN/AI modules are now inside Optimizer, but we keep routing valid just in case
+        elif current == 'asin_mapper':
+            from features.asin_mapper import ASINMapperModule
+            ASINMapperModule().run()
+
+        elif current == 'ai_insights':
+            from features.kw_cluster import AIInsightsModule
+            AIInsightsModule().run()
+
+        # Legacy impact_dashboard.py wiring removed - v2 is now primary
+        elif current == 'impact_v2':
+            from features.impact.main import render_impact_dashboard_v2
+            render_impact_dashboard_v2()
+        # Client Report feature removed
 
     # Render Floating Chat Bubble (unless already on assistant page)
     if current != 'assistant':

@@ -1185,8 +1185,10 @@ def run():
     
     # Fetch visual data
     with st.spinner("📊 Loading performance data..."):
+        print(f"[CLIENT_REPORT] Fetching exec dashboard data...")
         exec_data = exec_dash._fetch_data()
-        
+        print(f"[CLIENT_REPORT] Exec data result: {exec_data is not None}")
+
         # Override date_str if configured
         date_str = st.session_state.get('date_range', "Period Unknown")
         if not st.session_state.get('date_range'):
@@ -1196,17 +1198,20 @@ def run():
                     s = pd.to_datetime(dr['start']).strftime('%b %d')
                     e = pd.to_datetime(dr['end']).strftime('%b %d, %Y')
                     date_str = f"{s} – {e}"
-        
+
         hub = DataHub()
         rc_df = hub.get_enriched_data()
         if rc_df is None:
             rc_df = hub.get_data("search_term_report")
-        
+
+        print(f"[CLIENT_REPORT] Report card data: {len(rc_df) if rc_df is not None else 0} rows")
+
         rc_metrics = None
         if rc_df is not None:
             rc_metrics = report_card.analyze(rc_df)
-    
+
     if not exec_data:
+        print(f"[CLIENT_REPORT] No exec_data - showing warning")
         st.warning("⚠️ Data analysis pending. Please ensure data is loaded.")
         return
     

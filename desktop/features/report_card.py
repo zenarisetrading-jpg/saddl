@@ -1234,11 +1234,15 @@ class ReportCardModule(BaseFeature):
             # Fetch API Key
             api_key = None
             if hasattr(st, "secrets"):
-                try: api_key = st.secrets["OPENAI_API_KEY"]
-                except: pass
-                
+                try:
+                    api_key = st.secrets["OPENAI_API_KEY"]
+                    print(f"[AI INSIGHTS] API Key loaded from secrets: {api_key[:10]}..." if api_key else "[AI INSIGHTS] API Key is None")
+                except Exception as e:
+                    print(f"[AI INSIGHTS] Failed to load API key from secrets: {e}")
+
             if not api_key:
-                return "⚠️ AI Configuration Missing: API Key not found."
+                print("[AI INSIGHTS] No API key found - returning error message")
+                return "⚠️ AI Configuration Missing: API Key not found in Streamlit secrets."
 
             # Construct Prompt
             system_prompt = """
@@ -1287,20 +1291,31 @@ class ReportCardModule(BaseFeature):
                 "Authorization": f"Bearer {api_key}" 
             }
             
+            print(f"[AI INSIGHTS] Sending request to OpenAI API...")
             response = requests.post(
                 "https://api.openai.com/v1/chat/completions",
                 headers=headers,
                 json=payload,
                 timeout=30
             )
-            
+
+            print(f"[AI INSIGHTS] Response status: {response.status_code}")
+
             if response.status_code == 200:
-                return response.json()['choices'][0]['message']['content']
+                content = response.json()['choices'][0]['message']['content']
+                print(f"[AI INSIGHTS] Successfully generated insights")
+                return content
             else:
-                return f"⚠️ AI Error: {response.status_code} - {response.text}"
-                
+                error_msg = f"⚠️ AI Error: {response.status_code} - {response.text}"
+                print(f"[AI INSIGHTS] {error_msg}")
+                return error_msg
+
         except Exception as e:
-            return f"⚠️ Could not generate insight: {str(e)}"
+            import traceback
+            error_msg = f"⚠️ Could not generate insight: {str(e)}"
+            print(f"[AI INSIGHTS] Exception: {error_msg}")
+            traceback.print_exc()
+            return error_msg
 
     def _render_download_button(self, metrics: Dict[str, Any], insight_text: str = ""):
         """Render the PDF download button."""

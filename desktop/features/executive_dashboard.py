@@ -518,10 +518,13 @@ class ExecutiveDashboard:
             # Use cached fetcher
             # Version key ensures cache invalidation on new data upload
             stats_cache_version = "v1_" + str(st.session_state.get('data_upload_timestamp', 'init'))
-            
+
+            print(f"[EXEC_DASH] Fetching data for client_id: {self.client_id}")
             df = _fetch_and_process_stats(self.client_id, stats_cache_version)
-            
+            print(f"[EXEC_DASH] Data fetched: {len(df) if df is not None else 0} rows")
+
             if df is None or df.empty:
+                print(f"[EXEC_DASH] No data found - returning None")
                 return None
             
             # Time windows (use selected days from date picker)
