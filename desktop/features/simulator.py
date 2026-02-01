@@ -12,7 +12,8 @@ class SimulatorModule(BaseFeature):
     
     def validate_data(self, data: pd.DataFrame) -> tuple[bool, str]:
         """Validate input data - Simulator relies on Optimizer state, not direct input."""
-        if 'latest_optimizer_run' in st.session_state:
+        # Support both refactored (new) and legacy (old) optimizer results
+        if 'optimizer_results_refactored' in st.session_state or 'latest_optimizer_run' in st.session_state:
             return True, ""
         return False, "Optimizer validation needed"
 
@@ -212,13 +213,22 @@ class SimulatorModule(BaseFeature):
     def _run_logic(self):
         """Internal logic for the simulator UI components."""
         
-        # Dependency Check
-        if 'latest_optimizer_run' not in st.session_state:
+        # Dependency Check (New + Old Keys)
+        print(f"[SIMULATOR] Checking for optimizer results...")
+        print(f"[SIMULATOR] Has optimizer_results_refactored: {'optimizer_results_refactored' in st.session_state}")
+        print(f"[SIMULATOR] Has latest_optimizer_run: {'latest_optimizer_run' in st.session_state}")
+        print(f"[SIMULATOR] Session state keys: {list(st.session_state.keys())}")
+
+        if 'optimizer_results_refactored' not in st.session_state and 'latest_optimizer_run' not in st.session_state:
+            print(f"[SIMULATOR] No optimization results found - showing empty state")
             self._render_empty_state()
             return
-            
-        # Retrieve optimization data
-        r = st.session_state['latest_optimizer_run']
+
+        # Retrieve optimization data (Prioritize Refactored)
+        r = st.session_state.get('optimizer_results_refactored') or st.session_state.get('latest_optimizer_run')
+        print(f"[SIMULATOR] Retrieved results: {r is not None}")
+        if r:
+            print(f"[SIMULATOR] Results keys: {list(r.keys())}")
         sim = r.get("simulation")
         date_info = r.get("date_info", {})
         
