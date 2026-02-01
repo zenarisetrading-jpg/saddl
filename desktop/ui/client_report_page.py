@@ -1199,15 +1199,34 @@ def run():
                     e = pd.to_datetime(dr['end']).strftime('%b %d, %Y')
                     date_str = f"{s} – {e}"
 
+        # Load report card data from database (same as exec dashboard)
         hub = DataHub()
+
+        # Try session data first (uploaded files)
         rc_df = hub.get_enriched_data()
         if rc_df is None:
             rc_df = hub.get_data("search_term_report")
 
+        # If no session data, load from database
+        if rc_df is None or rc_df.empty:
+            print(f"[CLIENT_REPORT] No session data, loading from database...")
+            account_id = st.session_state.get('active_account_id')
+            if account_id:
+                loaded = hub.load_from_database(account_id)
+                if loaded:
+                    rc_df = hub.get_enriched_data()
+                    if rc_df is None:
+                        rc_df = hub.get_data("search_term_report")
+                    print(f"[CLIENT_REPORT] Loaded from DB: {len(rc_df) if rc_df is not None else 0} rows")
+                else:
+                    print(f"[CLIENT_REPORT] Database load failed for account: {account_id}")
+            else:
+                print(f"[CLIENT_REPORT] No active_account_id in session state")
+
         print(f"[CLIENT_REPORT] Report card data: {len(rc_df) if rc_df is not None else 0} rows")
 
         rc_metrics = None
-        if rc_df is not None:
+        if rc_df is not None and not rc_df.empty:
             rc_metrics = report_card.analyze(rc_df)
 
     if not exec_data:
