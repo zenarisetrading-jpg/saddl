@@ -1565,36 +1565,112 @@ PLATFORM METHODOLOGY & ENGINE LOGIC (UPDATED JAN 2, 2026)
     # =========================================================================
 
     def _call_llm(self, messages):
-        """Calls OpenAI API using the requests library."""
-        # Safely access secrets - handle missing secrets.toml
-        api_key = None
+        """
+        Calls AI API using the requests library.
+        Tries Claude first (if available), falls back to OpenAI.
+        """
+        import os
+
+        # Check for Claude API key first
+        claude_key = None
         try:
-            api_key = st.secrets.get("OPENAI_API_KEY")
+            claude_key = st.secrets.get("CLAUDE_API_KEY")
         except Exception:
             pass
-            
-        # Priority 2: Fallback to environment variable if not in secrets or secrets.toml loading failed
-        if not api_key:
-            import os
-            api_key = os.environ.get("OPENAI_API_KEY")
-        
-        if not api_key:
-            return "⚠️ OpenAI API Key not configured. Please add OPENAI_API_KEY to .streamlit/secrets.toml or environment variables."
+        if not claude_key:
+            claude_key = os.environ.get("CLAUDE_API_KEY")
 
+        # Try Claude first if available
+        if claude_key:
+            try:
+                return self._call_claude(messages, claude_key)
+            except Exception as e:
+                print(f"[ASSISTANT] Claude API failed: {str(e)}, falling back to OpenAI")
+                # Fall through to OpenAI
+
+        # Fallback to OpenAI
+        openai_key = None
+        try:
+            openai_key = st.secrets.get("OPENAI_API_KEY")
+        except Exception:
+            pass
+        if not openai_key:
+            openai_key = os.environ.get("OPENAI_API_KEY")
+
+        if not openai_key:
+            return "⚠️ No AI API Key configured. Please add CLAUDE_API_KEY or OPENAI_API_KEY to .streamlit/secrets.toml"
+
+        return self._call_openai(messages, openai_key)
+
+    def _call_claude(self, messages, api_key):
+        """Call Claude API (Anthropic)."""
+        headers = {
+            "x-api-key": api_key,
+            "anthropic-version": "2023-06-01",
+            "Content-Type": "application/json"
+        }
+
+        # Convert OpenAI message format to Claude format
+        system_msg = None
+        claude_messages = []
+
+        for msg in messages:
+            if msg["role"] == "system":
+                # Claude uses separate system parameter
+                if system_msg is None:
+                    system_msg = msg["content"]
+                else:
+                    system_msg += "\n\n" + msg["content"]
+            else:
+                claude_messages.append({
+                    "role": msg["role"],
+                    "content": msg["content"]
+                })
+
+        payload = {
+            "model": "claude-3-5-sonnet-20241022",
+            "max_tokens": 4000,
+            "temperature": 0.4,
+            "messages": claude_messages
+        }
+
+        if system_msg:
+            payload["system"] = system_msg
+
+        try:
+            response = requests.post(
+                "https://api.anthropic.com/v1/messages",
+                headers=headers,
+                json=payload,
+                timeout=60
+            )
+            response.raise_for_status()
+            result = response.json()
+            return result['content'][0]['text']
+        except Exception as e:
+            raise Exception(f"Claude API error: {str(e)}")
+
+    def _call_openai(self, messages, api_key):
+        """Call OpenAI API."""
         headers = {
             "Authorization": f"Bearer {api_key}",
             "Content-Type": "application/json"
         }
-        
+
         payload = {
             "model": "gpt-4o",
             "messages": messages,
-            "temperature": 0.4,  # Slightly lower for more consistent analytical responses
+            "temperature": 0.4,
             "max_tokens": 2000
         }
-        
+
         try:
-            response = requests.post("https://api.openai.com/v1/chat/completions", headers=headers, json=payload, timeout=60)
+            response = requests.post(
+                "https://api.openai.com/v1/chat/completions",
+                headers=headers,
+                json=payload,
+                timeout=60
+            )
             response.raise_for_status()
             return response.json()['choices'][0]['message']['content']
         except Exception as e:
