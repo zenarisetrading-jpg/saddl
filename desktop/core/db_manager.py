@@ -1570,7 +1570,9 @@ class DatabaseManager:
                 cursor.execute("SELECT account_id, account_name, account_type FROM accounts WHERE organization_id = ? ORDER BY account_name", (organization_id,))
             else:
                 cursor.execute("SELECT account_id, account_name, account_type FROM accounts ORDER BY account_name")
-            return cursor.fetchall()
+            
+            # Strip whitespace to ensure consistency
+            return [(str(row['account_id']).strip(), row['account_name'], row['account_type']) for row in cursor.fetchall()]
     
     def get_account(self, account_id: str) -> Optional[Dict[str, Any]]:
         """Get account details by ID."""

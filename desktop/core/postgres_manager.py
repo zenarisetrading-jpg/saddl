@@ -1343,7 +1343,9 @@ class PostgresManager:
                      cursor.execute("SELECT account_id, account_name, account_type FROM accounts WHERE organization_id = %s ORDER BY account_name", (organization_id,))
                 else:
                     cursor.execute("SELECT account_id, account_name, account_type FROM accounts ORDER BY account_name")
-                result = [(row['account_id'], row['account_name'], row['account_type']) for row in cursor.fetchall()]
+                
+                # Strip whitespace from IDs to prevent matching issues
+                result = [(str(row['account_id']).strip(), row['account_name'], row['account_type']) for row in cursor.fetchall()]
         
         # _query_cache.set(cache_key, result)
         return result
