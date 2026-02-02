@@ -49,7 +49,7 @@ except FileNotFoundError:
 # Run seeding with @st.cache_resource to execute only once per app instance
 # This prevents connection pool exhaustion from concurrent seeding attempts
 # MOVED TO LAZY EXECUTION: Now runs in main() BEFORE login check, not at module load time
-@st.cache_resource(show_spinner=False, ttl=60)  # Hide spinner, cache for 60s only to allow retries
+@st.cache_resource(show_spinner=False)  # Cache forever - seeding only needs to run once per deployment
 def run_seeding():
     # Skip seeding if explicitly disabled via environment variable
     # NOTE: Seeding disabled by default on Streamlit Cloud to prevent hanging
@@ -831,6 +831,12 @@ def run_consolidated_optimizer():
                                 st.error(f"Failed: {res.message}")
                     else:
                         st.warning("Enter an email first")
+                
+                # 3. Impact Debug
+                st.markdown("---")
+                if st.button("Debug Impact Dashboard", use_container_width=True):
+                    st.session_state['current_module'] = 'debug_impact'
+                    st.rerun()
     
     # Legacy UI disabled - shows incorrect bid count (326 vs actual ~641)
     # opt.render_ui()
@@ -1425,11 +1431,32 @@ def main():
         # Only runs once per app instance (cached)
         # Show a friendly message while initializing
         try:
+            import time
+            from concurrent.futures import ThreadPoolExecutor, TimeoutError as FuturesTimeoutError
+
+            # Run seeding with timeout to prevent infinite hang
             with st.spinner("Initializing database..."):
-                seeding_result = run_seeding()
-                if seeding_result and "Error" in str(seeding_result):
-                    st.warning(f"⚠️ Database initialization had issues: {seeding_result}")
-                    st.info("You may still be able to log in if the database was previously initialized.")
+                start_time = time.time()
+
+                # Execute seeding in thread with 10 second timeout
+                with ThreadPoolExecutor(max_workers=1) as executor:
+                    future = executor.submit(run_seeding)
+                    try:
+                        seeding_result = future.result(timeout=10.0)
+                        elapsed = time.time() - start_time
+                        print(f"SEED: Completed in {elapsed:.2f}s")
+
+                        if seeding_result and "Error" in str(seeding_result):
+                            st.warning(f"⚠️ Database initialization had issues: {seeding_result}")
+                            st.info("You may still be able to log in if the database was previously initialized.")
+                    except FuturesTimeoutError:
+                        st.error("❌ Database initialization timed out after 10 seconds")
+                        st.warning("This usually means:")
+                        st.write("- Database is unreachable")
+                        st.write("- Connection pool is exhausted")
+                        st.write("- Network issues")
+                        st.info("Try refreshing the page. If issue persists, check DATABASE_URL.")
+                        st.stop()
         except Exception as e:
             st.error(f"❌ Database initialization failed: {e}")
             st.info("If the database was already initialized, you can proceed to login.")
@@ -1868,6 +1895,10 @@ def main():
         elif current == 'asin_mapper':
             from features.asin_mapper import ASINMapperModule
             ASINMapperModule().run()
+
+        elif current == 'debug_impact':
+            from features.debug_ui import render_debug_metrics
+            render_debug_metrics()
 
         elif current == 'ai_insights':
             from features.kw_cluster import AIInsightsModule

@@ -316,7 +316,12 @@ def render_results_dashboard(results: dict):
                 avg_cr = harvest["CR7"].mean() if "CR7" in harvest.columns else 0
                 st.metric("Avg. Conv. Rate", f"{avg_cr:.1%}")
             with hc4:
-                st.metric("Coverage", "100%")
+                # Link to Campaign Creator
+                if st.button("🚀 Launch in Campaign Creator", key="btn_goto_harvest_creator", use_container_width=True, type="primary"):
+                    st.session_state['harvest_payload'] = harvest
+                    st.session_state['active_creator_tab'] = "Harvest Winners"
+                    st.session_state['current_module'] = 'creator'
+                    st.rerun()
 
             st.markdown("<br>", unsafe_allow_html=True)
             st.dataframe(harvest, use_container_width=True)

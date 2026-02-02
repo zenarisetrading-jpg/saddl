@@ -6,6 +6,11 @@ Handles 'ON CONFLICT' for upserts instead of 'INSERT OR REPLACE'.
 """
 
 import os
+import warnings
+
+# Suppress pandas SQLAlchemy warnings
+warnings.filterwarnings('ignore', message='.*SQLAlchemy.*')
+warnings.filterwarnings('ignore', message='.*DBAPI2.*')
 # DB Driver Shim (V2 Migration Patch)
 try:
     import psycopg2

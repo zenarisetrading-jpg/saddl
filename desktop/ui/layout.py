@@ -8,6 +8,7 @@ import streamlit as st
 import pandas as pd
 import numpy as np
 from datetime import timedelta
+import plotly.graph_objects as go  # Import at module level to avoid delay
 
 from ui.theme import ThemeManager
 
@@ -191,6 +192,62 @@ def render_home():
         render_empty_state('no_data', context={'account_name': account_name})
         return
 
+    # ==========================================
+    # PREMIUM LOADING STATE (Prevents FOUC)
+    # ==========================================
+    # Show professional loader while fetching data
+    # This prevents Flash of Unstyled Content (FOUC)
+
+    from ui.components.loading import render_premium_loader
+
+    # Create placeholder for loading state
+    loading_placeholder = st.empty()
+
+    # Show premium loader immediately
+    with loading_placeholder.container():
+        # Header (shown immediately)
+        st.markdown('<h1 style="font-size: 1.75rem; font-weight: 700; color: #e2e8f0; margin-bottom: 8px;">DECISION COCKPIT</h1>', unsafe_allow_html=True)
+        st.markdown('<p style="color: #94a3b8; margin-bottom: 32px;">Strategic overview of your account performance</p>', unsafe_allow_html=True)
+
+        # Premium animated loader
+        render_premium_loader(
+            message="Loading dashboard data",
+            show_progress=True
+        )
+
+    # ==========================================
+    # FETCH DATA (User sees loader during this)
+    # ==========================================
+    # Fetch all data before rendering content
+    # This ensures no layout shift when content appears
+
+    try:
+        # Fetch health score
+        health_data = None
+        if active_account_id:
+            health_data = get_account_health_score(str(active_account_id))
+
+        # Fetch impact summary
+        impact_data = get_recent_impact_summary()
+
+    except Exception as e:
+        # On error, show error state instead of broken UI
+        loading_placeholder.empty()
+        st.error(f"⚠️ Error loading dashboard: {str(e)}")
+        return
+
+    # ==========================================
+    # CLEAR LOADER & RENDER CONTENT
+    # ==========================================
+    # Remove loader and show actual content
+    # All data is ready, so no FOUC
+    # Spinner will show naturally while data loads (no artificial delay)
+
+    loading_placeholder.empty()
+
+    # Wrap entire content in a container with fade-in animation
+    st.markdown('<div class="cockpit-content">', unsafe_allow_html=True)
+
     st.markdown("""
         <style>
         /* Premium Cards */
@@ -307,11 +364,27 @@ def render_home():
             box-shadow: 0 0 12px rgba(6, 182, 212, 0.2);
         }
         
-        /* Smooth page load */
+        /* Smooth content fade-in after loading */
+        .cockpit-content {
+            animation: fadeInUp 0.6s cubic-bezier(0.16, 1, 0.3, 1);
+        }
+
+        @keyframes fadeInUp {
+            from {
+                opacity: 0;
+                transform: translateY(20px);
+            }
+            to {
+                opacity: 1;
+                transform: translateY(0);
+            }
+        }
+
+        /* Smooth page load for all content */
         [data-testid="stVerticalBlock"] > div {
             animation: fadeIn 0.5s ease-out;
         }
-        
+
         @keyframes fadeIn {
             from { opacity: 0; transform: translateY(10px); }
             to { opacity: 1; transform: translateY(0); }
@@ -352,19 +425,16 @@ def render_home():
         
         # Header - LEFT ALIGNED (Removed justify-content:center)
         st.markdown(f'<div class="cockpit-label" style="justify-content: space-between;"><span>Health Score</span>{sync_badge}</div>', unsafe_allow_html=True)
-        
-        if active_account_id:
-            health = get_account_health_score(str(active_account_id))
-        else:
-            health = None
-        
+
+        # Use pre-fetched data (no more blocking calls)
+        health = health_data
+
         # Note: The column container itself is flex-column (from CSS on line 118)
         # We will render items sequentially.
-        
+
         if health is not None:
             health = round(health)
-            import plotly.graph_objects as go
-            
+
             # Status thresholds
             if health > 75:
                 status_text = "HEALTHY"
@@ -457,7 +527,7 @@ def render_home():
     with t2:
         st.markdown('<div class="cockpit-marker"></div>', unsafe_allow_html=True)
         st.markdown('<div class="cockpit-label" style="text-align:center;">14-Day Decision Impact</div>', unsafe_allow_html=True)
-        impact_data = get_recent_impact_summary()
+        # Use pre-fetched data (no more blocking calls)
         st.markdown('<div style="flex-grow:1; display:flex; flex-direction:column; justify-content:space-between; text-align:center;">', unsafe_allow_html=True)
         if impact_data is not None:
             impact = impact_data.get('sales', 0)
@@ -848,3 +918,6 @@ def render_home():
         </div>
     </div>
     """, unsafe_allow_html=True)
+
+    # Close cockpit-content wrapper for fade-in animation
+    st.markdown('</div>', unsafe_allow_html=True)
