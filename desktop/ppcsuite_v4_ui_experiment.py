@@ -1247,7 +1247,7 @@ def render_shared_report():
     """
     import streamlit as st
     from core.db_manager import get_db_manager
-    from pages import client_report
+    from ui import client_report_page as client_report
     
     # Get report ID from URL
     query_params = st.query_params
