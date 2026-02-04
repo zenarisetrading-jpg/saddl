@@ -105,6 +105,7 @@ class DatabaseManager:
                     campaign_name TEXT NOT NULL,
                     ad_group_name TEXT NOT NULL,
                     target_text TEXT NOT NULL,
+                    customer_search_term TEXT,
                     match_type TEXT,
                     spend REAL DEFAULT 0,
                     sales REAL DEFAULT 0,
@@ -122,11 +123,16 @@ class DatabaseManager:
                 ON target_stats(client_id, start_date, campaign_name)
             """)
             
-            # MIGRATION: Ensure 'orders' column exists
+            # MIGRATION: Ensure 'orders' and 'customer_search_term' columns exist
             try:
                 cursor.execute("SELECT orders FROM target_stats LIMIT 1")
             except sqlite3.OperationalError:
                 cursor.execute("ALTER TABLE target_stats ADD COLUMN orders INTEGER DEFAULT 0")
+
+            try:
+                cursor.execute("SELECT customer_search_term FROM target_stats LIMIT 1")
+            except sqlite3.OperationalError:
+                cursor.execute("ALTER TABLE target_stats ADD COLUMN customer_search_term TEXT")
             
             # ==========================================
             # ACTIONS LOG TABLE (Change History)
@@ -147,6 +153,8 @@ class DatabaseManager:
                     ad_group_name TEXT,
                     target_text TEXT,
                     match_type TEXT,
+                    new_campaign_name TEXT,
+                    winner_source_campaign TEXT,
                     UNIQUE(client_id, action_date, target_text, action_type, campaign_name)
                 )
             """)
@@ -160,6 +168,17 @@ class DatabaseManager:
                 CREATE INDEX IF NOT EXISTS idx_actions_log_client 
                 ON actions_log(client_id, action_date)
             """)
+
+            # MIGRATION: Ensure 'new_campaign_name' and 'winner_source_campaign' exist
+            try:
+                cursor.execute("SELECT new_campaign_name FROM actions_log LIMIT 1")
+            except sqlite3.OperationalError:
+                cursor.execute("ALTER TABLE actions_log ADD COLUMN new_campaign_name TEXT")
+
+            try:
+                cursor.execute("SELECT winner_source_campaign FROM actions_log LIMIT 1")
+            except sqlite3.OperationalError:
+                cursor.execute("ALTER TABLE actions_log ADD COLUMN winner_source_campaign TEXT")
             
             # ==========================================
             # MAPPING TABLES (Persistence)
@@ -1001,19 +1020,38 @@ class DatabaseManager:
             tid_col = 'TargetingId' if 'TargetingId' in df.columns else None
             
             # Locate text columns (keyword / targeting expression)
-            kw_text_col = next((c for c in df.columns if c.lower() in ['keyword text', 'customer search term']), None)
+            # CRITICAL FIX: Use "Keyword Text" (not "Customer Search Term") for keywords
+            kw_text_col = next((c for c in df.columns if c.lower() in ['keyword text']), None)
             tgt_expr_col = next((c for c in df.columns if c.lower() in ['product targeting expression', 'targetingexpression']), None)
             mt_col = 'Match Type' if 'Match Type' in df.columns else None
-            
+
             # Locate bid columns
             agb_col = next((c for c in df.columns if c.lower() in ['ad group default bid', 'adgroupdefaultbid']), None)
             bid_col = 'Bid' if 'Bid' in df.columns else None
-            
+
             for _, row in df.iterrows():
                 # We need at least Campaign Name
                 if 'Campaign Name' not in row:
                     continue
-                
+
+                # Get match type to determine if this is a keyword or product targeting row
+                match_type = str(row[mt_col]).lower().strip() if mt_col and pd.notna(row.get(mt_col)) else None
+
+                # CRITICAL: Use keyword_text for keyword match types, targeting_expression for auto/PT match types
+                keyword_text = None
+                targeting_expression = None
+
+                if match_type in ['broad', 'phrase', 'exact', 'negativeexact', 'negativephrase']:
+                    # This is a KEYWORD row - use "Keyword Text" column
+                    keyword_text = str(row[kw_text_col]) if kw_text_col and pd.notna(row.get(kw_text_col)) else None
+                elif match_type in ['close-match', 'loose-match', 'substitutes', 'auto', 'closematch', 'loosematch']:
+                    # This is a PRODUCT TARGETING row - use "Product Targeting Expression" column
+                    targeting_expression = str(row[tgt_expr_col]) if tgt_expr_col and pd.notna(row.get(tgt_expr_col)) else None
+                else:
+                    # Fallback: if match_type is unknown, try both
+                    keyword_text = str(row[kw_text_col]) if kw_text_col and pd.notna(row.get(kw_text_col)) else None
+                    targeting_expression = str(row[tgt_expr_col]) if tgt_expr_col and pd.notna(row.get(tgt_expr_col)) else None
+
                 # Parse bid values
                 agb_val = None
                 if agb_col and pd.notna(row.get(agb_col)):
@@ -1021,26 +1059,26 @@ class DatabaseManager:
                         agb_val = float(row[agb_col])
                     except:
                         pass
-                        
+
                 bid_val = None
                 if bid_col and pd.notna(row.get(bid_col)):
                     try:
                         bid_val = float(row[bid_col])
                     except:
                         pass
-                    
+
                 data.append((
                     client_id,
                     str(row['Campaign Name']),
                     str(row[cid_col]) if cid_col and pd.notna(row.get(cid_col)) else None,
                     str(row.get('Ad Group Name')) if 'Ad Group Name' in df.columns and pd.notna(row.get('Ad Group Name')) else None,
                     str(row[aid_col]) if aid_col and pd.notna(row.get(aid_col)) else None,
-                    str(row[kw_text_col]) if kw_text_col and pd.notna(row.get(kw_text_col)) else None,
+                    keyword_text,
                     str(row[kwid_col]) if kwid_col and pd.notna(row.get(kwid_col)) else None,
-                    str(row[tgt_expr_col]) if tgt_expr_col and pd.notna(row.get(tgt_expr_col)) else None,
+                    targeting_expression,
                     str(row[tid_col]) if tid_col and pd.notna(row.get(tid_col)) else None,
                     str(row[sku_col]) if sku_col and pd.notna(row.get(sku_col)) else None,
-                    str(row[mt_col]) if mt_col and pd.notna(row.get(mt_col)) else None,
+                    match_type,
                     agb_val,  # Ad Group Default Bid
                     bid_val   # Keyword/Target Bid
                 ))
@@ -1333,14 +1371,38 @@ class DatabaseManager:
                     validation = '⚠️ NOT IMPLEMENTED' if observed_after_spend > 0 else '✓ Confirmed blocked'
             
             elif action_type == 'HARVEST':
-                # RULE: Source → $0, 10% lift assumption
-                after_spend = 0.0
-                after_sales = 0.0
-                delta_spend = 0.0
-                delta_sales = before_sales * 0.10
-                impact_score = delta_sales
-                attribution = 'harvest'
-                validation = '⚠️ Source still active' if observed_after_spend > 0 else '✓ Harvested to exact'
+                # RULE: Counterfactual Baseline (Realized vs Expected)
+                # Lookup Destination Performance (Exact Match in New Campaign)
+                new_campaign_lower = str(action['new_campaign_name']).lower() if action['new_campaign_name'] else ''
+                dest_key = (target_lower, new_campaign_lower)
+                
+                if dest_key in after_target_lookup:
+                    dest_data = after_target_lookup[dest_key]
+                    realized_sales = float(dest_data.get('sales', 0) or 0)
+                    realized_spend = float(dest_data.get('spend', 0) or 0)
+                else:
+                    realized_sales = 0.0
+                    realized_spend = 0.0 # Ghost
+                
+                # Calculate Expected Performance (0.85x Efficiency of Source)
+                source_roas = before_sales / before_spend if before_spend > 0 else 0
+                expected_roas = source_roas * 0.85 # Efficiency Decline Factor
+                expected_sales = realized_spend * expected_roas
+                
+                # Impact = Value created ABOVE the expected efficiency drop
+                if realized_sales > 0:
+                    impact_score = realized_sales - expected_sales
+                else:
+                    impact_score = 0.0 # No credit for Ghosts
+                
+                # Reporting
+                after_spend = realized_spend
+                after_sales = realized_sales
+                delta_spend = realized_spend - before_spend
+                delta_sales = realized_sales - before_sales # Net Volume Change
+                
+                attribution = 'harvest_realized'
+                validation = '✓ Realized Impact' if realized_sales > 0 else '⚠️ Ghost (0 Sales)'
             
             elif 'BID' in action_type:
                 # BID_CHANGE: Use observed data (can't predict)

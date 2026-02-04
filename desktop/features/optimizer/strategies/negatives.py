@@ -41,6 +41,14 @@ def enrich_with_ids(df: pd.DataFrame, bulk: pd.DataFrame) -> pd.DataFrame:
     df = df.copy()
     bulk = bulk.copy()
     
+    # DEBUG: Diagnostic logging for ID mapping failure
+    print(f"DEBUG_ENRICH: Input DF shape: {df.shape}")
+    print(f"DEBUG_ENRICH: Bulk Mapping shape: {bulk.shape if bulk is not None else 'None'}")
+    
+    if bulk is not None and not bulk.empty:
+         print(f"DEBUG_ENRICH: Bulk Columns: {bulk.columns.tolist()}")
+         print(f"DEBUG_ENRICH: Bulk Sample ID: {bulk['Campaign Id'].iloc[0] if 'Campaign Id' in bulk.columns else 'N/A'}")
+
     # Normalize for mapping
     df['_camp_norm'] = normalize_for_mapping(df['Campaign Name'])
     df['_ag_norm'] = normalize_for_mapping(df.get('Ad Group Name', pd.Series([''] * len(df))))
@@ -54,17 +62,39 @@ def enrich_with_ids(df: pd.DataFrame, bulk: pd.DataFrame) -> pd.DataFrame:
     target_col = 'Term' if 'Term' in df.columns else 'Targeting'
     df['_target_norm'] = normalize_for_mapping(df[target_col])
     
-    bulk['_camp_norm'] = normalize_for_mapping(bulk['Campaign Name'])
-    bulk['_ag_norm'] = normalize_for_mapping(bulk.get('Ad Group Name', pd.Series([''] * len(bulk))))
+    # DEBUG: Bulk Columns pre-normalization
+    if bulk is not None:
+        # Normalize Bulk Columns to CamelCase (remove spaces)
+        # This fixes 'Campaign Id' -> 'CampaignId' mismatch
+        bulk.columns = [c.replace(' ', '') for c in bulk.columns]
+        print(f"DEBUG_ENRICH: Bulk Columns Normalized: {bulk.columns.tolist()}")
+
+    # Normalize for mapping
+    df['_camp_norm'] = normalize_for_mapping(df['Campaign Name'])
+    df['_ag_norm'] = normalize_for_mapping(df.get('Ad Group Name', pd.Series([''] * len(df))))
     
+    # Initialize ID columns if missing to avoid KeyError during resolution
+    for col in ['KeywordId', 'TargetingId', 'CampaignId', 'AdGroupId']:
+        if col not in df.columns:
+            df[col] = np.nan
+    
+    # For general targeting (Search Term or Targeting column)
+    target_col = 'Term' if 'Term' in df.columns else 'Targeting'
+    df['_target_norm'] = normalize_for_mapping(df[target_col])
+    
+    bulk['_camp_norm'] = normalize_for_mapping(bulk.get('CampaignName', pd.Series(['']*len(bulk))))
+    bulk['_ag_norm'] = normalize_for_mapping(bulk.get('AdGroupName', pd.Series([''] * len(bulk))))
+
+    # Check mapping availability
+    print(f"DEBUG_ENRICH: Bulk rows with CampaignId: {bulk['CampaignId'].notna().sum() if 'CampaignId' in bulk.columns else 0}")
     # Precise Match 1: Keywords
     # CRITICAL: Include Match Type to distinguish phrase/exact versions of the same keyword
-    kw_col = next((c for c in ['Customer Search Term', 'Keyword Text', 'keyword_text'] if c in bulk.columns), None)
+    kw_col = next((c for c in ['CustomerSearchTerm', 'KeywordText', 'keyword_text'] if c in bulk.columns), None)
     if kw_col:
         bulk['_kw_norm'] = normalize_for_mapping(bulk[kw_col])
         # Normalize Match Type for both df and bulk
         df['_match_norm'] = df['Match Type'].astype(str).str.lower().str.strip() if 'Match Type' in df.columns else ''
-        bulk['_match_norm'] = bulk['Match Type'].astype(str).str.lower().str.strip() if 'Match Type' in bulk.columns else ''
+        bulk['_match_norm'] = bulk['MatchType'].astype(str).str.lower().str.strip() if 'MatchType' in bulk.columns else ''
         
         # STRICT LOOKUP: Include Match Type to prevent collision between phrase/exact/broad
         # Use groupby().first() to ensure 1-to-1 mapping and prevent row explosion
@@ -113,7 +143,8 @@ def enrich_with_ids(df: pd.DataFrame, bulk: pd.DataFrame) -> pd.DataFrame:
                     df.drop(columns=[relaxed_col], inplace=True, errors='ignore')
         
     # Precise Match 2: Product Targeting
-    pt_col = next((c for c in ['TargetingExpression', 'Product Targeting Expression', 'targeting_expression'] if c in bulk.columns), None)
+    # CamelCase column names
+    pt_col = next((c for c in ['TargetingExpression', 'ProductTargetingExpression', 'targeting_expression'] if c in bulk.columns), None)
     if pt_col:
         bulk['_pt_norm'] = normalize_for_mapping(bulk[pt_col])
         pt_lookup = bulk[bulk['TargetingId'].notna() & (bulk['TargetingId'] != "") & (bulk['TargetingId'] != "nan")][['_camp_norm', '_ag_norm', '_pt_norm', 'TargetingId', 'CampaignId', 'AdGroupId']].drop_duplicates()

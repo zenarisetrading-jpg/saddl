@@ -44,15 +44,21 @@ def _ensure_impact_columns(df: pd.DataFrame) -> pd.DataFrame:
     df = df.copy()
     MIN_CLICKS_FOR_RELIABLE = 5
     
-    # If market_tag already exists, return as-is
-    if 'market_tag' in df.columns and 'expected_trend_pct' in df.columns:
-        return df
+    # CRITICAL: Always recalculate to ensure 0.85x harvest logic is applied
+    # if 'market_tag' in df.columns and 'expected_trend_pct' in df.columns:
+    #     return df
     
     # Calculate counterfactual metrics
     df['spc_before'] = df['before_sales'] / df['before_clicks'].replace(0, np.nan)
     df['cpc_before'] = df['before_spend'] / df['before_clicks'].replace(0, np.nan)
     df['expected_clicks'] = df['observed_after_spend'] / df['cpc_before']
     df['expected_sales'] = df['expected_clicks'] * df['spc_before']
+    
+    # APPLY HARVEST BASELINE: 0.85x Efficiency Decline Factor
+    # This aligns dashboard categorization (Market Drag/Win) with DB Impact Logic
+    if 'action_type' in df.columns:
+        harvest_mask = df['action_type'].astype(str).str.upper() == 'HARVEST'
+        df.loc[harvest_mask, 'expected_sales'] = df.loc[harvest_mask, 'expected_sales'] * 0.85
     
     df['expected_trend_pct'] = ((df['expected_sales'] - df['before_sales']) / df['before_sales'] * 100).fillna(0)
     df['actual_change_pct'] = ((df['observed_after_sales'] - df['before_sales']) / df['before_sales'] * 100).fillna(0)
@@ -411,7 +417,7 @@ def render_impact_dashboard():
         # Use cached fetcher
         test_mode = st.session_state.get('test_mode', False)
         # Cache invalidation via version string (changes when data uploaded)
-        cache_version = "v19_perf_" + str(st.session_state.get('data_upload_timestamp', 'init'))
+        cache_version = \"v20_harvest_fix_\" + str(st.session_state.get('data_upload_timestamp', 'init'))
         
         # Get horizon config
         horizon_config = IMPACT_WINDOWS["horizons"].get(horizon, IMPACT_WINDOWS["horizons"]["14D"])
@@ -420,6 +426,11 @@ def render_impact_dashboard():
         buffer_days = IMPACT_WINDOWS["maturity_buffer_days"]  # 3 days
         
         impact_df, full_summary = _fetch_impact_data(selected_client, test_mode, before_days, after_days, cache_version)
+        
+        # === FORCE RECALCULATION OF METRICS ===
+        # Apply 0.85x Harvest Factor and assign Market Tags correctly
+        if not impact_df.empty:
+            impact_df = _ensure_impact_columns(impact_df)
         
         # ================================================================
         # CRITICAL FIX: Recalculate maturity BEFORE ImpactMetrics calculation

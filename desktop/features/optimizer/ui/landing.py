@@ -752,4 +752,39 @@ def render_landing_page(config: dict):
                 key="opt_neg_clicks_threshold"
             )
 
+        st.markdown("---")
+        st.markdown("**Bid Optimization Levers**")
+        
+        b1, b2, b3 = st.columns(3)
+        with b1:
+            st.number_input(
+                "Max Bid Change Cap (%)",
+                min_value=5,
+                max_value=100,
+                value=int(st.session_state.get("opt_max_bid_change", 25)),
+                step=5,
+                key="opt_max_bid_change",
+                help="Maximum % increase/decrease allowed in a single run"
+            )
+        with b2:
+            st.number_input(
+                "Step Size: Exact (%)",
+                min_value=1,
+                max_value=50,
+                value=int(st.session_state.get("opt_alpha_exact", 25)),
+                step=1,
+                key="opt_alpha_exact",
+                help="Aggressiveness for Exact Match adjustments"
+            )
+        with b3:
+            st.number_input(
+                "Step Size: Broad/Phrase (%)",
+                min_value=1,
+                max_value=50,
+                value=int(st.session_state.get("opt_alpha_broad", 20)),
+                step=1,
+                key="opt_alpha_broad",
+                help="Aggressiveness for Broad/Phrase/Auto adjustments"
+            )
+
     st.markdown('</div>', unsafe_allow_html=True)

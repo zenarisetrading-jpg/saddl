@@ -304,11 +304,17 @@ def generate_negatives_bulk(neg_kw: pd.DataFrame, neg_pt: pd.DataFrame) -> pd.Da
         # Initialize with index so scalar assignments work
         df = pd.DataFrame(index=neg_kw.index, columns=EXPORT_COLUMNS)
         
+        # Helper to find ID column with fallbacks
+        def get_col(df, candidates):
+            for c in candidates:
+                if c in df.columns: return df[c]
+            return pd.Series([""] * len(df))
+
         df["Product"] = "Sponsored Products"
         df["Entity"] = "Negative Keyword"
         df["Operation"] = "Create"
-        df["Campaign Id"] = (neg_kw["CampaignId"] if "CampaignId" in neg_kw.columns else pd.Series([""] * len(neg_kw))).apply(clean_id)
-        df["Ad Group Id"] = (neg_kw["AdGroupId"] if "AdGroupId" in neg_kw.columns else pd.Series([""] * len(neg_kw))).apply(clean_id)
+        df["Campaign Id"] = get_col(neg_kw, ["CampaignId", "Campaign Id", "Campaign_Id"]).apply(clean_id)
+        df["Ad Group Id"] = get_col(neg_kw, ["AdGroupId", "Ad Group Id", "Ad_Group_Id", "AdGroupId"]).apply(clean_id)
         df["Campaign Name"] = neg_kw["Campaign Name"]
         df["Ad Group Name"] = neg_kw["Ad Group Name"]
         # Strip any targeting prefixes from the term
@@ -336,8 +342,18 @@ def generate_negatives_bulk(neg_kw: pd.DataFrame, neg_pt: pd.DataFrame) -> pd.Da
         df["Product"] = "Sponsored Products"
         df["Entity"] = "Negative Product Targeting"
         df["Operation"] = "Create"
-        df["Campaign Id"] = (neg_pt["CampaignId"] if "CampaignId" in neg_pt.columns else pd.Series([""] * len(neg_pt))).apply(clean_id)
-        df["Ad Group Id"] = (neg_pt["AdGroupId"] if "AdGroupId" in neg_pt.columns else pd.Series([""] * len(neg_pt))).apply(clean_id)
+        # Helper reuse from above scope (or redefine if scope issue, but scope is shared in function)
+        # Redefining for safety/clarity in this block if needed, but get_col is defined in the function scope above? 
+        # Python scoping: defined inside `if neg_kw`, might not be visible here if neg_kw was empty.
+        # Safest to define local or use flexible logic.
+        
+        def get_col_pt(df, candidates):
+            for c in candidates:
+                if c in df.columns: return df[c]
+            return pd.Series([""] * len(df))
+
+        df["Campaign Id"] = get_col_pt(neg_pt, ["CampaignId", "Campaign Id", "Campaign_Id"]).apply(clean_id)
+        df["Ad Group Id"] = get_col_pt(neg_pt, ["AdGroupId", "Ad Group Id", "Ad_Group_Id", "AdGroupId"]).apply(clean_id)
         df["Campaign Name"] = neg_pt["Campaign Name"]
         df["Ad Group Name"] = neg_pt["Ad Group Name"]
         # For PT, format as asin="ASIN" expression

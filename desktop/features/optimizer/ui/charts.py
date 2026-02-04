@@ -1,7 +1,7 @@
 import streamlit as st
 import math
 
-def render_spend_reallocation_chart(current_spend, negatives_savings, bid_savings, reallocated_spend):
+def render_spend_reallocation_chart(current_spend, negatives_savings, bid_savings, reallocated_spend, currency="₹"):
     """
     Renders the Spend Reallocation Bar Chart using CSS.
     Values should be in currency units.
@@ -20,11 +20,11 @@ def render_spend_reallocation_chart(current_spend, negatives_savings, bid_saving
     # Format currency
     def fmt(val):
         if abs(val) >= 100000:
-            return f"₹{abs(val)/100000:.1f}L"
+            return f"{currency}{abs(val)/100000:.1f}L"
         elif abs(val) >= 1000:
-            return f"₹{abs(val)/1000:.1f}K"
+            return f"{currency}{abs(val)/1000:.1f}K"
         else:
-            return f"₹{abs(val):,.0f}"
+            return f"{currency}{abs(val):,.0f}"
 
     # Use components.html instead of st.markdown for better rendering in columns
     import streamlit.components.v1 as components

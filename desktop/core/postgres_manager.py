@@ -1154,33 +1154,52 @@ class PostgresManager:
 
     def save_bulk_mapping(self, df: pd.DataFrame, client_id: str):
         if df is None or df.empty: return 0
-        
+
         sku_col = next((c for c in df.columns if c.lower() in ['sku', 'msku', 'vendor sku', 'vendor_sku']), None)
         cid_col = 'CampaignId' if 'CampaignId' in df.columns else None
         aid_col = 'AdGroupId' if 'AdGroupId' in df.columns else None
         kwid_col = 'KeywordId' if 'KeywordId' in df.columns else None
         tid_col = 'TargetingId' if 'TargetingId' in df.columns else None
-        
-        kw_text_col = next((c for c in df.columns if c.lower() in ['keyword text', 'customer search term']), None)
+
+        # CRITICAL FIX: Use "Keyword Text" (not "Customer Search Term") for keywords
+        kw_text_col = next((c for c in df.columns if c.lower() in ['keyword text']), None)
         tgt_expr_col = next((c for c in df.columns if c.lower() in ['product targeting expression', 'targetingexpression']), None)
         mt_col = 'Match Type' if 'Match Type' in df.columns else None
-        
+
         data = []
         for _, row in df.iterrows():
             if 'Campaign Name' not in row: continue
-            
+
+            # Get match type to determine if this is a keyword or product targeting row
+            match_type = str(row[mt_col]).lower().strip() if mt_col and pd.notna(row.get(mt_col)) else None
+
+            # CRITICAL: Use keyword_text for keyword match types, targeting_expression for auto/PT match types
+            keyword_text = None
+            targeting_expression = None
+
+            if match_type in ['broad', 'phrase', 'exact', 'negativeexact', 'negativephrase']:
+                # This is a KEYWORD row - use "Keyword Text" column
+                keyword_text = str(row[kw_text_col]) if kw_text_col and pd.notna(row.get(kw_text_col)) else None
+            elif match_type in ['close-match', 'loose-match', 'substitutes', 'auto', 'closematch', 'loosematch']:
+                # This is a PRODUCT TARGETING row - use "Product Targeting Expression" column
+                targeting_expression = str(row[tgt_expr_col]) if tgt_expr_col and pd.notna(row.get(tgt_expr_col)) else None
+            else:
+                # Fallback: if match_type is unknown, try both
+                keyword_text = str(row[kw_text_col]) if kw_text_col and pd.notna(row.get(kw_text_col)) else None
+                targeting_expression = str(row[tgt_expr_col]) if tgt_expr_col and pd.notna(row.get(tgt_expr_col)) else None
+
             data.append((
                 client_id,
                 str(row['Campaign Name']),
                 str(row[cid_col]) if cid_col and pd.notna(row.get(cid_col)) else None,
                 str(row.get('Ad Group Name')) if 'Ad Group Name' in df.columns and pd.notna(row.get('Ad Group Name')) else None,
                 str(row[aid_col]) if aid_col and pd.notna(row.get(aid_col)) else None,
-                str(row[kw_text_col]) if kw_text_col and pd.notna(row.get(kw_text_col)) else None,
+                keyword_text,
                 str(row[kwid_col]) if kwid_col and pd.notna(row.get(kwid_col)) else None,
-                str(row[tgt_expr_col]) if tgt_expr_col and pd.notna(row.get(tgt_expr_col)) else None,
+                targeting_expression,
                 str(row[tid_col]) if tid_col and pd.notna(row.get(tid_col)) else None,
                 str(row[sku_col]) if sku_col and pd.notna(row.get(sku_col)) else None,
-                str(row[mt_col]) if mt_col and pd.notna(row.get(mt_col)) else None
+                match_type
             ))
             
         with self._get_connection() as conn:

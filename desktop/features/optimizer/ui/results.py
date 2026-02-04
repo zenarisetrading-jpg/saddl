@@ -2,7 +2,7 @@ import streamlit as st
 import pandas as pd
 from .components import render_metric_card
 from .charts import render_spend_reallocation_chart, render_action_distribution_chart
-from utils.formatters import get_account_currency, format_currency
+from utils.formatters import get_account_currency, format_currency, dataframe_to_excel
 
 def render_results_dashboard(results: dict):
     """
@@ -12,6 +12,128 @@ def render_results_dashboard(results: dict):
         results (dict): Dictionary containing optimization results (df, harvest, neg_kw, etc.)
     """
     # 1. Extract Data
+    # === PREMIUM STYLES ===
+    st.markdown("""
+    <style>
+    /* Global Background & Typography */
+    .stApp {
+        background-color: #0a0f1a;
+        background-image: 
+            radial-gradient(at 0% 0%, rgba(45, 212, 191, 0.03) 0px, transparent 50%),
+            radial-gradient(at 100% 0%, rgba(6, 182, 212, 0.03) 0px, transparent 50%);
+    }
+
+    /* Glassmorphic Card Base (Linear-style) */
+    .glass-card {
+        background: rgba(30, 41, 59, 0.4);
+        border: 1px solid rgba(255, 255, 255, 0.05);
+        border-top: 1px solid rgba(255, 255, 255, 0.1);
+        border-radius: 12px;
+        padding: 24px;
+        box-shadow: 0 4px 20px rgba(0, 0, 0, 0.2);
+        backdrop-filter: blur(10px);
+        margin-bottom: 24px;
+        transition: transform 0.2s ease, box-shadow 0.2s ease;
+    }
+
+    .glass-card:hover {
+        border-color: rgba(255, 255, 255, 0.08);
+        box-shadow: 0 8px 30px rgba(0, 0, 0, 0.3);
+    }
+
+    /* Save Run Hero Section - Special Glow */
+    .save-run-container {
+        position: relative;
+        background: linear-gradient(135deg, rgba(30, 41, 59, 0.6) 0%, rgba(15, 23, 42, 0.8) 100%);
+        border: 1px solid rgba(45, 212, 191, 0.2);
+        border-radius: 16px;
+        padding: 24px;
+        margin-bottom: 40px;
+        box-shadow: 0 0 0 1px rgba(45, 212, 191, 0.1), 0 10px 40px rgba(0, 0, 0, 0.4);
+        overflow: hidden;
+    }
+
+    /* Subtle pulsing accent line for Save Run */
+    .save-run-container::before {
+        content: '';
+        position: absolute;
+        top: 0;
+        left: 0;
+        width: 4px;
+        height: 100%;
+        background: linear-gradient(to bottom, #2dd4bf, #06b6d4);
+        box-shadow: 0 0 15px rgba(45, 212, 191, 0.6);
+    }
+
+    /* Typography Hierarchy */
+    h2, h3, h4 {
+        color: #f8fafc !important;
+        font-family: 'Inter', sans-serif;
+        letter-spacing: -0.01em;
+    }
+
+    .metric-label {
+        font-size: 11px;
+        font-weight: 600;
+        text-transform: uppercase;
+        letter-spacing: 1px;
+        color: #64748b;
+        margin-bottom: 8px;
+    }
+
+    .metric-value-hero {
+        font-size: 32px;
+        font-weight: 700;
+        background: linear-gradient(135deg, #2dd4bf 0%, #06b6d4 100%);
+        -webkit-background-clip: text;
+        -webkit-text-fill-color: transparent;
+        letter-spacing: -0.02em;
+        text-shadow: 0 10px 30px rgba(45, 212, 191, 0.2);
+    }
+
+    .metric-value-primary {
+        font-size: 24px;
+        font-weight: 600;
+        color: #f1f5f9;
+        letter-spacing: -0.01em;
+    }
+
+    .metric-subtext {
+        font-size: 13px;
+        color: #94a3b8;
+        font-weight: 500;
+        display: flex;
+        align-items: center;
+        gap: 6px;
+        margin-top: 4px;
+    }
+
+    /* Tabs - Pill Style */
+    .stTabs [data-baseweb="tab-list"] {
+        gap: 8px;
+        background-color: transparent;
+    }
+
+    .stTabs [data-baseweb="tab"] {
+        height: 40px;
+        white-space: nowrap;
+        background-color: rgba(30, 41, 59, 0.4);
+        border: 1px solid rgba(255, 255, 255, 0.05);
+        border-radius: 8px;
+        color: #94a3b8;
+        padding: 0 20px;
+        font-size: 13px;
+        font-weight: 500;
+    }
+
+    .stTabs [aria-selected="true"] {
+        background: linear-gradient(135deg, rgba(45, 212, 191, 0.15) 0%, rgba(6, 182, 212, 0.1) 100%);
+        border-color: rgba(45, 212, 191, 0.3);
+        color: #2dd4bf;
+        text-shadow: 0 0 20px rgba(45, 212, 191, 0.4);
+    }
+    </style>
+    """, unsafe_allow_html=True)
     harvest = results.get("harvest", pd.DataFrame())
     neg_kw = results.get("neg_kw", pd.DataFrame())
     neg_pt = results.get("neg_pt", pd.DataFrame())
@@ -104,34 +226,92 @@ def render_results_dashboard(results: dict):
             impact_pct = (total_impact / total_spend_ref)
 
     # 3. Save Run Tile (Refactored to include buttons inside)
-    with st.container(border=True):
-        c_hero, c_btns = st.columns([3, 1])
+    # Using specific container for CSS targeting
+    # 3. Save Run Tile (Refactored to include buttons inside)
+    # Using specific container for CSS targeting
+    # 3. Save Run Tile - Native Layout Implementation
+    st.markdown("""
+    <style>
+    /* Target ONLY the innermost container that holds our marker */
+    /* This prevents parents from also getting the style */
+    div[data-testid="stVerticalBlock"]:has(.save-run-marker):not(:has(div[data-testid="stVerticalBlock"])) {
+        background: linear-gradient(135deg, rgba(30, 41, 59, 0.6) 0%, rgba(15, 23, 42, 0.8) 100%);
+        border: 1px solid rgba(45, 212, 191, 0.2) !important;
+        border-radius: 16px !important;
+        padding: 24px !important;
+        margin-bottom: 40px;
+        box-shadow: 0 0 0 1px rgba(45, 212, 191, 0.1), 0 10px 40px rgba(0, 0, 0, 0.4);
+        overflow: hidden;
+        position: relative;
+    }
+
+    /* Accent line pseudo-element */
+    div[data-testid="stVerticalBlock"]:has(.save-run-marker):not(:has(div[data-testid="stVerticalBlock"]))::before {
+        content: '';
+        position: absolute;
+        top: 0;
+        left: 0;
+        width: 4px;
+        height: 100%;
+        background: linear-gradient(to bottom, #2dd4bf, #06b6d4);
+        box-shadow: 0 0 15px rgba(45, 212, 191, 0.6);
+        z-index: 1;
+    }
+    
+    /* Ensure content is above background */
+    div[data-testid="stVerticalBlock"]:has(.save-run-marker) > div {
+        position: relative;
+        z-index: 2;
+    }
+    </style>
+    """, unsafe_allow_html=True)
+
+    with st.container():
+        # Marker to trigger the CSS styling on this specific container
+        st.markdown('<span class="save-run-marker"></span>', unsafe_allow_html=True)
         
-        with c_hero:
-            st.markdown(f"""
+        c_content, c_btns = st.columns([3, 1], gap="large")
+        
+        with c_content:
+            st.markdown("""
             <div style="display: flex; gap: 16px; align-items: flex-start;">
-                <div style="font-size: 32px; background: rgba(45,212,191,0.1); width: 64px; height: 64px; display: flex; align-items: center; justify-content: center; border-radius: 12px; flex-shrink: 0;">
-                    📊
+                <div style="
+                    width: 48px; height: 48px; 
+                    background: radial-gradient(circle at center, rgba(45, 212, 191, 0.2), transparent 70%); 
+                    border: 1px solid rgba(45, 212, 191, 0.3);
+                    border-radius: 12px; 
+                    display: flex; align-items: center; justify-content: center; 
+                    font-size: 20px; color: #2dd4bf; 
+                    box-shadow: 0 0 15px rgba(45, 212, 191, 0.2);
+                    flex-shrink: 0;">
+                    🏁
                 </div>
                 <div>
-                    <h3 style="margin: 0 0 8px 0; color: #f1f5f9; font-size: 18px; font-weight: 600;">Save This Optimization Run</h3>
-                    <p style="color: #94a3b8; margin: 0; font-size: 14px; line-height: 1.5;">
-                        Impact Analysis requires saved runs to measure actual performance vs. predictions.
+                    <h3 style="margin: 0 0 8px 0; font-size: 18px; font-weight: 600; letter-spacing: -0.01em; color: #f8fafc;">Save This Optimization Run</h3>
+                    <p style="color: #cbd5e1; margin: 0; font-size: 15px; line-height: 1.5; font-weight: 600;">
+                        After downloading your files, save this run to track actual vs. predicted performance in Impact Analysis.
                     </p>
-                    <div style="display: inline-block; background: rgba(245, 158, 11, 0.1); color: #f59e0b; padding: 4px 8px; border-radius: 4px; font-size: 12px; font-weight: 500; margin-top: 8px;">
-                        ⚠️ Unsaved runs cannot be tracked
+                    <div style="
+                        display: inline-flex; align-items: center; gap: 6px;
+                        background: rgba(245, 158, 11, 0.1); border: 1px solid rgba(245, 158, 11, 0.2);
+                        color: #fbbf24; padding: 4px 10px; border-radius: 6px; 
+                        font-size: 12px; font-weight: 500; margin-top: 12px;">
+                        ⚠️ Unsaved runs cannot be measured
                     </div>
                 </div>
             </div>
             """, unsafe_allow_html=True)
-            
+
         with c_btns:
-            # Removed spacer to move buttons up as requested
+            # Buttons are now natively in the same container/row
+            st.markdown('<div style="height: 4px"></div>', unsafe_allow_html=True) # Visual alignment tweak
             if st.button("💾 Save to History", type="primary", use_container_width=True, key="btn_save_run_hero"):
                 st.session_state["trigger_save"] = True
                 st.toast("Saving run...", icon="💾")
             
-            if st.button("🔄 Edit Strategy", type="secondary", use_container_width=True, key="btn_rerun_opt"):
+            st.markdown('<div style="height: 6px"></div>', unsafe_allow_html=True)
+            
+            if st.button("🔄 Rerun Optimizer", type="secondary", use_container_width=True, key="btn_rerun_opt"):
                 if 'optimizer_results_refactored' in st.session_state:
                     del st.session_state['optimizer_results_refactored']
                 st.rerun()
@@ -150,7 +330,6 @@ def render_results_dashboard(results: dict):
     """, unsafe_allow_html=True)
 
     # 5. Metrics Grid (4 Columns as requested)
-    # User Request: "make this 4 tiles .. move efficiency tile into the total impact tile... remove total impact metric altogether"
     m1, m2, m3, m4 = st.columns([1.5, 1, 1, 1])
 
     # Calculate bid increase/decrease counts safely
@@ -169,38 +348,57 @@ def render_results_dashboard(results: dict):
 
     with m1:
         # HERO CARD: EFFICIENCY (ROAS LIFT)
-        # Replaces Monetary Impact
-        eff_color = "#22c55e" if impact_pct > 0 else "#f59e0b"
-        render_metric_card(
-            "PROJECTED EFFICIENCY",
-            f"{impact_pct:+.1%}",
-            "Forecasted ROAS Lift",
-            is_primary=True,
-            color=eff_color
-        )
+        eff_color = "#2dd4bf" if impact_pct > 0 else "#f59e0b"
+        st.markdown(f"""
+        <div class="glass-card" style="height: 100%; display: flex; flex-direction: column; justify-content: center; border-left: 3px solid {eff_color};">
+            <div class="metric-label">Projected Efficiency</div>
+            <div class="metric-value-hero">{impact_pct:+.1%}</div>
+            <div class="metric-subtext" style="color: {eff_color};">Forecasted ROAS Lift</div>
+        </div>
+        """, unsafe_allow_html=True)
 
     with m2:
         # BID ACTIONS
-        velocity_color = "#f59e0b" if net_velocity > 0 else "#22c55e"
+        velocity_color = "#fbbf24" if net_velocity > 0 else "#22c55e" # Orange if invest, Green if save
         velocity_label = f"+{currency}{net_velocity:,.0f} Invest" if net_velocity > 0 else f"-{currency}{abs(net_velocity):,.0f} Savings"
-        render_metric_card("BID ACTIONS", f"{bid_count:,}", velocity_label)
+        st.markdown(f"""
+        <div class="glass-card" style="height: 100%;">
+            <div class="metric-label">Bid Actions</div>
+            <div class="metric-value-primary">{bid_count:,}</div>
+            <div class="metric-subtext">
+                <span style="color: {velocity_color};">{velocity_label}</span>
+            </div>
+        </div>
+        """, unsafe_allow_html=True)
         
     with m3:
         # NEGATIVES
-        render_metric_card("NEGATIVES", f"{neg_count:,}", f"{currency}{neg_spend_saving:,.0f} Waste Blocked")
+        st.markdown(f"""
+        <div class="glass-card" style="height: 100%;">
+            <div class="metric-label">Negatives</div>
+            <div class="metric-value-primary">{neg_count:,}</div>
+            <div class="metric-subtext">
+                <span style="color: #94a3b8;">{currency}{neg_spend_saving:,.0f}</span> Waste Blocked
+            </div>
+        </div>
+        """, unsafe_allow_html=True)
         
     with m4:
         # HARVEST
         harvest_value = harvest["Sales"].sum() if not harvest.empty and "Sales" in harvest.columns else 0
-        render_metric_card("HARVEST", f"{harv_count:,}", f"{currency}{harvest_value:,.0f} Sales Vol")
+        st.markdown(f"""
+        <div class="glass-card" style="height: 100%;">
+            <div class="metric-label">Harvest</div>
+            <div class="metric-value-primary">{harv_count:,}</div>
+            <div class="metric-subtext">
+                <span style="color: #94a3b8;">{currency}{harvest_value:,.0f}</span> Sales Vol
+            </div>
+        </div>
+        """, unsafe_allow_html=True)
 
     st.markdown("<br>", unsafe_allow_html=True)
 
-    # 6. Visual Impact Section
-    st.markdown("""
-    <h3 style="margin: 32px 0 16px 0; color: #f1f5f9; font-size: 18px; font-weight: 600;">Visual Impact Analysis</h3>
-    """, unsafe_allow_html=True)
-
+    # 6. Visual Impact Analysis (Header Removed)
     vc1, vc2 = st.columns([1.5, 1])
 
     # Calculate total spend reference
@@ -209,7 +407,7 @@ def render_results_dashboard(results: dict):
         total_spend_ref = results["df"]["Spend"].sum()
 
     with vc1:
-        render_spend_reallocation_chart(total_spend_ref, neg_spend_saving, bid_saving, reallocated)
+        render_spend_reallocation_chart(total_spend_ref, neg_spend_saving, bid_saving, reallocated, currency)
     with vc2:
         render_action_distribution_chart(action_count, bid_count, neg_count, harv_count)
 
@@ -364,12 +562,17 @@ def render_results_dashboard(results: dict):
 
             if not neg_kw.empty or not neg_pt.empty:
                 neg_bulk_df, neg_issues = generate_negatives_bulk(neg_kw, neg_pt)
-                neg_csv = neg_bulk_df.to_csv(index=False)
+                
+                # Preview Window
+                with st.expander("👁️ Preview File", expanded=False):
+                    st.dataframe(neg_bulk_df, use_container_width=True, height=200)
+
+                neg_xlsx = dataframe_to_excel(neg_bulk_df)
                 st.download_button(
-                    "📥 Download Negatives",
-                    neg_csv,
-                    "negatives_bulk.csv",
-                    "text/csv",
+                    "📥 Download Negatives (.xlsx)",
+                    neg_xlsx,
+                    "negatives_bulk.xlsx",
+                    "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
                     use_container_width=True
                 )
                 if neg_issues:
@@ -395,12 +598,17 @@ def render_results_dashboard(results: dict):
 
             if not all_bids.empty:
                 bids_bulk_df, bids_issues = generate_bids_bulk(all_bids)
-                bids_csv = bids_bulk_df.to_csv(index=False)
+                
+                # Preview Window
+                with st.expander("👁️ Preview File", expanded=False):
+                    st.dataframe(bids_bulk_df, use_container_width=True, height=200)
+
+                bids_xlsx = dataframe_to_excel(bids_bulk_df)
                 st.download_button(
-                    "📥 Download Bids",
-                    bids_csv,
-                    "bids_bulk.csv",
-                    "text/csv",
+                    "📥 Download Bids (.xlsx)",
+                    bids_xlsx,
+                    "bids_bulk.xlsx",
+                    "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
                     use_container_width=True
                 )
                 if bids_issues:
@@ -426,12 +634,17 @@ def render_results_dashboard(results: dict):
 
             if not harvest.empty:
                 harv_bulk_df = generate_harvest_bulk(harvest)
-                harv_csv = harv_bulk_df.to_csv(index=False)
+
+                # Preview Window
+                with st.expander("👁️ Preview File", expanded=False):
+                    st.dataframe(harv_bulk_df, use_container_width=True, height=200)
+
+                harv_xlsx = dataframe_to_excel(harv_bulk_df)
                 st.download_button(
-                    "📥 Download Harvest",
-                    harv_csv,
-                    "harvest_bulk.csv",
-                    "text/csv",
+                    "📥 Download Harvest (.xlsx)",
+                    harv_xlsx,
+                    "harvest_bulk.xlsx",
+                    "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
                     use_container_width=True
                 )
             else:

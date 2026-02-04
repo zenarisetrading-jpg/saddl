@@ -48,7 +48,7 @@ def identify_harvest_candidates(
     discovery_df = df[discovery_mask].copy()
     
     if discovery_df.empty:
-        return pd.DataFrame(columns=["Harvest_Term", "Campaign Name", "Ad Group Name", "ROAS", "Spend", "Sales", "Orders"])
+        return pd.DataFrame(columns=["Customer Search Term", "Harvest_Term", "Campaign Name", "Ad Group Name", "ROAS", "Spend", "Sales", "Orders"])
     
     # CRITICAL: Use Customer Search Term for harvest (actual user queries)
     # NOT Targeting (which contains targeting expressions like close-match, category=, etc.)
@@ -73,7 +73,7 @@ def identify_harvest_candidates(
     discovery_df = discovery_df[is_actual_search_query].copy()
     
     if discovery_df.empty:
-        return pd.DataFrame(columns=["Harvest_Term", "Campaign Name", "Ad Group Name", "ROAS", "Spend", "Sales", "Orders"])
+        return pd.DataFrame(columns=["Customer Search Term", "Harvest_Term", "Campaign Name", "Ad Group Name", "ROAS", "Spend", "Sales", "Orders"])
     
     # Aggregate by Customer Search Term for harvest
     agg_cols = {
@@ -216,4 +216,8 @@ def identify_harvest_candidates(
         survivors_df["New Bid"] = survivors_df["Base Bid"] * launch_mult
         survivors_df = survivors_df.sort_values("Sales", ascending=False)
     
+    if survivors_df.empty:
+        # Fallback empty structure
+        return pd.DataFrame(columns=["Customer Search Term", "Harvest_Term", "Campaign Name", "Ad Group Name", "ROAS", "Spend", "Sales", "Orders", "New Bid"])
+
     return survivors_df

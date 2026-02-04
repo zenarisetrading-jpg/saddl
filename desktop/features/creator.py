@@ -564,11 +564,13 @@ class CreatorModule(BaseFeature):
             s_col = None
             ag_col = None
             
-            # Direct DB columns
-            if 'Campaign Name' in camp_df.columns: c_col = 'Campaign Name'
-            if 'SKU' in camp_df.columns: s_col = 'SKU'
-            if 'Ad Group Name' in camp_df.columns: ag_col = 'Ad Group Name'
-                
+            # Direct DB columns (case-insensitive matching)
+            col_map_lower = {col.lower(): col for col in camp_df.columns}
+
+            if 'campaign name' in col_map_lower: c_col = col_map_lower['campaign name']
+            if 'sku' in col_map_lower: s_col = col_map_lower['sku']
+            if 'ad group name' in col_map_lower: ag_col = col_map_lower['ad group name']
+
             # SmartMapper fallback
             if not c_col or not s_col:
                 col_map = SmartMapper.map_columns(camp_df)
