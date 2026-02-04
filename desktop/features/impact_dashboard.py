@@ -58,7 +58,12 @@ def _ensure_impact_columns(df: pd.DataFrame) -> pd.DataFrame:
     # This aligns dashboard categorization (Market Drag/Win) with DB Impact Logic
     if 'action_type' in df.columns:
         harvest_mask = df['action_type'].astype(str).str.upper() == 'HARVEST'
-        df.loc[harvest_mask, 'expected_sales'] = df.loc[harvest_mask, 'expected_sales'] * 0.85
+        harvest_count = harvest_mask.sum()
+        print(f"[DEBUG] _ensure_impact_columns: Found {harvest_count} HARVEST actions, applying 0.85x factor")
+        if harvest_count > 0:
+            # For harvests, lower the expected baseline to account for efficiency loss
+            df.loc[harvest_mask, 'expected_sales'] = df.loc[harvest_mask, 'expected_sales'] * 0.85
+            print(f"[DEBUG] Sample expected_sales after 0.85x: {df.loc[harvest_mask, 'expected_sales'].head(3).tolist()}")
     
     df['expected_trend_pct'] = ((df['expected_sales'] - df['before_sales']) / df['before_sales'] * 100).fillna(0)
     df['actual_change_pct'] = ((df['observed_after_sales'] - df['before_sales']) / df['before_sales'] * 100).fillna(0)
@@ -417,7 +422,7 @@ def render_impact_dashboard():
         # Use cached fetcher
         test_mode = st.session_state.get('test_mode', False)
         # Cache invalidation via version string (changes when data uploaded)
-        cache_version = \"v20_harvest_fix_\" + str(st.session_state.get('data_upload_timestamp', 'init'))
+        cache_version = "v20_harvest_fix_" + str(st.session_state.get('data_upload_timestamp', 'init'))
         
         # Get horizon config
         horizon_config = IMPACT_WINDOWS["horizons"].get(horizon, IMPACT_WINDOWS["horizons"]["14D"])
