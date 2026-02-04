@@ -1269,6 +1269,7 @@ def render_shared_report():
         st.session_state['active_account_id'] = report_data['client_id']
         st.session_state['date_range'] = report_data['date_range']
         st.session_state['read_only_mode'] = True
+        st.session_state['show_client_report'] = True  # Bypass landing page
         
         # Hydrate AI Narratives (if they exist)
         narratives = report_data.get('metadata', {}).get('narratives', {})
