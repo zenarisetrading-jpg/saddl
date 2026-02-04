@@ -575,7 +575,7 @@ def render_landing_page(config: dict):
             num_terms = len(filtered_df)
 
             if total_spend >= 100000:
-                spend_display = f"{currency}{total_spend/1000:.0f}"
+                spend_display = f"{currency}{total_spend/1000:.0f}K"
             else:
                 spend_display = f"{currency}{total_spend:,.0f}"
 
