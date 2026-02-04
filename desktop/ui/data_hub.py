@@ -44,6 +44,14 @@ def render_data_hub():
     
     # Initialize data hub
     hub = DataHub()
+    
+    # Guard: Ensure unified_data is initialized before rendering
+    if 'unified_data' not in st.session_state or st.session_state.unified_data is None:
+        st.session_state.unified_data = {
+            'upload_status': {},
+            'upload_timestamps': {}
+        }
+    
     status = hub.get_upload_status()
     summary = hub.get_summary()
     timestamps = st.session_state.unified_data.get('upload_timestamps', {})
