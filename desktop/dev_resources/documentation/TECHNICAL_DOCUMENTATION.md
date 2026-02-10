@@ -103,7 +103,8 @@ Low-click decisions are dampened to prevent noise:
 
 | Column | Formula | Purpose |
 |--------|---------|---------|
-| `confidence_weight` | `min(1.0, before_clicks / 15)` | 0-1 weight based on data volume |
+| `confidence_weight` | `min(1.0, clicks/15) * penalty` | 0-1 weight based on data volume & source |
+| `penalty` | `0.5` if `match_level='ad_group'` | 50% reduction for fallback data |
 | `final_decision_impact` | `decision_impact × confidence_weight` | Dampened impact value |
 | `impact_tier` | See below | Classification label |
 

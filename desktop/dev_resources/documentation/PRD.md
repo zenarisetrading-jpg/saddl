@@ -570,6 +570,7 @@ To prevent impact inflation from low-data targets:
 1. **Low Sample (<5 Clicks)**: Impact forces to 0.
 2. **ROAS Capping**: For medium-confidence targets (5-20 clicks), baseline SPC is capped using the account's High-Confidence derived ROAS limit (`Median + 1*StdDev`).
 3. **Confidence Weighting**: Linear dampening (0.33 to 1.0) applied to targets with 5-15 clicks.
+4. **Ad Group Fallback Penalty**: A **50% penalty** is applied to confidence weight if impact calculation relies on Ad Group level fallback data.
 
 #### 4.6.4 Market Drag Exclusion
 Actions classified as "Market Drag" (Market Down + Decision Down) are **excluded** from the attributed Net Impact to prevent penalizing the optimizer for broad market downturns.

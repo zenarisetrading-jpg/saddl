@@ -128,6 +128,7 @@ For targets with **5-15 clicks**, we apply a linear weight to the final impact s
 - **Formula**: `Weight = min(1.0, Before_Clicks / 15)`
 - **Effect**: A decision based on 7 clicks counts for only 46% of its calculated impact. A decision based on 15+ clicks counts for 100%.
 - **Validation Override**: Confirmed Negatives and Harvests always get **100% weight** because their impact (zero spend) is binary and verifiable.
+- **Ad Group Fallback Penalty**: If specific target-level data is missing and we rely on Ad Group averages, the confidence weight is penalised by **50%** (multiplied by 0.5) to account for the lower precision.
 
 ---
 
