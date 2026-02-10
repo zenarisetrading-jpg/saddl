@@ -15,8 +15,10 @@ from features.impact.components.cards import (
     render_decision_score_card,
 )
 from features.impact.components.tables import render_details_table
+from features.impact.components.timeline import render_timeline_card
 from features.impact.charts.waterfall import render_roas_attribution_bar
 from features.impact.charts.matrix import render_decision_outcome_matrix
+from core.timeline_roas import get_account_timeline_roas
 # Note: render_cumulative_impact_chart available but not used in legacy analytics layout
 
 
@@ -37,31 +39,40 @@ def _render_recent_wins_list(impact_df: pd.DataFrame, currency: str):
         st.info("No recent wins found.")
         return
 
-    # 2. Filter & Sort Data
+    # 2. Determine which impact column to use (v3.3+ compatibility)
+    if 'final_impact_v33' in impact_df.columns:
+        impact_col = 'final_impact_v33'
+    elif 'final_decision_impact' in impact_df.columns:
+        impact_col = 'final_decision_impact'
+    else:
+        impact_col = 'decision_impact'
+
+    # Filter & Sort Data
     wins_df = impact_df[
-        (impact_df['decision_impact'] > 0) & 
-        (impact_df['validation_status'].astype(str).str.contains('✓|Confirmed|Validated|Directional', na=False))
+        (impact_df[impact_col] > 0) &
+        (impact_df['validation_status'].astype(str).str.contains('✓|Confirmed|Validated|Directional|Strict', na=False))
     ].copy()
-    
+
     if wins_df.empty:
         st.caption("No validated wins in this period yet.")
         return
-        
+
     # Sort by date descending
     if 'action_date' in wins_df.columns:
         wins_df['action_date'] = pd.to_datetime(wins_df['action_date'])
         wins_df = wins_df.sort_values(by='action_date', ascending=False)
-    
+
     # Take top 5
     top_wins = wins_df.head(5)
-    
+
     # 3. Render Cards
     for idx, row in top_wins.iterrows():
         action_desc = row.get('target_text', 'Unknown Action')
         if len(action_desc) > 35:
             action_desc = action_desc[:32] + "..."
-            
-        impact_val = row.get('decision_impact', 0)
+
+        # Use v3.3+ impact column if available
+        impact_val = row.get(impact_col, 0)
         formatted_impact = f"{currency}{impact_val:,.0f}" if currency else f"${impact_val:,.0f}"
         
         action_date = row.get('action_date')
@@ -209,17 +220,24 @@ def render_impact_analytics(
     """
     Render the main impact analytics section.
     MATCHES legacy _render_new_impact_analytics layout EXACTLY:
-    
-    - Row 1: What Worked | What Didn't | Decision Score
-    - Row 2: ROAS Attribution | Decision Outcome Map
-    - Row 3: Measurement Confidence | Recent Winning Decisions
-    - Row 4: Details Table (collapsed)
+
+    - Row 1: Timeline (v3.5)
+    - Row 2: What Worked | What Didn't | Decision Score
+    - Row 3: ROAS Attribution | Decision Outcome Map
+    - Row 4: Measurement Confidence | Recent Winning Decisions
+    - Row 5: Details Table (collapsed)
     """
     from utils.formatters import get_account_currency
     currency = get_account_currency()
-    
+
     # Validated DF for charts
     validation_df = raw_impact_df if raw_impact_df is not None else impact_df
+
+    # ==========================================
+    # SECTION 1: TIMELINE CARD (HIDDEN)
+    # ==========================================
+    # Timeline card intentionally hidden per dashboard requirements.
+    st.markdown("<div style='height: 24px;'></div>", unsafe_allow_html=True)
 
     # ==========================================
     # SECTION 2: BREAKDOWN ROW (What Worked | What Didn't | Decision Score)
@@ -241,9 +259,56 @@ def render_impact_analytics(
     # SECTION 3 & 4: ROAS ATTRIBUTION | DECISION MAP
     # ==========================================
     chart_c1, chart_c2 = st.columns(2, gap="medium")
-    
+
     with chart_c1:
-        render_roas_attribution_bar(summary, impact_df, currency, canonical_metrics=canonical_metrics)
+        # CRITICAL FIX: Calculate spend-filtered impact for ROAS waterfall
+        # The waterfall should only include actions that affected ROAS (spend > 0)
+        # NOT the full canonical_metrics which includes zero-spend actions
+
+        # Use the impact_df that's passed in (already filtered to active_df with spend)
+        # Calculate the decision impact directly from this filtered dataset
+        if not impact_df.empty:
+            # Determine which column to use
+            has_v33 = 'final_impact_v33' in impact_df.columns
+            has_v32 = 'final_decision_impact' in impact_df.columns
+
+            if has_v33:
+                impact_col = 'final_impact_v33'
+            elif has_v32:
+                impact_col = 'final_decision_impact'
+            else:
+                impact_col = 'decision_impact'
+
+            # Debug: Show what we're using
+            # st.caption(f"🔍 Column check: v3.3={has_v33}, v3.2={has_v32}, using: {impact_col}")
+            # st.caption(f"🔍 Total rows in impact_df: {len(impact_df)}")
+
+            # Exclude Market Drag from attribution
+            if 'market_tag' in impact_df.columns:
+                has_drag = (impact_df['market_tag'] == 'Market Drag').sum()
+                non_drag = impact_df[impact_df['market_tag'] != 'Market Drag']
+                spend_filtered_impact = non_drag[impact_col].sum()
+                # st.caption(f"🔍 Market Drag actions excluded: {has_drag}")
+                # st.caption(f"🔍 Non-drag rows: {len(non_drag)}, Impact: ${spend_filtered_impact:,.2f}")
+            else:
+                spend_filtered_impact = impact_df[impact_col].sum()
+                # st.caption(f"🔍 No market_tag column, using all rows")
+
+            # Show column sums for debugging
+            # if has_v33:
+            #     v33_sum = impact_df['final_impact_v33'].sum()
+            #     st.caption(f"🔍 final_impact_v33 sum (all rows): ${v33_sum:,.2f}")
+            # if has_v32:
+            #     v32_sum = impact_df['final_decision_impact'].sum()
+            #     st.caption(f"🔍 final_decision_impact sum (all rows): ${v32_sum:,.2f}")
+        else:
+            spend_filtered_impact = 0.0
+
+        # Pass the spend-filtered impact to waterfall (v3.4 - action-level aggregation)
+        # NOTE: We do NOT pass timeline here - it's only for display context
+        render_roas_attribution_bar(summary, impact_df, currency,
+                                   decision_impact_override=spend_filtered_impact,
+                                   timeline=None)  # Use v3.4 action-level aggregation
         
     with chart_c2:
         render_decision_outcome_matrix(impact_df, summary)

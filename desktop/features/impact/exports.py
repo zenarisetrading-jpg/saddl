@@ -16,7 +16,8 @@ from core.db_manager import get_db_manager
 from core.utils import get_maturity_status, IMPACT_WINDOWS
 
 from features.impact.data.fetchers import fetch_impact_data
-from features.impact.data.transforms import ensure_impact_columns
+from features.impact.data.transforms import validate_impact_columns
+from features.impact_metrics import ImpactMetrics
 
 
 def render_reference_data_badge():
@@ -81,13 +82,18 @@ def get_recent_impact_summary() -> Optional[Dict[str, Any]]:
         if mature_df.empty:
             return None
 
-        # Ensure required columns
-        mature_df = ensure_impact_columns(mature_df)
+        # Validate required v3.3 columns
+        mature_df = validate_impact_columns(mature_df)
 
         # Calculate summary metrics
         validated = full_summary.get('validated', {})
         total_actions = len(mature_df)
-        attributed_impact = validated.get('decision_impact', 0)
+        metrics = ImpactMetrics.from_dataframe(
+            mature_df,
+            filters={'validated_only': True, 'mature_only': True},
+            horizon_days=14
+        )
+        attributed_impact = metrics.attributed_impact if metrics and metrics.has_data else validated.get('decision_impact', 0)
 
         # Count wins
         wins = len(mature_df[mature_df['market_tag'].isin(['Offensive Win', 'Defensive Win'])])

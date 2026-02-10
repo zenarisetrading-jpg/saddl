@@ -9,6 +9,8 @@ import numpy as np
 import plotly.graph_objects as go
 from typing import Dict, Any
 
+from features.impact.utils import get_impact_col
+
 
 def _ensure_impact_columns(df: pd.DataFrame) -> pd.DataFrame:
     """Ensure all required columns exist with defaults."""
@@ -65,6 +67,7 @@ def render_decision_outcome_matrix(impact_df: pd.DataFrame, summary: Dict[str, A
     
     # Ensure required columns exist (handles old cached data)
     df = _ensure_impact_columns(df)
+    impact_col = get_impact_col(df)
     
     # Clean up infinite/nan values for visualization
     df = df[np.isfinite(df['expected_trend_pct']) & np.isfinite(df['decision_value_pct'])]
@@ -100,9 +103,9 @@ def render_decision_outcome_matrix(impact_df: pd.DataFrame, summary: Dict[str, A
             name=action_type,
             marker=dict(size=10, color=color, opacity=0.8),
             customdata=np.stack((
-                type_df['expected_trend_pct'], 
-                type_df['decision_value_pct'], 
-                type_df['decision_impact'],
+                type_df['expected_trend_pct'],
+                type_df['decision_value_pct'],
+                type_df[impact_col],
                 type_df['target_text']
             ), axis=-1),
             hovertemplate=(
@@ -123,9 +126,9 @@ def render_decision_outcome_matrix(impact_df: pd.DataFrame, summary: Dict[str, A
             name='Market Drag (Excluded)',
             marker=dict(size=8, color='rgba(156, 163, 175, 0.4)', opacity=0.4),
             customdata=np.stack((
-                drag['expected_trend_pct'], 
-                drag['decision_value_pct'], 
-                drag['decision_impact'],
+                drag['expected_trend_pct'],
+                drag['decision_value_pct'],
+                drag[impact_col],
                 drag['target_text']
             ), axis=-1),
             hovertemplate=(

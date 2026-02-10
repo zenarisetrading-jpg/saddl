@@ -8,6 +8,7 @@ import plotly.graph_objects as go
 from typing import Dict, Any
 
 from features.impact.styles.css import BRAND_COLORS
+from features.impact.utils import get_impact_col
 
 
 def render_validation_rate_chart(impact_df: pd.DataFrame):
@@ -142,12 +143,13 @@ def render_capital_allocation_flow(impact_df: pd.DataFrame, currency: str):
         return
 
     # Aggregate by action type
+    impact_col = get_impact_col(impact_df)
     agg = impact_df.groupby('action_type').agg({
         'before_spend': 'sum',
         'observed_after_spend': 'sum',
         'before_sales': 'sum',
         'observed_after_sales': 'sum',
-        'decision_impact': 'sum'
+        impact_col: 'sum'
     }).reset_index()
 
     if agg.empty:

@@ -84,13 +84,67 @@ HARVEST_VALIDATION_CONFIG = {
     "near_complete_threshold": 0.90,      # 90%+ drop = near complete
     "strong_migration_threshold": 0.75,   # 75%+ drop with growth = strong
     "partial_migration_threshold": 0.50,  # 50%+ drop with 25%+ growth = partial
-    
+
     # Exact match growth requirement for lower tiers
     "exact_growth_required_for_partial": 0.25,  # 25% growth
-    
+
     # Minimum source spend to validate (avoid noise)
     "min_source_before_spend": 5.0,
 }
+
+# ==========================================
+# IMPACT MODEL v3.3 CONFIGURATION
+# ==========================================
+# ROLLBACK SAFETY: Feature flag for instant model version switching
+# Change this to "v3.2" to immediately revert to the previous impact model
+#
+# v3.3 Changes:
+#   - Layered counterfactual with market shift + scale adjustments
+#   - Asymmetric penalty reduction for negative outcomes
+#   - Harvest 0.85x efficiency factor moved to DB layer
+#   - New columns: market_shift, scale_factor, impact_v33, final_impact_v33
+#
+# Rollback Steps:
+#   1. Set IMPACT_MODEL_VERSION = "v3.2" below
+#   2. Redeploy application
+#   3. v3.2 backup columns (_v32) will be available for comparison
+#   4. Dashboard will automatically use v3.2 calculations
+IMPACT_MODEL_VERSION = "v3.3"  # Options: "v3.3" | "v3.2"
+
+# Diminishing returns exponent (α)
+# At α=0.3: 2x clicks → expect 81% of before_spc (19% efficiency drop)
+# At α=0.3: 3x clicks → expect 76% of before_spc (24% efficiency drop)
+SCALE_ALPHA = 0.3
+
+# Minimum click ratio threshold for scale adjustment
+# Apply diminishing returns only when click_ratio > this value
+SCALE_THRESHOLD = 1.0
+
+# Market shift bounds (prevent extreme adjustments)
+# Account-level SPC change clamped to this range
+MARKET_SHIFT_BOUNDS = (0.5, 1.5)  # 50% to 150%
+
+# Scale factor bounds (prevent extreme diminishing returns)
+# Per-row scale adjustment clamped to this range
+SCALE_FACTOR_BOUNDS = (0.5, 1.0)  # 50% to 100%
+
+# Harvest efficiency decline factor
+# Harvested keywords experience ~15% efficiency drop when moving to exact match
+HARVEST_EFFICIENCY_FACTOR = 0.85
+
+
+def get_impact_model_version() -> str:
+    """
+    Get the current impact model version.
+
+    Returns:
+        str: "v3.2" or "v3.3"
+
+    Usage:
+        This function should be used when exporting data or displaying
+        version information to ensure model version is correctly tracked.
+    """
+    return IMPACT_MODEL_VERSION
 
 # ==========================================
 # PERFORMANCE: Simple TTL Cache
@@ -1463,7 +1517,198 @@ class PostgresManager:
         
         # _query_cache.set(cache_key, result)
         return result
-    
+
+    # ==========================================
+    # IMPACT MODEL v3.3: HELPER FUNCTIONS
+    # ==========================================
+
+    def _calculate_market_shift(self, df: pd.DataFrame) -> float:
+        """
+        Calculate account-level SPC shift for market adjustment.
+
+        Args:
+            df: DataFrame with before/after metrics
+
+        Returns:
+            market_shift: Ratio of account_spc_after / account_spc_before
+                         Clamped to MARKET_SHIFT_BOUNDS to prevent extreme adjustments
+        """
+        import numpy as np
+
+        total_before_sales = df['before_sales'].sum()
+        total_before_clicks = df['before_clicks'].sum()
+        total_after_sales = df['observed_after_sales'].sum()
+        total_after_clicks = df['after_clicks'].sum()
+
+        account_spc_before = total_before_sales / total_before_clicks if total_before_clicks > 0 else 0
+        account_spc_after = total_after_sales / total_after_clicks if total_after_clicks > 0 else 0
+
+        if account_spc_before > 0:
+            market_shift = account_spc_after / account_spc_before
+        else:
+            market_shift = 1.0
+
+        # Clamp to bounds to prevent extreme adjustments
+        market_shift = np.clip(market_shift, *MARKET_SHIFT_BOUNDS)
+
+        return market_shift
+
+    def _calculate_v33_impact_columns(self, df: pd.DataFrame) -> pd.DataFrame:
+        """
+        Calculate v3.3 layered counterfactual impact with market and scale adjustments.
+
+        This implements the v3.3 specification:
+        1. Market Shift: Account-level SPC change applied to all targets
+        2. Scale Factor: Diminishing returns for scale-up scenarios
+        3. Asymmetric Application: Adjusts penalties fairly, doesn't inflate wins
+        4. Harvest Integration: Applies 0.85x efficiency factor at DB layer
+
+        Args:
+            df: DataFrame with required columns (before_clicks, after_clicks, etc.)
+
+        Returns:
+            DataFrame with added columns:
+            - market_shift: Account-level SPC change factor
+            - scale_factor: Per-row diminishing returns factor
+            - click_ratio: After clicks / before clicks
+            - impact_linear: v3.2 linear impact (for comparison)
+            - expected_sales_linear: v3.2 expected sales
+            - expected_sales_layered: v3.3 expected sales (market + scale)
+            - expected_sales_market: v3.3 expected sales (market only)
+            - impact_v33: v3.3 adjusted impact (unweighted)
+            - final_impact_v33: v3.3 impact × confidence_weight
+            - expected_sales_v33: Which expected sales was used
+        """
+        import numpy as np
+
+        df = df.copy()
+
+        # =========================================================
+        # STEP 1: Calculate click ratio
+        # =========================================================
+        df['click_ratio'] = df['after_clicks'] / df['before_clicks'].replace(0, np.nan)
+        df['click_ratio'] = df['click_ratio'].replace([np.inf, -np.inf], np.nan).fillna(1.0)
+
+        # =========================================================
+        # STEP 2: Calculate MARKET SHIFT (account-level)
+        # =========================================================
+        market_shift = self._calculate_market_shift(df)
+        df['market_shift'] = market_shift
+
+        # =========================================================
+        # STEP 3: Calculate SCALE FACTOR (per-row)
+        # =========================================================
+        # Diminishing returns: 1 / (click_ratio ^ α) for scale-up
+        # No adjustment for scale-down (ratio <= 1)
+        df['scale_factor'] = np.where(
+            df['click_ratio'] > SCALE_THRESHOLD,
+            1 / (df['click_ratio'] ** SCALE_ALPHA),
+            1.0
+        )
+        # Clamp to bounds
+        df['scale_factor'] = np.clip(df['scale_factor'], *SCALE_FACTOR_BOUNDS)
+
+        # =========================================================
+        # STEP 4: Calculate LINEAR impact (v3.2 baseline)
+        # =========================================================
+        # This is already calculated as 'decision_impact' in the main flow
+        # We'll rename it for clarity
+        df['impact_linear'] = df['decision_impact'].copy()
+        df['expected_sales_linear'] = df['expected_sales'].copy()
+
+        # =========================================================
+        # STEP 5: Calculate LAYERED expected sales
+        # =========================================================
+        # For scale-up: apply both market AND scale adjustment
+        # For scale-down: apply only market adjustment
+        df['expected_sales_layered'] = np.where(
+            df['click_ratio'] > SCALE_THRESHOLD,
+            df['after_clicks'] * df['spc_before'] * market_shift * df['scale_factor'],
+            df['after_clicks'] * df['spc_before'] * market_shift
+        )
+
+        # Market-only expected (for scale-down cases)
+        df['expected_sales_market'] = df['after_clicks'] * df['spc_before'] * market_shift
+
+        # Calculate impacts
+        df['impact_layered'] = df['observed_after_sales'] - df['expected_sales_layered']
+        df['impact_market'] = df['observed_after_sales'] - df['expected_sales_market']
+
+        # =========================================================
+        # STEP 6: Apply HARVEST 0.85x factor at DB layer
+        # =========================================================
+        # Move this from dashboard to database for single source of truth
+        is_harvest = df['action_type'] == 'HARVEST'
+        df.loc[is_harvest, 'expected_sales_layered'] = df.loc[is_harvest, 'expected_sales_layered'] * HARVEST_EFFICIENCY_FACTOR
+        df.loc[is_harvest, 'expected_sales_market'] = df.loc[is_harvest, 'expected_sales_market'] * HARVEST_EFFICIENCY_FACTOR
+        df.loc[is_harvest, 'expected_sales_linear'] = df.loc[is_harvest, 'expected_sales_linear'] * HARVEST_EFFICIENCY_FACTOR
+
+        # Recalculate impacts with harvest factor
+        df.loc[is_harvest, 'impact_layered'] = df.loc[is_harvest, 'observed_after_sales'] - df.loc[is_harvest, 'expected_sales_layered']
+        df.loc[is_harvest, 'impact_market'] = df.loc[is_harvest, 'observed_after_sales'] - df.loc[is_harvest, 'expected_sales_market']
+        df.loc[is_harvest, 'impact_linear'] = df.loc[is_harvest, 'observed_after_sales'] - df.loc[is_harvest, 'expected_sales_linear']
+
+        # =========================================================
+        # STEP 7: Apply ASYMMETRIC market-adjusted counterfactual (v3.3.2 fix)
+        # =========================================================
+        # CRITICAL: Apply v3.3 adjustments ONLY to negative impacts (gaps/penalties)
+        # Positive impacts (wins) use v3.2 linear baseline (no inflation)
+        #
+        # Asymmetric Rules:
+        # 1. IF impact_linear >= 0 (win) → use impact_linear (no change)
+        # 2. ELSE IF scale-up (click_ratio > 1) → use impact_layered (market + scale)
+        # 3. ELSE IF scale-down → use impact_market (market only)
+
+        df['impact_v33'] = np.where(
+            df['impact_linear'] >= 0,
+            # WINS: No adjustment (v3.2 baseline)
+            df['impact_linear'],
+            # GAPS/PENALTIES: Apply market + scale adjustments
+            np.where(
+                df['click_ratio'] > SCALE_THRESHOLD,
+                # SCALE-UP: Layered adjustment (market + scale factor)
+                df['impact_layered'],
+                # SCALE-DOWN: Market adjustment only
+                df['impact_market']
+            )
+        )
+
+        # =========================================================
+        # STEP 8: Handle special action types (NEGATIVE, Spend Eliminated)
+        # =========================================================
+        # These use impact_score directly, not counterfactual
+        # Preserve existing behavior from v3.2
+        is_spend_eliminated = df['validation_status'].fillna('').str.contains('Spend Eliminated|Confirmed blocked', regex=True)
+        is_special_type = df['action_type'].isin(['NEGATIVE', 'NEGATIVE_ADD', 'HARVEST'])
+        special_types_mask = is_special_type | is_spend_eliminated
+
+        # For special types, use the original impact_score (which is already in impact_linear)
+        df.loc[special_types_mask, 'impact_v33'] = df.loc[special_types_mask, 'impact_linear']
+
+        # =========================================================
+        # STEP 9: Apply confidence weighting
+        # =========================================================
+        # Confidence weight is already calculated in main flow
+        df['final_impact_v33'] = df['impact_v33'] * df['confidence_weight']
+
+        # =========================================================
+        # STEP 10: Store which expected sales was used
+        # =========================================================
+        df['expected_sales_v33'] = np.where(
+            df['impact_linear'] > 0,
+            df['expected_sales_linear'],  # Used linear for positive
+            np.where(
+                df['click_ratio'] > SCALE_THRESHOLD,
+                df['expected_sales_layered'],  # Used layered for scale-up negative
+                df['expected_sales_market']     # Used market for scale-down negative
+            )
+        )
+
+        # Override for special types
+        df.loc[special_types_mask, 'expected_sales_v33'] = df.loc[special_types_mask, 'expected_sales_linear']
+
+        return df
+
     @retry_on_connection_error()
     def get_action_impact(self, client_id: str, before_days: int = 14, after_days: int = 14) -> pd.DataFrame:
         """
@@ -1549,7 +1794,7 @@ class PostgresManager:
                 CASE 
                     WHEN bs.spend IS NOT NULL THEN 'target'
                     WHEN bcs.spend IS NOT NULL THEN 'cst'
-                    ELSE 'campaign' 
+                    ELSE 'ad_group' 
                 END as match_level,
                 r30.rolling_spc as rolling_30d_spc
             FROM aggregated_actions a
@@ -1561,6 +1806,7 @@ class PostgresManager:
                 WHERE t.client_id = %(client_id)s
                   AND LOWER(t.target_text) = a.target_lower
                   AND LOWER(t.campaign_name) = a.campaign_lower
+                  AND LOWER(t.ad_group_name) = a.ad_group_lower
                   AND t.start_date >= a.before_start AND t.start_date <= a.before_end
             ) bs ON TRUE
             -- BEFORE: CST match (for NEGATIVE/HARVEST)
@@ -1569,14 +1815,17 @@ class PostgresManager:
                 FROM target_stats t
                 WHERE t.client_id = %(client_id)s
                   AND LOWER(t.customer_search_term) = a.normalized_target_lower
+                  AND LOWER(t.campaign_name) = a.campaign_lower
+                  AND LOWER(t.ad_group_name) = a.ad_group_lower
                   AND t.start_date >= a.before_start AND t.start_date <= a.before_end
             ) bcs ON a.action_type IN ('NEGATIVE', 'NEGATIVE_ADD', 'HARVEST')
-            -- BEFORE: Campaign fallback
+            -- BEFORE: Ad Group fallback (Was Campaign)
             LEFT JOIN LATERAL (
                 SELECT SUM(spend) as spend, SUM(sales) as sales, SUM(clicks) as clicks, SUM(impressions) as impressions
                 FROM target_stats t
                 WHERE t.client_id = %(client_id)s
                   AND LOWER(t.campaign_name) = a.campaign_lower
+                  AND LOWER(t.ad_group_name) = a.ad_group_lower
                   AND t.start_date >= a.before_start AND t.start_date <= a.before_end
             ) bc ON bs.spend IS NULL AND bcs.spend IS NULL
             -- AFTER: target_text match (for BID_CHANGE)
@@ -1586,6 +1835,7 @@ class PostgresManager:
                 WHERE t.client_id = %(client_id)s
                   AND LOWER(t.target_text) = a.target_lower
                   AND LOWER(t.campaign_name) = a.campaign_lower
+                  AND LOWER(t.ad_group_name) = a.ad_group_lower
                   AND t.start_date >= a.after_start AND t.start_date <= LEAST(a.after_end, ld.latest_date)
             ) afs ON TRUE
             -- AFTER: CST match (for NEGATIVE/HARVEST)
@@ -1594,14 +1844,17 @@ class PostgresManager:
                 FROM target_stats t
                 WHERE t.client_id = %(client_id)s
                   AND LOWER(t.customer_search_term) = a.normalized_target_lower
+                  AND LOWER(t.campaign_name) = a.campaign_lower
+                  AND LOWER(t.ad_group_name) = a.ad_group_lower
                   AND t.start_date >= a.after_start AND t.start_date <= LEAST(a.after_end, ld.latest_date)
             ) afcs ON a.action_type IN ('NEGATIVE', 'NEGATIVE_ADD', 'HARVEST')
-            -- AFTER: Campaign fallback
+            -- AFTER: Ad Group fallback (Was Campaign)
             LEFT JOIN LATERAL (
                 SELECT SUM(spend) as spend, SUM(sales) as sales, SUM(clicks) as clicks, SUM(impressions) as impressions
                 FROM target_stats t
                 WHERE t.client_id = %(client_id)s
                   AND LOWER(t.campaign_name) = a.campaign_lower
+                  AND LOWER(t.ad_group_name) = a.ad_group_lower
                   AND t.start_date >= a.after_start AND t.start_date <= LEAST(a.after_end, ld.latest_date)
             ) ac ON afs.spend IS NULL AND afcs.spend IS NULL
             -- Rolling 30d stats for baseline
@@ -1611,6 +1864,7 @@ class PostgresManager:
                 WHERE t.client_id = %(client_id)s
                   AND LOWER(t.target_text) = a.target_lower
                   AND LOWER(t.campaign_name) = a.campaign_lower
+                  AND LOWER(t.ad_group_name) = a.ad_group_lower
                   AND t.start_date >= ld.latest_date - INTERVAL '30 days'
             ) r30 ON TRUE
             ORDER BY a.action_date DESC
@@ -2248,11 +2502,61 @@ class PostgresManager:
         # CRITICAL FIX: Negative/Harvest validation doesn't depend on click volume for confidence
         # If we validated it (Spend Eliminated), the impact is 100% real.
         df.loc[special_types_mask, 'confidence_weight'] = 1.0
+
+        # PENALTY: Ad Group Fallback (Less specific data)
+        # Apply 50% penalty to confidence if using fallback data
+        if 'match_level' in df.columns:
+            fallback_mask = (df['match_level'] == 'ad_group')
+            df.loc[fallback_mask, 'confidence_weight'] *= 0.5
         
         # Final Impact = Raw Impact * Confidence Weight
         # Does not override existing exclusions (0 * weight = 0)
+        # [v3.2 BACKUP] This is the original v3.2 linear impact calculation
         df['final_decision_impact'] = df['decision_impact'] * df['confidence_weight']
-        
+
+        # ==========================================
+        # IMPACT MODEL v3.3: LAYERED COUNTERFACTUAL
+        # ==========================================
+        # Apply layered model if v3.3 is enabled (feature flag control)
+        if IMPACT_MODEL_VERSION == "v3.3":
+            # Calculate v3.3 impact with market + scale adjustments
+            df = self._calculate_v33_impact_columns(df)
+
+            # Override the final_decision_impact with v3.3 values
+            # This preserves v3.2 columns (decision_impact, final_decision_impact) for comparison
+            df['decision_impact_v32'] = df['decision_impact'].copy()  # Backup v3.2 for comparison
+            df['final_decision_impact_v32'] = df['final_decision_impact'].copy()  # Backup v3.2 for comparison
+
+            # Replace with v3.3 values (these become the "official" values)
+            df['decision_impact'] = df['impact_v33']
+            df['final_decision_impact'] = df['final_impact_v33']
+            df['expected_sales'] = df['expected_sales_v33']
+
+            # Recalculate market tag using v3.3 impact for decision_value_pct
+            # This ensures quadrants are based on v3.3 impact, not v3.2
+            df['expected_trend_pct'] = (
+                (df['expected_sales_v33'] - df['before_sales']) /
+                df['before_sales'].replace(0, np.nan) * 100
+            ).fillna(0)
+
+            df['decision_value_pct'] = df['actual_change_pct'] - df['expected_trend_pct']
+
+            # Zero out decision_value_pct for low-sample baselines
+            df.loc[insufficient_baseline_mask, 'decision_value_pct'] = 0
+
+            # Recalculate market_tag with v3.3 decision_value_pct
+            conditions = [
+                (df['expected_trend_pct'] >= 0) & (df['decision_value_pct'] >= 0),  # Offensive Win
+                (df['expected_trend_pct'] < 0) & (df['decision_value_pct'] >= 0),   # Defensive Win
+                (df['expected_trend_pct'] >= 0) & (df['decision_value_pct'] < 0),   # Gap
+                (df['expected_trend_pct'] < 0) & (df['decision_value_pct'] < 0),    # Market Drag
+            ]
+            choices = ['Offensive Win', 'Defensive Win', 'Gap', 'Market Drag']
+            df['market_tag'] = np.select(conditions, choices, default='Unknown')
+
+        # If v3.2 mode, the original calculations above are used as-is
+        # This allows instant rollback by changing IMPACT_MODEL_VERSION constant
+
         # ==========================================
         # REFACTOR ENHANCEMENT 2: Impact Tier Classification (Non-Destructive)
         # ==========================================
@@ -2267,6 +2571,11 @@ class PostgresManager:
         ]
         tier_choices = ['Excluded', 'Directional', 'Validated']
         df['impact_tier'] = np.select(tier_conditions, tier_choices, default='Excluded')
+
+        # ==========================================
+        # PHASE 5: Add model version indicator for historical data tracking
+        # ==========================================
+        df['model_version'] = IMPACT_MODEL_VERSION
 
         # _query_cache.set(cache_key, df)
         return df
@@ -2462,7 +2771,12 @@ class PostgresManager:
             # Aggregate Decision Impact metrics (now excludes low-sample)
             # NOTE: No Market Drag exclusion - sum ALL impacts for consistency with pre-refactor
             # USE FINAL IMPACT (Weighted) if available
-            impact_col = 'final_decision_impact' if 'final_decision_impact' in bid_df.columns else 'decision_impact'
+            if 'final_impact_v33' in bid_df.columns:
+                impact_col = 'final_impact_v33'
+            elif 'final_decision_impact' in bid_df.columns:
+                impact_col = 'final_decision_impact'
+            else:
+                impact_col = 'decision_impact'
             valid_impacts = bid_df[impact_col].dropna()
             total_decision_impact = valid_impacts.sum() if len(valid_impacts) > 0 else 0
             total_spend_avoided = bid_df['spend_avoided'].sum()
@@ -2486,8 +2800,13 @@ class PostgresManager:
                 # 1. Mature Only
                 mature_df = df[df['is_mature'] == True].copy()
                 
-                # Use Weighted Impact
-                univ_impact_col = 'final_decision_impact' if 'final_decision_impact' in mature_df.columns else 'decision_impact'
+                # Use Weighted Impact (prefer v3.3)
+                if 'final_impact_v33' in mature_df.columns:
+                    univ_impact_col = 'final_impact_v33'
+                elif 'final_decision_impact' in mature_df.columns:
+                    univ_impact_col = 'final_decision_impact'
+                else:
+                    univ_impact_col = 'decision_impact'
                 
                 # 2. Exclude Market Drag
                 if 'market_tag' in mature_df.columns:
@@ -2542,7 +2861,12 @@ class PostgresManager:
         # ==========================================
         by_type = {}
         # Identify impact column once for breakdown
-        breakdown_col = 'final_decision_impact' if 'final_decision_impact' in df.columns else 'impact_score'
+        if 'final_impact_v33' in df.columns:
+            breakdown_col = 'final_impact_v33'
+        elif 'final_decision_impact' in df.columns:
+            breakdown_col = 'final_decision_impact'
+        else:
+            breakdown_col = 'impact_score'
         
         for action_type in df['action_type'].unique():
             type_data = df[df['action_type'] == action_type]
@@ -2611,7 +2935,7 @@ class PostgresManager:
         
         # Summary 2: VALIDATED ACTIONS ONLY
         # Pattern matches: ✓, CPC Validated, CPC Match, Directional, Confirmed, Normalized
-        validated_mask = impact_df['validation_status'].str.contains('✓|CPC Validated|CPC Match|Directional|Confirmed|Normalized|Volume', na=False, regex=True)
+        validated_mask = impact_df['validation_status'].str.contains('✓|CPC Validated|CPC Match|Directional|Confirmed|Normalized|Volume|Strict', na=False, regex=True)
         validated_df = impact_df[validated_mask].copy()
         summary_validated = self._calculate_metrics_from_df(validated_df, after_days, label="VALIDATED ONLY")
         
@@ -2857,3 +3181,108 @@ class PostgresManager:
                     'expired': False,
                     'views': (access_count or 0) + 1
                 }
+
+    # =========================================================
+    # Timeline-Based ROAS Methods (v3.5)
+    # =========================================================
+
+    def get_earliest_data_date(self, client_id: str) -> Optional[date]:
+        """
+        Get the earliest available data date for an account.
+
+        Args:
+            client_id: Account ID
+
+        Returns:
+            Earliest start_date in target_stats, or None if no data
+        """
+        with self._get_connection() as conn:
+            with conn.cursor() as cur:
+                cur.execute("""
+                    SELECT MIN(start_date)::date
+                    FROM target_stats
+                    WHERE client_id = %s
+                """, (client_id,))
+
+                row = cur.fetchone()
+                return row[0] if row and row[0] else None
+
+    def get_latest_data_date(self, client_id: str) -> Optional[date]:
+        """
+        Get the latest available data date for an account.
+
+        Args:
+            client_id: Account ID
+
+        Returns:
+            Latest start_date in target_stats, or None if no data
+        """
+        with self._get_connection() as conn:
+            with conn.cursor() as cur:
+                cur.execute("""
+                    SELECT MAX(start_date)::date
+                    FROM target_stats
+                    WHERE client_id = %s
+                """, (client_id,))
+
+                row = cur.fetchone()
+                return row[0] if row and row[0] else None
+
+    def get_account_performance(
+        self,
+        client_id: str,
+        start_date: date,
+        end_date: date
+    ) -> Dict[str, float]:
+        """
+        Get aggregated account performance for a specific date range.
+
+        This is used for timeline-based ROAS calculation to measure
+        account performance in clean 30-day periods.
+
+        Args:
+            client_id: Account ID
+            start_date: Period start date (inclusive)
+            end_date: Period end date (inclusive)
+
+        Returns:
+            Dict with 'spend', 'sales', 'clicks', 'impressions'
+        """
+        with self._get_connection() as conn:
+            with conn.cursor() as cur:
+                cur.execute("""
+                    SELECT
+                        COALESCE(SUM(spend), 0) as spend,
+                        COALESCE(SUM(sales), 0) as sales,
+                        COALESCE(SUM(clicks), 0) as clicks,
+                        COALESCE(SUM(impressions), 0) as impressions
+                    FROM target_stats
+                    WHERE client_id = %s
+                      AND start_date >= %s
+                      AND start_date <= %s
+                """, (client_id, start_date, end_date))
+
+                row = cur.fetchone()
+
+                if row:
+                    if isinstance(row, dict):
+                        return {
+                            'spend': float(row['spend']),
+                            'sales': float(row['sales']),
+                            'clicks': int(row['clicks']),
+                            'impressions': int(row['impressions'])
+                        }
+                    else:
+                        return {
+                            'spend': float(row[0]),
+                            'sales': float(row[1]),
+                            'clicks': int(row[2]),
+                            'impressions': int(row[3])
+                        }
+                else:
+                    return {
+                        'spend': 0.0,
+                        'sales': 0.0,
+                        'clicks': 0,
+                        'impressions': 0
+                    }

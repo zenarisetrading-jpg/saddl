@@ -6,45 +6,69 @@ import numpy as np
 import pandas as pd
 
 
-def ensure_impact_columns(df: pd.DataFrame) -> pd.DataFrame:
+def validate_impact_columns(df: pd.DataFrame) -> pd.DataFrame:
     """
-    Ensure required columns for impact calculation exist in the dataframe.
-    This handles cache compatibility when columns were calculated in postgres_manager
-    but old cached data doesn't have them.
+    Validate that required Impact Model v3.3 columns exist in the dataframe.
 
-    Returns a copy of the dataframe with all required columns.
+    This function replaces the old ensure_impact_columns() which redundantly
+    recalculated impact values. With v3.3, ALL impact calculations are done
+    in postgres_manager.get_action_impact().
+
+    Args:
+        df: Impact DataFrame from postgres_manager
+
+    Returns:
+        The same DataFrame (unmodified) if validation passes
+
+    Raises:
+        ValueError: If required v3.3 columns are missing
     """
-    df = df.copy()
-    MIN_CLICKS_FOR_RELIABLE = 5
-
-    # If market_tag already exists, return as-is
-    if 'market_tag' in df.columns and 'expected_trend_pct' in df.columns:
-        return df
-
-    # Calculate counterfactual metrics
-    df['spc_before'] = df['before_sales'] / df['before_clicks'].replace(0, np.nan)
-    df['cpc_before'] = df['before_spend'] / df['before_clicks'].replace(0, np.nan)
-    df['expected_clicks'] = df['observed_after_spend'] / df['cpc_before']
-    df['expected_sales'] = df['expected_clicks'] * df['spc_before']
-
-    df['expected_trend_pct'] = ((df['expected_sales'] - df['before_sales']) / df['before_sales'] * 100).fillna(0)
-    df['actual_change_pct'] = ((df['observed_after_sales'] - df['before_sales']) / df['before_sales'] * 100).fillna(0)
-    df['decision_value_pct'] = df['actual_change_pct'] - df['expected_trend_pct']
-    df['decision_impact'] = df['observed_after_sales'] - df['expected_sales']
-
-    # Apply low-sample guardrail
-    low_sample_mask = df['before_clicks'] < MIN_CLICKS_FOR_RELIABLE
-    df.loc[low_sample_mask, 'decision_impact'] = 0
-    df.loc[low_sample_mask, 'decision_value_pct'] = 0
-
-    # Assign market_tag
-    conditions = [
-        (df['expected_trend_pct'] >= 0) & (df['decision_value_pct'] >= 0),
-        (df['expected_trend_pct'] < 0) & (df['decision_value_pct'] >= 0),
-        (df['expected_trend_pct'] >= 0) & (df['decision_value_pct'] < 0),
-        (df['expected_trend_pct'] < 0) & (df['decision_value_pct'] < 0),
+    # Required core columns (existed in v3.2)
+    required_core = [
+        'decision_impact',
+        'final_decision_impact',
+        'market_tag',
+        'expected_sales'
     ]
-    choices = ['Offensive Win', 'Defensive Win', 'Gap', 'Market Drag']
-    df['market_tag'] = np.select(conditions, choices, default='Unknown')
+
+    # Required v3.3 columns (new in v3.3)
+    required_v33 = [
+        'market_shift',
+        'scale_factor',
+        'impact_v33',
+        'final_impact_v33'
+    ]
+
+    missing_core = [col for col in required_core if col not in df.columns]
+    missing_v33 = [col for col in required_v33 if col not in df.columns]
+
+    if missing_core:
+        raise ValueError(
+            f"Database missing required core columns: {missing_core}. "
+            f"This indicates a problem with postgres_manager.get_action_impact()."
+        )
+
+    if missing_v33:
+        # v3.3 columns missing means Impact Model v3.3 is not active
+        # This is not an error if IMPACT_MODEL_VERSION = "v3.2"
+        import warnings
+        warnings.warn(
+            f"Impact Model v3.3 columns missing: {missing_v33}. "
+            f"Using v3.2 values. Set IMPACT_MODEL_VERSION='v3.3' in postgres_manager.py to enable v3.3.",
+            UserWarning
+        )
 
     return df
+
+
+# [DEPRECATED] Legacy function kept for backwards compatibility
+# Remove this after confirming all code paths use validate_impact_columns()
+def ensure_impact_columns(df: pd.DataFrame) -> pd.DataFrame:
+    """
+    DEPRECATED: This function is deprecated as of Impact Model v3.3.
+    Use validate_impact_columns() instead.
+
+    All impact calculations are now performed in postgres_manager.get_action_impact().
+    This function now simply validates columns and returns the dataframe unmodified.
+    """
+    return validate_impact_columns(df)

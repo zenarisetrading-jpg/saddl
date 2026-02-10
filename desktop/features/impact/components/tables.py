@@ -7,6 +7,8 @@ import pandas as pd
 import numpy as np
 from typing import Optional
 
+from features.impact.utils import get_impact_col
+
 
 def render_details_table(impact_df: pd.DataFrame, currency: str):
     """Render collapsed details table."""
@@ -15,8 +17,10 @@ def render_details_table(impact_df: pd.DataFrame, currency: str):
             st.info("No actions to display")
             return
 
+        impact_col = get_impact_col(impact_df)
+
         # Select display columns
-        display_cols = ['action_type', 'target_text', 'market_tag', 'decision_impact', 'validation_status']
+        display_cols = ['action_type', 'target_text', 'market_tag', impact_col, 'validation_status']
         available_cols = [c for c in display_cols if c in impact_df.columns]
 
         if not available_cols:
@@ -25,9 +29,9 @@ def render_details_table(impact_df: pd.DataFrame, currency: str):
 
         display_df = impact_df[available_cols].copy()
 
-        # Format decision_impact
-        if 'decision_impact' in display_df.columns:
-            display_df['decision_impact'] = display_df['decision_impact'].apply(
+        # Format impact column
+        if impact_col in display_df.columns:
+            display_df[impact_col] = display_df[impact_col].apply(
                 lambda x: f"{currency}{x:+,.0f}" if pd.notna(x) else "N/A"
             )
 
@@ -36,7 +40,7 @@ def render_details_table(impact_df: pd.DataFrame, currency: str):
             'action_type': 'Action',
             'target_text': 'Target',
             'market_tag': 'Category',
-            'decision_impact': 'Impact',
+            impact_col: 'Impact',
             'validation_status': 'Status'
         }
         display_df = display_df.rename(columns=column_names)
@@ -62,8 +66,10 @@ def render_drill_down_table(impact_df: pd.DataFrame, show_migration_badge: bool 
         else:
             display_df['action_display'] = display_df['action_type']
 
+        impact_col = get_impact_col(display_df)
+
         # Ensure columns exist
-        for col in ['decision_impact', 'spend_avoided', 'cpc_before', 'cpc_after',
+        for col in [impact_col, 'spend_avoided', 'cpc_before', 'cpc_after',
                     'cpc_change_pct', 'expected_sales', 'spc_before', 'market_downshift']:
             if col not in display_df.columns:
                 display_df[col] = np.nan
@@ -82,7 +88,7 @@ def render_drill_down_table(impact_df: pd.DataFrame, show_migration_badge: bool 
         # Decision Outcome logic
         def get_decision_outcome(row):
             action = str(row.get('action_type', '')).upper()
-            di = row['decision_impact'] if pd.notna(row.get('decision_impact')) else 0
+            di = row[impact_col] if pd.notna(row.get(impact_col)) else 0
             sa = row['spend_avoided'] if pd.notna(row.get('spend_avoided')) else 0
             bs = row['before_spend'] if pd.notna(row.get('before_spend')) else 0
             market_tag = row.get('market_tag', 'Normal')
@@ -109,11 +115,14 @@ def render_drill_down_table(impact_df: pd.DataFrame, show_migration_badge: bool 
 
         # Select final columns
         display_cols = [
-            'action_display', 'target_text', 'market_tag', 'decision_impact', 'decision_outcome'
+            'action_display', 'target_text', 'market_tag', impact_col, 'decision_outcome'
         ]
         available_cols = [c for c in display_cols if c in display_df.columns]
 
-        st.dataframe(display_df[available_cols], use_container_width=True, hide_index=True)
+        subset_df = display_df[available_cols].copy()
+        if impact_col in subset_df.columns:
+            subset_df = subset_df.rename(columns={impact_col: 'Impact'})
+        st.dataframe(subset_df, use_container_width=True, hide_index=True)
 
 
 def render_dormant_table(dormant_df: pd.DataFrame):

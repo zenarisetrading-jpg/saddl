@@ -10,17 +10,19 @@ import pandas as pd
 from typing import Dict, Any
 
 # Core imports
-from core.db_manager import get_db_manager
 from core.utils import IMPACT_WINDOWS, get_maturity_status
 from features.impact_metrics import ImpactMetrics
 
 # Local imports
 from features.impact.data.fetchers import fetch_impact_data
-from features.impact.data.transforms import ensure_impact_columns
-from features.impact.metrics.confidence import compute_confidence, compute_spend_avoided_confidence
+from features.impact.data.transforms import validate_impact_columns
 from features.impact.components.hero import render_hero_banner
 from features.impact.components.analytics import render_impact_analytics
 from features.impact.components.tables import render_dormant_table
+from features.impact.utils import (
+    check_model_version_consistency,
+    render_export_button
+)
 
 
 def _inject_styles():
@@ -178,7 +180,7 @@ def render_impact_dashboard_v2():
     # Fetch impact data
     with st.spinner("Calculating impact..."):
         test_mode = st.session_state.get('test_mode', False)
-        cache_version = "v19_perf_" + str(st.session_state.get('data_upload_timestamp', 'init'))
+        cache_version = "v20_perf_" + str(st.session_state.get('data_upload_timestamp', 'init'))
 
         # Get horizon config
         horizon_config = IMPACT_WINDOWS["horizons"].get(horizon, IMPACT_WINDOWS["horizons"]["14D"])
@@ -221,8 +223,8 @@ def render_impact_dashboard_v2():
         st.info("No actions with matching 'next week' performance data found.")
         return
 
-    # Ensure required columns
-    impact_df = ensure_impact_columns(impact_df)
+    # Validate required v3.3 columns
+    impact_df = validate_impact_columns(impact_df)
 
     # Filter by maturity
     if 'is_mature' in impact_df.columns:
@@ -247,8 +249,15 @@ def render_impact_dashboard_v2():
             - {pending_attr_count} actions pending for this horizon
         """)
 
-    # Validation toggle
-    toggle_col1, toggle_col2 = st.columns([1, 5])
+    # ==========================================
+    # PHASE 5: Model Version Consistency Check & Export
+    # ==========================================
+    version_check = check_model_version_consistency(impact_df)
+    if not version_check['is_consistent']:
+        st.warning(version_check['warning_message'])
+
+    # Validation toggle and export button
+    toggle_col1, toggle_col2, export_col = st.columns([1, 4, 1])
     with toggle_col1:
         show_validated_only = st.toggle(
             "Validated Only",
@@ -261,9 +270,11 @@ def render_impact_dashboard_v2():
             st.caption("✓ Showing **validated actions only** — filtering all cards and charts.")
         else:
             st.caption("📊 Showing **all actions** — including pending and unverified.")
+    with export_col:
+        render_export_button(impact_df, filename_prefix=f"impact_{horizon}")
 
     # Filter data
-    v_mask = impact_df['validation_status'].str.contains('✓|CPC Validated|CPC Match|Directional|Confirmed|Normalized|Volume', na=False, regex=True)
+    v_mask = impact_df['validation_status'].str.contains('✓|CPC Validated|CPC Match|Directional|Confirmed|Normalized|Volume|Strict', na=False, regex=True)
     display_df = impact_df[v_mask].copy() if show_validated_only else impact_df.copy()
 
     # Split by maturity
@@ -293,15 +304,27 @@ def render_impact_dashboard_v2():
     total_verified_impact = display_summary.get('attributed_impact_universal', display_summary.get('decision_impact', 0))
 
     # ==========================================
-    # WIRE MARKET DECOMPOSITION (CPC/CVR/AOV) from clean module
-    # COPIED FROM LEGACY impact_dashboard.py lines 650-658
+    # ROAS ATTRIBUTION WATERFALL - DISABLED (v3.3 Phase 1)
     # ==========================================
-    if selected_client:
-        from core.roas_attribution import get_roas_attribution
-        # Pass decision_impact_value to correctly separate it from unexplained residual
-        roas_attr = get_roas_attribution(selected_client, days=30, decision_impact_value=total_verified_impact)
-        if roas_attr:
-            display_summary.update(roas_attr)  # Adds baseline_roas, actual_roas, cpc_impact, etc.
+    # ISSUE IDENTIFIED: The current roas_attribution.py logic has a mathematical flaw:
+    # - CPC/CVR/AOV decomposition explains 100% of ROAS change (by definition)
+    # - Adding Decision Impact on top forces Residual = -Decision_Impact (always)
+    # - This makes "Residual" meaningless (not unexplained variance, just circular math)
+    #
+    # v3.3 FIX (deferred to Phase 3 or v3.4):
+    # - Use account-level SPC shift (counterfactual baseline) instead of observed decomposition
+    # - Separate Market Forces (external) from Decision Impact (internal)
+    # - Calculate legitimate residual as: Actual - (Baseline + Market + CPC + Decision)
+    #
+    # STATUS: Waterfall chart hidden until v3.3 proper implementation is complete
+    # ==========================================
+
+    # [DISABLED - v3.2 BACKUP]
+    # if selected_client:
+    #     from core.roas_attribution import get_roas_attribution
+    #     roas_attr = get_roas_attribution(selected_client, days=30, decision_impact_value=total_verified_impact)
+    #     if roas_attr:
+    #         display_summary.update(roas_attr)
 
     # Render hero banner
     render_hero_banner(
@@ -312,6 +335,15 @@ def render_impact_dashboard_v2():
         pending_count=pending_display_count,
         canonical_metrics=canonical_metrics
     )
+
+    # [DISABLED - v3.2 BACKUP]
+    # Render ROAS Attribution Waterfall (v3.3)
+    # if not active_df.empty and canonical_metrics and getattr(canonical_metrics, 'has_data', False):
+    #     render_roas_waterfall(
+    #         active_df,
+    #         decision_impact_dollars=canonical_metrics.attributed_impact,
+    #         currency=currency
+    #     )
 
     st.divider()
 
