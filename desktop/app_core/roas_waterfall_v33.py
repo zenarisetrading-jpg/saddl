@@ -11,7 +11,7 @@ Key Integration Points:
 - No overlap or double-counting
 """
 
-from typing import Dict, Any
+from typing import Dict, Any, Optional
 import pandas as pd
 import numpy as np
 
