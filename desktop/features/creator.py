@@ -14,10 +14,10 @@ from io import BytesIO
 import plotly.graph_objects as go
 
 from features._base import BaseFeature
-from core.data_loader import SmartMapper, safe_numeric, is_asin, load_uploaded_file
+from app_core.data_loader import SmartMapper, safe_numeric, is_asin, load_uploaded_file
 from utils.formatters import to_excel_download
-from core.data_hub import DataHub
-from core.db_manager import get_db_manager
+from app_core.data_hub import DataHub
+from app_core.db_manager import get_db_manager
 from features.bulk_export import generate_harvest_bulk
 
 # ==========================================

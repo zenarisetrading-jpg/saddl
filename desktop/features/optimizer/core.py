@@ -10,7 +10,7 @@ from datetime import timedelta
 from typing import Tuple, Dict, Any, Optional
 
 from features.constants import AUTO_TARGETING_TYPES, normalize_auto_targeting
-from core.db_manager import get_db_manager
+from app_core.db_manager import get_db_manager
 from utils.metrics import calculate_ppc_metrics, ensure_numeric_columns
 
 # ==========================================

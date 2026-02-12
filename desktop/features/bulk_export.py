@@ -14,7 +14,7 @@ import numpy as np
 from typing import Tuple, Optional, List
 
 # Import comprehensive validation engine
-from core.bulk_validation import (
+from app_core.bulk_validation import (
     validate_bulk_export,
     validate_isolation_negative,
     validate_bleeder_negative,
@@ -27,7 +27,7 @@ from core.bulk_validation import (
     ERROR_MESSAGES,
 )
 
-from core.optimization_types import OptimizationRecommendation
+from app_core.optimization_types import OptimizationRecommendation
 
 
 # ==========================================

@@ -11,8 +11,8 @@ sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), '..')))
 from dotenv import load_dotenv
 load_dotenv('desktop/.env')
 
-from core.auth.service import AuthService
-from core.db_manager import get_db_manager
+from app_core.auth.service import AuthService
+from app_core.db_manager import get_db_manager
 
 def main():
     print("🚀 SADDL - Organization Data Bootstrapper")

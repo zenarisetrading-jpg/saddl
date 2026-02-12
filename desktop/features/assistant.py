@@ -4,7 +4,7 @@ import numpy as np
 import json
 import requests
 from typing import List, Dict, Any, Optional, Tuple
-from core.db_manager import get_db_manager
+from app_core.db_manager import get_db_manager
 
 
 class AssistantModule:
@@ -246,10 +246,11 @@ If Auto outperforms Manual: Discovery is working - harvest more aggressively
     # KNOWLEDGE GRAPH CONSTRUCTION
     # =========================================================================
     
-    def _construct_granular_dataset(self) -> pd.DataFrame:
+    def _construct_granular_dataset(self, custom_start=None, custom_end=None) -> pd.DataFrame:
         """
         Stitch together all dataframes (STR, Harvest, Negatives, Bids) into a single
         granular 'Master Dataset' for the AI Analyst.
+        Supports date filtering.
         """
         # 1. Get Base Data from DataHub
         str_df = None
@@ -266,7 +267,7 @@ If Auto outperforms Manual: Discovery is working - harvest more aggressively
         # If no session data, try loading from database (for Streamlit Cloud)
         if str_df is None:
             print(f"[ASSISTANT] No session data, attempting database load...")
-            from core.data_hub import DataHub
+            from app_core.data_hub import DataHub
             hub = DataHub()
 
             # Try enriched data first
@@ -314,7 +315,7 @@ If Auto outperforms Manual: Discovery is working - harvest more aggressively
                 master[col] = 0
         
         # =============================================
-        # 60-DAY DATE FILTER (matches Dashboard defaults)
+        # DATE FILTERING (Dynamic or Default 60d)
         # =============================================
         from datetime import timedelta
         date_cols = ['Date', 'Start Date', 'date', 'Report Date', 'start_date']
@@ -327,14 +328,24 @@ If Auto outperforms Manual: Discovery is working - harvest more aggressively
         if date_col:
             try:
                 master[date_col] = pd.to_datetime(master[date_col], errors='coerce')
-                valid_dates = master[date_col].dropna()
-                if not valid_dates.empty:
-                    max_date = valid_dates.max()
-                    cutoff_date = max_date - timedelta(days=60)
-                    master = master[master[date_col] >= cutoff_date]
+                
+                if custom_start and custom_end:
+                    # STRICT CUSTOM RANGE
+                    start_dt = pd.to_datetime(custom_start)
+                    end_dt = pd.to_datetime(custom_end)
+                    master = master[(master[date_col] >= start_dt) & (master[date_col] <= end_dt)]
+                    print(f"[ASSISTANT] Filtered to custom range: {start_dt.date()} - {end_dt.date()} ({len(master)} rows)")
+                else:
+                    # DEFAULT 60-DAY LOOKBACK (Existing Logic)
+                    valid_dates = master[date_col].dropna()
+                    if not valid_dates.empty:
+                        max_date = valid_dates.max()
+                        cutoff_date = max_date - timedelta(days=60)
+                        master = master[master[date_col] >= cutoff_date]
+                        print(f"[ASSISTANT] Filtered to default 60 days: {cutoff_date.date()} - {max_date.date()} ({len(master)} rows)")
             except Exception as e:
                 print(f"⚠️ Date filtering failed: {e}")
-                pass  # If date filtering fails, use full dataset
+                pass  # Filter fail -> use full dataset
         
         # 2. Get Optimizer Results (if available)
         opt_res = st.session_state.get('optimizer_results') or st.session_state.get('latest_optimizer_run')
@@ -1811,24 +1822,20 @@ PLATFORM METHODOLOGY & ENGINE LOGIC (UPDATED JAN 2, 2026)
     # CLIENT REPORT GENERATION (NEW - Jan 2026)
     # =========================================================================
 
-    def generate_report_narratives(self, panels: List[str]) -> Dict[str, Any]:
+    def generate_report_narratives(self, panels: List[str], start_date=None, end_date=None) -> Dict[str, Any]:
         """
         Generate AI narratives for client report panels.
 
         Args:
             panels: List of panel names e.g., ["performance", "health", "portfolio"]
+            start_date: Optional start date for data filtering
+            end_date: Optional end date for data filtering
 
         Returns:
             Dict mapping panel name to narrative text or structured data
-
-        Example:
-            narratives = assistant.generate_report_narratives([
-                "performance", "health", "portfolio", "impact",
-                "actions", "match_type", "executive_summary"
-            ])
         """
-        # Build knowledge graph using EXISTING method
-        df = self._construct_granular_dataset()
+        # Build knowledge graph using DATE-AWARE method
+        df = self._construct_granular_dataset(start_date, end_date)
 
         if df.empty:
             # Return safe empty structures to prevent UI crashes

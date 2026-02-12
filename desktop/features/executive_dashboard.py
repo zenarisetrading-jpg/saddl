@@ -18,7 +18,7 @@ from features.constants import classify_match_type
 from ui.theme import ThemeManager
 
 from features.impact_dashboard import get_maturity_status, _fetch_impact_data
-from core.db_manager import get_db_manager
+from app_core.db_manager import get_db_manager
 
 @st.cache_data(ttl=3600, show_spinner=False)
 def _fetch_and_process_stats(client_id: str, cache_version: str) -> Optional[pd.DataFrame]:
@@ -512,8 +512,8 @@ class ExecutiveDashboard:
             with st.container(border=True):
                 self._render_spend_breakdown(data)
     
-    def _fetch_data(self) -> Optional[Dict[str, Any]]:
-        """Fetch all data."""
+    def _fetch_data(self, custom_start=None, custom_end=None) -> Optional[Dict[str, Any]]:
+        """Fetch all data. Supports custom date range."""
         try:
             # Use cached fetcher
             # Version key ensures cache invalidation on new data upload
@@ -527,17 +527,32 @@ class ExecutiveDashboard:
                 print(f"[EXEC_DASH] No data found - returning None")
                 return None
             
-            # Time windows (use selected days from date picker)
-            
-            # Time windows (use selected days from date picker)
-            selected_days = getattr(self, '_selected_days', 60)
-            max_date = df['Date'].max()
-            current_start = max_date - timedelta(days=selected_days)
-            previous_start = current_start - timedelta(days=selected_days)
-            
-            df_current = df[df['Date'] >= current_start].copy()
-            df_previous = df[(df['Date'] >= previous_start) & (df['Date'] < current_start)].copy()
-            
+            # Date Range Logic
+            if custom_start and custom_end:
+                # Use provided custom range
+                current_start = pd.to_datetime(custom_start)
+                current_end = pd.to_datetime(custom_end)
+                duration_days = (current_end - current_start).days + 1
+                previous_start = current_start - timedelta(days=duration_days)
+                
+                # Filter strict range
+                df_current = df[(df['Date'] >= current_start) & (df['Date'] <= current_end)].copy()
+                df_previous = df[(df['Date'] >= previous_start) & (df['Date'] < current_start)].copy()
+                
+                print(f"[EXEC_DASH] Custom Range: {current_start.date()} - {current_end.date()}")
+            else:
+                # Default Logic: Relative to max data date
+                selected_days = getattr(self, '_selected_days', 60)
+                max_date = df['Date'].max()
+                current_start = max_date - timedelta(days=selected_days)
+                current_end = max_date # Implicit end
+                previous_start = current_start - timedelta(days=selected_days)
+                
+                df_current = df[df['Date'] >= current_start].copy()
+                df_previous = df[(df['Date'] >= previous_start) & (df['Date'] < current_start)].copy()
+                print(f"[EXEC_DASH] Relative Range (Last {selected_days}): {current_start.date()} - {current_end.date()}")
+
+                
             # Get decision impact (use pre-calculated metrics from DB)
             # Also fetch the official summary for alignment with Impact Dashboard
             # get_action_impact and get_impact_summary replaced by unified cached fetcher
@@ -568,7 +583,7 @@ class ExecutiveDashboard:
                 
                 # Fallback to max_date from target_stats if raw date not available
                 if not latest_data_date:
-                    latest_data_date = max_date.date()
+                    latest_data_date = df['Date'].max().date()
                 
                 if latest_data_date:
                     # Calculate maturity exactly as Impact Dashboard does
@@ -611,9 +626,8 @@ class ExecutiveDashboard:
                 'medians': medians,
                 'date_range': {
                     'start': current_start,
-                    # Use actual latest date from raw data for display accuracy
-                    # This ensures we show Jan 17 instead of Jan 12 (week start)
-                    'end': latest_data_date if latest_data_date else max_date.date()
+                    # Use actual latest date if adhering to defaults, else use custom end
+                    'end': current_end.date() if (custom_end or not latest_data_date) else latest_data_date
                 }
             }
         except Exception as e:

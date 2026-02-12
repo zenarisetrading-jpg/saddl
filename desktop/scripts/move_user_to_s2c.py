@@ -15,7 +15,7 @@ desktop_path = os.path.abspath(os.path.join(os.path.dirname(__file__), '..'))
 if desktop_path not in sys.path:
     sys.path.insert(0, desktop_path)
 
-from core.db_manager import get_db_manager
+from app_core.db_manager import get_db_manager
 
 # Configuration
 TARGET_ORG_ID = "6462e051-9fbd-5009-8461-d61427f1e707" # S2C-Test (from previous migration)

@@ -6,7 +6,7 @@ Handles logging of optimization events to the database.
 import pandas as pd
 import uuid
 import streamlit as st
-from core.db_manager import get_db_manager
+from app_core.db_manager import get_db_manager
 
 def log_optimization_events(results: dict, client_id: str, report_date: str):
     """

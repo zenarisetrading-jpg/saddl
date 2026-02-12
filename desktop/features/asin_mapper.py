@@ -10,7 +10,7 @@ import pandas as pd
 import re
 from typing import Dict, Any
 from features._base import BaseFeature
-from core.data_loader import SmartMapper, load_uploaded_file, safe_numeric
+from app_core.data_loader import SmartMapper, load_uploaded_file, safe_numeric
 from api.rainforest_client import RainforestClient
 from utils.validators import validate_search_term_report
 from ui.components import metric_card
@@ -98,7 +98,7 @@ class ASINMapperModule(BaseFeature):
         """, unsafe_allow_html=True)
         
         # Check if data loaded in Data Hub
-        from core.data_hub import DataHub
+        from app_core.data_hub import DataHub
         hub = DataHub()
         
         data_from_hub = False

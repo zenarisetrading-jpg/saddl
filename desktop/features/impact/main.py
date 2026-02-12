@@ -10,7 +10,7 @@ import pandas as pd
 from typing import Dict, Any
 
 # Core imports
-from core.utils import IMPACT_WINDOWS, get_maturity_status
+from app_core.utils import IMPACT_WINDOWS, get_maturity_status
 from features.impact_metrics import ImpactMetrics
 
 # Local imports
@@ -321,7 +321,7 @@ def render_impact_dashboard_v2():
 
     # [DISABLED - v3.2 BACKUP]
     # if selected_client:
-    #     from core.roas_attribution import get_roas_attribution
+    #     from app_core.roas_attribution import get_roas_attribution
     #     roas_attr = get_roas_attribution(selected_client, days=30, decision_impact_value=total_verified_impact)
     #     if roas_attr:
     #         display_summary.update(roas_attr)

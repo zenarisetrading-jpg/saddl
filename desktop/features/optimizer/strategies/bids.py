@@ -9,8 +9,8 @@ import streamlit as st
 from typing import Tuple, Dict, Any, Optional, Set
 from features.optimizer.core import BID_LIMITS, calculate_account_benchmarks
 from features.optimizer.strategies.negatives import enrich_with_ids
-from core.data_hub import DataHub
-from core.data_loader import is_asin
+from app_core.data_hub import DataHub
+from app_core.data_loader import is_asin
 from dev_resources.tests.bulk_validation_spec import (
     OptimizationRecommendation,
     RecommendationType,

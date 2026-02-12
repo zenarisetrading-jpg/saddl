@@ -13,7 +13,7 @@ from typing import List, Dict, Optional, Set, Callable, Any
 from enum import Enum
 import re
 from datetime import datetime
-from core.optimization_types import RecommendationType, ValidationResult, OptimizationRecommendation
+from app_core.optimization_types import RecommendationType, ValidationResult, OptimizationRecommendation
 
 # =============================================================================
 # ENUMS - All Valid Values from Amazon Documentation
@@ -1578,7 +1578,7 @@ __all__ = [
 # RECOMMENDATION-LEVEL VALIDATION (Validate at Source)
 # =============================================================================
 
-# Imported from core to ensure consistency with main application
+# Imported from app_core to ensure consistency with main application
 
 
 

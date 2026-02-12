@@ -6,7 +6,7 @@ import os
 # Add desktop to path to allow imports
 sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), '../')))
 
-from core.data_loader import SmartMapper
+from app_core.data_loader import SmartMapper
 
 def verify_smart_mapper():
     print("Verifying SmartMapper against standard Search Term Report columns...\n")

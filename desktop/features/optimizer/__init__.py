@@ -79,7 +79,7 @@ class OptimizerModule(BaseFeature):
         self._sync_config_from_state()
 
         # 3. Check Data Availability (try database first, then session upload)
-        from core.data_hub import DataHub
+        from app_core.data_hub import DataHub
         hub = DataHub()
 
         # If no data in session, try loading from database
@@ -98,7 +98,7 @@ class OptimizerModule(BaseFeature):
         if st.session_state.get("run_optimizer_refactored"):
             with st.spinner("Running AI Optimization Analysis..."):
                 # Load Data from DATABASE (not CSV) and apply date filtering
-                from core.db_manager import get_db_manager
+                from app_core.db_manager import get_db_manager
                 import pandas as pd
                 from datetime import timedelta
                 from features.optimizer.ui.landing import _fetch_target_stats_cached

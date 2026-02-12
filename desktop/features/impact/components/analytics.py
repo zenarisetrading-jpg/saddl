@@ -18,7 +18,7 @@ from features.impact.components.tables import render_details_table
 from features.impact.components.timeline import render_timeline_card
 from features.impact.charts.waterfall import render_roas_attribution_bar
 from features.impact.charts.matrix import render_decision_outcome_matrix
-from core.timeline_roas import get_account_timeline_roas
+from app_core.timeline_roas import get_account_timeline_roas
 # Note: render_cumulative_impact_chart available but not used in legacy analytics layout
 
 

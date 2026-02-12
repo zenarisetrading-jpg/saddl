@@ -11,7 +11,7 @@ import streamlit as st
 @st.cache_data(ttl=300, show_spinner=False)
 def _fetch_accounts_cached(org_id: str):
     """Cache account list query - prevents repeated DB calls on every rerun."""
-    from core.db_manager import get_db_manager
+    from app_core.db_manager import get_db_manager
     db = get_db_manager()
     if db:
         return db.get_all_accounts(organization_id=org_id)
@@ -30,7 +30,7 @@ def render_account_selector():
         return
     
     # Get current user context for organization Filtering
-    from core.auth.service import AuthService
+    from app_core.auth.service import AuthService
     auth = AuthService()
     current_user = auth.get_current_user()
     org_id = str(current_user.organization_id) if current_user else None
@@ -99,7 +99,7 @@ def render_account_selector():
     st.session_state['single_account_mode'] = False
     
     # Phase 3.5: Decorate with Effective Role
-    from core.auth.permissions import get_effective_role  # AuthService already imported above
+    from app_core.auth.permissions import get_effective_role  # AuthService already imported above
     
     # current_user filtered above
     
@@ -252,7 +252,7 @@ def _show_account_creation_form():
                 }
                 
                 # Get org_id for new account
-                from core.auth.service import AuthService
+                from app_core.auth.service import AuthService
                 current_user = AuthService().get_current_user()
                 org_id = str(current_user.organization_id) if current_user else None
                 

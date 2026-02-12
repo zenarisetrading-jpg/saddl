@@ -58,7 +58,7 @@ def run_seeding():
         return "Seeding skipped"
 
     try:
-        from core.seeding import seed_initial_data
+        from app_core.seeding import seed_initial_data
         # Simple execution - no timeout handling to avoid signal/threading issues
         result = seed_initial_data()
         return result or "Seeding completed"
@@ -76,11 +76,11 @@ def run_seeding():
 
 # Delay heavy feature imports by moving them into routing/main logic
 from ui.layout import setup_page, render_sidebar, render_home
-from core.data_hub import DataHub
-from core.db_manager import DatabaseManager, get_db_manager
+from app_core.data_hub import DataHub
+from app_core.db_manager import DatabaseManager, get_db_manager
 from utils.matchers import ExactMatcher
 from utils.formatters import format_currency
-from core.data_loader import safe_numeric
+from app_core.data_loader import safe_numeric
 from pathlib import Path
 
 # === ONBOARDING ===
@@ -88,8 +88,8 @@ from ui.onboarding import should_show_onboarding, render_onboarding_wizard
 from config.features import FEATURE_ONBOARDING_WIZARD
 
 # === AUTHENTICATION ===
-from core.auth.service import AuthService
-from core.auth.middleware import require_auth, require_permission
+from app_core.auth.service import AuthService
+from app_core.auth.middleware import require_auth, require_permission
 from ui.auth.login import render_login
 # Legacy import removed: from auth import require_authentication, render_user_menu
 
@@ -816,7 +816,7 @@ def run_consolidated_optimizer():
                 if st.button("Send Invite", use_container_width=True):
                     if invite_email:
                         with st.spinner("Sending..."):
-                            from core.auth.invitation_service import InvitationService
+                            from app_core.auth.invitation_service import InvitationService
                             service = InvitationService()
                             # Use current user as inviter
                             res = service.create_invitation(
@@ -1170,7 +1170,7 @@ def run_consolidated_optimizer():
                 # Get pending actions from session state
                 pending = st.session_state.get('pending_actions')
                 if pending and pending.get('actions'):
-                    from core.db_manager import get_db_manager
+                    from app_core.db_manager import get_db_manager
                     db = get_db_manager(st.session_state.get('test_mode', False))
                     
                     try:
@@ -1246,7 +1246,7 @@ def render_shared_report():
     Route: ?page=shared_report&id={report_id}
     """
     import streamlit as st
-    from core.db_manager import get_db_manager
+    from app_core.db_manager import get_db_manager
     from ui import client_report_page as client_report
     
     # Get report ID from URL
@@ -1419,9 +1419,9 @@ def main():
     # Shows login page if not authenticated, blocks access to main app
     # === AUTHENTICATION GATE (V2) ===
     # Using strict V2 Auth Service with Type Assertion
-    from core.auth.models import User
-    from core.auth.service import AuthService  # Explicit local import to guarantee scope
-    from core.auth.permissions import has_permission, has_permission_for_account
+    from app_core.auth.models import User
+    from app_core.auth.service import AuthService  # Explicit local import to guarantee scope
+    from app_core.auth.permissions import has_permission, has_permission_for_account
     
     auth_service = AuthService()
     user = auth_service.get_current_user() # Gets from session
@@ -1573,7 +1573,7 @@ def main():
         render_account_selector()
         
         # Logout button (compact)
-        from core.auth.service import AuthService
+        from app_core.auth.service import AuthService
         auth = AuthService()
         if st.button("⏻ Logout", key="sidebar_logout", use_container_width=True, help="Sign out"):
             auth.sign_out()
@@ -1721,7 +1721,7 @@ def main():
         st.markdown("##### ANALYZE")
         
         # PERMISSION GATING (V2)
-        from core.auth.permissions import has_permission
+        from app_core.auth.permissions import has_permission
         
         # Optimizer - Requires 'run_optimizer'
         # Phase 3.5: Operator cannot run optimizer if overridden to VIEWER on this account

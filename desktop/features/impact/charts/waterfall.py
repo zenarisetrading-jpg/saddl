@@ -11,7 +11,7 @@ import plotly.graph_objects as go
 from typing import Dict, Any, Optional
 
 from features.impact.styles.css import BRAND_COLORS, get_chart_styles
-from core.roas_waterfall_v33 import calculate_roas_waterfall_v33
+from app_core.roas_waterfall_v33 import calculate_roas_waterfall_v33
 
 
 def create_roas_waterfall_figure(

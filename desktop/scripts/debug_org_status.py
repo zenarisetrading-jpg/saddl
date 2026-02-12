@@ -11,7 +11,7 @@ from dotenv import load_dotenv
 env_path = Path(__file__).parent.parent.parent / '.env'
 load_dotenv(env_path)
 
-from core.db_manager import get_db_manager
+from app_core.db_manager import get_db_manager
 import pandas as pd
 
 def check_org_status():

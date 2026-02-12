@@ -3,7 +3,7 @@ Public Exports - Functions exposed for use by other modules.
 
 These functions are used by:
 - report_card.py: get_recent_impact_summary
-- executive_dashboard.py: get_maturity_status (re-exported from core.utils)
+- executive_dashboard.py: get_maturity_status (re-exported from app_core.utils)
 - Home page: render_reference_data_badge
 """
 
@@ -12,8 +12,8 @@ import pandas as pd
 from typing import Dict, Any, Optional
 from datetime import datetime, timedelta
 
-from core.db_manager import get_db_manager
-from core.utils import get_maturity_status, IMPACT_WINDOWS
+from app_core.db_manager import get_db_manager
+from app_core.utils import get_maturity_status, IMPACT_WINDOWS
 
 from features.impact.data.fetchers import fetch_impact_data
 from features.impact.data.transforms import validate_impact_columns

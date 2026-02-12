@@ -5,7 +5,7 @@ Upload all files in one place, use everywhere.
 """
 
 import streamlit as st
-from core.data_hub import DataHub
+from app_core.data_hub import DataHub
 from datetime import datetime, timedelta
 
 def render_data_hub():
@@ -250,7 +250,7 @@ def render_data_hub():
         if db:
             # Get accounts (use cached version)
             from ui.account_manager import _fetch_accounts_cached
-            from core.auth.service import AuthService
+            from app_core.auth.service import AuthService
             auth = AuthService()
             current_user = auth.get_current_user()
             org_id = str(current_user.organization_id) if current_user else None
@@ -339,7 +339,7 @@ def _validate_campaigns(hub: DataHub, account_id: str) -> dict:
     Validate uploaded campaigns against historical data for this account.
     Returns dict with validation results.
     """
-    from core.db_manager import get_db_manager
+    from app_core.db_manager import get_db_manager
     
     uploaded_data = hub.get_data('search_term_report')
     if uploaded_data is None or 'Campaign Name' not in uploaded_data.columns:

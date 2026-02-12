@@ -6,7 +6,7 @@ from typing import Optional
 @st.cache_data(ttl=300, show_spinner=False)
 def _fetch_target_stats_cached(client_id: str, test_mode: bool):
     """Cache database query for target stats - prevents repeated DB calls on every rerun."""
-    from core.db_manager import get_db_manager
+    from app_core.db_manager import get_db_manager
     db_manager = get_db_manager(test_mode)
     if db_manager and client_id:
         return db_manager.get_target_stats_df(client_id)
@@ -152,7 +152,7 @@ def render_landing_page_redesign(config: dict):
     """, unsafe_allow_html=True)
 
     # === FETCH DATA ===
-    from core.data_hub import DataHub
+    from app_core.data_hub import DataHub
     hub = DataHub()
 
     client_id = st.session_state.get('active_account_id')

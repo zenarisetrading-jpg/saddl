@@ -9,8 +9,8 @@ import streamlit as st
 from typing import Tuple, Dict, Any, Optional, Set
 from features.optimizer.core import calculate_account_benchmarks
 from features.bulk_export import strip_targeting_prefix
-from core.data_hub import DataHub
-from core.data_loader import is_asin
+from app_core.data_hub import DataHub
+from app_core.data_loader import is_asin
 from dev_resources.tests.bulk_validation_spec import (
     OptimizationRecommendation,
     RecommendationType,

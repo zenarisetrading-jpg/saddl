@@ -95,8 +95,8 @@ def ensure_numeric_columns(
     if columns is None:
         columns = ['Impressions', 'Clicks', 'Spend', 'Sales', 'Orders']
 
-    # Import safe_numeric from core.data_loader
-    from core.data_loader import safe_numeric
+    # Import safe_numeric from app_core.data_loader
+    from app_core.data_loader import safe_numeric
 
     for col in columns:
         if col not in df.columns:

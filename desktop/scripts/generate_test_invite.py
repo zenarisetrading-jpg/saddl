@@ -10,7 +10,7 @@ sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), '..')))
 from dotenv import load_dotenv
 load_dotenv('desktop/.env')
 
-from core.auth.invitation_service import InvitationService
+from app_core.auth.invitation_service import InvitationService
 
 def main():
     print("🚀 SADDL AdPulse - Invitation Generator")

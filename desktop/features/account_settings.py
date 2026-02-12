@@ -12,9 +12,9 @@ Tabs:
 """
 
 import streamlit as st
-from core.auth.service import AuthService
-from core.auth.models import User
-from core.auth.permissions import has_permission
+from app_core.auth.service import AuthService
+from app_core.auth.models import User
+from app_core.auth.permissions import has_permission
 
 def run_account_settings():
     """Main entry for Settings."""

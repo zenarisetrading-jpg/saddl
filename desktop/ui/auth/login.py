@@ -13,7 +13,7 @@ Views:
 """
 
 import streamlit as st
-from core.auth.middleware import AuthError
+from app_core.auth.middleware import AuthError
 
 
 def _check_for_invitation_token() -> bool:
@@ -74,7 +74,7 @@ def render_forgot_password():
             if not email:
                 st.error("Please enter your email address")
             else:
-                from core.auth.service import AuthService
+                from app_core.auth.service import AuthService
                 service = AuthService()
                 if service.request_password_reset(email):
                     st.success("Instructions sent! Check your email for a temporary password.")
@@ -162,7 +162,7 @@ def render_login():
             if not email or not password:
                 st.error("Please enter email and password")
             else:
-                from core.auth.service import AuthService
+                from app_core.auth.service import AuthService
                 auth = AuthService()
                 
                 result = auth.sign_in(email, password)
