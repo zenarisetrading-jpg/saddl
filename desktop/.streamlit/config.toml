@@ -23,4 +23,4 @@ hideTopBar = true
 hideSidebarNav = false
 
 [server]
-folderWatchBlacklist = ['venv311', 'venv', '.venv']
+fileWatcherType = "none"
