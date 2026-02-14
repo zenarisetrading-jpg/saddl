@@ -21,3 +21,6 @@ toolbarMode = "minimal"
 # Hide top-right menu and footer
 hideTopBar = true
 hideSidebarNav = false
+
+[server]
+folderWatchBlacklist = ['venv311', 'venv', '.venv']
