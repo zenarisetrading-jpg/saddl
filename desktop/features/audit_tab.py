@@ -8,7 +8,7 @@ Separated from optimizer.py for cleaner maintenance and faster loading.
 import streamlit as st
 import pandas as pd
 from typing import Optional
-from ui.components import metric_card
+from ui.components import metric_card_with_tooltip
 
 
 def render_audit_tab(heatmap_df: Optional[pd.DataFrame]) -> None:
@@ -40,23 +40,48 @@ def render_audit_tab(heatmap_df: Optional[pd.DataFrame]) -> None:
     """, unsafe_allow_html=True)
 
     if heatmap_df is not None and not heatmap_df.empty:
-        st.markdown("""
-        <div style="background: rgba(91, 85, 111, 0.05); border-left: 4px solid #5B556F; padding: 12px 20px; border-radius: 0 8px 8px 0; margin-bottom: 20px;">
-            <p style="color: #B6B4C2; font-size: 0.9rem; margin: 0;">
-                <strong>Visual Intelligence</strong>: Red indicates immediate fix required, Yellow requires monitoring, and Green shows efficient performance.
-            </p>
-        </div>
-        """, unsafe_allow_html=True)
-        
         # --- 1. Top Cards ---
         p1, p2, p3 = st.columns(3)
         high_count = len(heatmap_df[heatmap_df["Priority"].str.contains("High")])
         med_count = len(heatmap_df[heatmap_df["Priority"].str.contains("Medium")])
         good_count = len(heatmap_df[heatmap_df["Priority"].str.contains("Good")])
-        
-        with p1: metric_card("High Priority", str(high_count), "shield", color="#f87171")
-        with p2: metric_card("Medium Priority", str(med_count), "shield", color="#fbbf24")
-        with p3: metric_card("Good Performance", str(good_count), "check", color="#4ade80")
+
+        icon_color = "#8F8CA3"
+        shield_icon = f'<svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="{icon_color}" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" style="margin-right: 8px;"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"></path></svg>'
+        check_icon = f'<svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="{icon_color}" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" style="margin-right: 8px;"><polyline points="20 6 9 17 4 12"></polyline></svg>'
+
+        categorization_base = (
+            "Scoring uses CTR, CVR, ROAS (higher is better) and ACoS (lower is better), "
+            "each quantile-scored (0/1/2) vs account peers and averaged into Overall Score."
+        )
+        high_tooltip = f"High Priority: Overall Score < 0.7. {categorization_base}"
+        medium_tooltip = f"Medium Priority: 0.7 <= Overall Score < 1.3. {categorization_base}"
+        good_tooltip = f"Good Performance: Overall Score >= 1.3. {categorization_base}"
+
+        with p1:
+            metric_card_with_tooltip(
+                "High Priority",
+                str(high_count),
+                high_tooltip,
+                icon_html=shield_icon,
+                value_color="#f87171",
+            )
+        with p2:
+            metric_card_with_tooltip(
+                "Medium Priority",
+                str(med_count),
+                medium_tooltip,
+                icon_html=shield_icon,
+                value_color="#fbbf24",
+            )
+        with p3:
+            metric_card_with_tooltip(
+                "Good Performance",
+                str(good_count),
+                good_tooltip,
+                icon_html=check_icon,
+                value_color="#4ade80",
+            )
         
         st.divider()
         
@@ -176,7 +201,12 @@ def render_audit_tab(heatmap_df: Optional[pd.DataFrame]) -> None:
         heat_icon = f'<svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="{icon_color}" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="vertical-align: middle; margin-right: 8px;"><rect x="3" y="3" width="7" height="7"></rect><rect x="14" y="3" width="7" height="7"></rect><rect x="14" y="14" width="7" height="7"></rect><rect x="3" y="14" width="7" height="7"></rect></svg>'
         st.markdown(f"#### {heat_icon}Performance Heatmap with Actions ({len(filtered_df)} items)", unsafe_allow_html=True)
         
-        cols = ["Priority", "Campaign Name", "Ad Group Name", "Actions_Taken", "Reason_Summary", "Spend", "Sales", "ROAS", "CVR"]
+        if "ACOS" not in filtered_df.columns and {"Spend", "Sales"}.issubset(filtered_df.columns):
+            filtered_df["ACOS"] = (
+                (filtered_df["Spend"] / filtered_df["Sales"].replace(0, pd.NA)) * 100
+            ).fillna(0.0)
+
+        cols = ["Priority", "Campaign Name", "Ad Group Name", "Actions_Taken", "Reason_Summary", "Spend", "Sales", "ROAS", "ACOS", "CVR"]
         display_df = filtered_df[[c for c in cols if c in filtered_df.columns]].copy()
         
         # Rename for display
@@ -193,7 +223,13 @@ def render_audit_tab(heatmap_df: Optional[pd.DataFrame]) -> None:
 
         # Apply styling without matplotlib-dependent background_gradient
         styled = display_df.style.map(style_priority, subset=["Priority"]) \
-                                 .format({"Spend": f"{format_currency}{{:,.2f}}", "Sales": f"{format_currency}{{:,.2f}}", "ROAS": "{:.2f}x", "CVR": "{:.2f}%"})
+                                 .format({
+                                     "Spend": f"{format_currency}{{:,.2f}}",
+                                     "Sales": f"{format_currency}{{:,.2f}}",
+                                     "ROAS": "{:.2f}x",
+                                     "ACOS": "{:.2f}%",
+                                     "CVR": "{:.2f}%"
+                                 })
 
         st.dataframe(styled, use_container_width=True, height=500)
     else:
