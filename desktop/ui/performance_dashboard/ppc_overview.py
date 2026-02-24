@@ -691,7 +691,7 @@ def render_ppc_overview() -> None:
     if "ppc_match_filter" not in st.session_state:
         st.session_state["ppc_match_filter"] = "All"
 
-    client_id = st.session_state.get("client_id") or st.session_state.get("selected_client_id") or ""
+    client_id = st.session_state.get("active_account_id") or ""
     test_mode = st.session_state.get("test_mode", False)
     target_roas = float(st.session_state.get("target_roas", 3.0))
 
@@ -732,7 +732,11 @@ def render_ppc_overview() -> None:
     )
 
     # ── Load data ───────────────────────────────────────────────────────────
-    raw_df = _fetch_target_stats(client_id, test_mode) if client_id else None
+    if not client_id:
+        st.warning("Please select an account first.")
+        return
+
+    raw_df = _fetch_target_stats(client_id, test_mode)
 
     if raw_df is None or raw_df.empty:
         st.markdown("<br>", unsafe_allow_html=True)
