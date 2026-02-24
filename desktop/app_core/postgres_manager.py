@@ -14,7 +14,7 @@ warnings.filterwarnings('ignore', message='.*DBAPI2.*')
 # DB Driver Shim (V2 Migration Patch)
 try:
     import psycopg2
-    from psycopg2.extras import RealDictCursor, execute_values
+    from psycopg2.extras import RealDictCursor, execute_values, execute_batch
     from psycopg2.pool import ThreadedConnectionPool
 except ImportError:
     try:
@@ -375,9 +375,16 @@ class PostgresManager:
                         ad_group_name TEXT,
                         target_text TEXT,
                         match_type TEXT,
+                        intelligence_flags TEXT,
                         UNIQUE(client_id, action_date, target_text, action_type, campaign_name)
                     )
                 """)
+                
+                # Dynamic Schema Update (V2.1)
+                try:
+                    cursor.execute("ALTER TABLE actions_log ADD COLUMN IF NOT EXISTS intelligence_flags TEXT")
+                except Exception:
+                    pass
                 
                 cursor.execute("CREATE INDEX IF NOT EXISTS idx_actions_log_batch ON actions_log(batch_id, action_date)")
                 cursor.execute("CREATE INDEX IF NOT EXISTS idx_actions_log_client ON actions_log(client_id, action_date)")
@@ -402,10 +409,17 @@ class PostgresManager:
                         ad_group_name TEXT,
                         sku TEXT,
                         asin TEXT,
+                        product_lifecycle TEXT DEFAULT 'mature',
                         updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
                         UNIQUE(client_id, campaign_name, ad_group_name, sku)
                     )
                 """)
+                
+                # Dynamic Lifecycle Updates (V2.1)
+                try:
+                    cursor.execute("ALTER TABLE advertised_product_cache ADD COLUMN IF NOT EXISTS product_lifecycle TEXT DEFAULT 'mature'")
+                except Exception:
+                    pass
                 
                 # Bulk Mappings
                 cursor.execute("""
@@ -546,6 +560,121 @@ class PostgresManager:
                     )
                 """)
                 cursor.execute("CREATE INDEX IF NOT EXISTS idx_shared_reports_client ON shared_reports(client_id)")
+
+                # Ensure sc_raw schema exists for SP-API
+                cursor.execute("CREATE SCHEMA IF NOT EXISTS sc_raw")
+                
+                cursor.execute("""
+                    CREATE TABLE IF NOT EXISTS sc_raw.sales_traffic (
+                        id BIGSERIAL PRIMARY KEY,
+                        report_date DATE NOT NULL,
+                        marketplace_id VARCHAR(20) NOT NULL,
+                        child_asin VARCHAR(20) NOT NULL,
+                        parent_asin VARCHAR(20),
+                        ordered_revenue NUMERIC(14,2),
+                        ordered_revenue_currency VARCHAR(3),
+                        units_ordered INTEGER,
+                        total_order_items INTEGER,
+                        page_views INTEGER,
+                        sessions INTEGER,
+                        buy_box_percentage NUMERIC(5,2),
+                        unit_session_percentage NUMERIC(5,2),
+                        order_item_session_percentage NUMERIC(5,2),
+                        pulled_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+                        query_id VARCHAR(100),
+                        UNIQUE (report_date, marketplace_id, child_asin)
+                    )
+                """)
+                
+                cursor.execute("""
+                    CREATE TABLE IF NOT EXISTS sc_raw.account_totals (
+                        id BIGSERIAL PRIMARY KEY,
+                        report_date DATE NOT NULL,
+                        marketplace_id VARCHAR(20) NOT NULL,
+                        total_ordered_revenue NUMERIC(16,2),
+                        total_units_ordered INTEGER,
+                        total_page_views INTEGER,
+                        total_sessions INTEGER,
+                        asin_count INTEGER,
+                        computed_at TIMESTAMPTZ,
+                        UNIQUE (report_date, marketplace_id)
+                    )
+                """)
+                
+                cursor.execute("""
+                    CREATE TABLE IF NOT EXISTS sc_raw.fba_inventory (
+                        id BIGSERIAL PRIMARY KEY,
+                        client_id VARCHAR(50) NOT NULL,
+                        snapshot_date DATE NOT NULL,
+                        asin VARCHAR(50) NOT NULL,
+                        sku VARCHAR(100),
+                        fnsku VARCHAR(50),
+                        product_name TEXT,
+                        condition VARCHAR(50),
+                        your_price NUMERIC(10,2),
+                        mfn_listing_exists VARCHAR(20),
+                        afn_listing_exists VARCHAR(20),
+                        afn_warehouse_quantity INT,
+                        afn_fulfillable_quantity INT,
+                        afn_unsellable_quantity INT,
+                        afn_reserved_quantity INT,
+                        afn_total_quantity INT,
+                        per_unit_volume NUMERIC(10,2),
+                        afn_inbound_working_quantity INT,
+                        afn_inbound_shipped_quantity INT,
+                        afn_inbound_receiving_quantity INT,
+                        pulled_at TIMESTAMPTZ DEFAULT NOW(),
+                        UNIQUE (client_id, asin, snapshot_date)
+                    )
+                """)
+                
+                # Commerce Metrics View (V2.1 Intelligence Layer)
+                # Calculates organic CVR and days of supply per ASIN by joining SP-API data
+                cursor.execute("""
+                    CREATE OR REPLACE VIEW commerce_metrics AS
+                    SELECT DISTINCT ON (apc.client_id, apc.asin)
+                        apc.client_id,
+                        apc.asin,
+                        apc.sku,
+                        apc.product_lifecycle,
+                        COALESCE(st.ordered_revenue, 0) AS ordered_revenue,
+                        COALESCE(st.units_ordered, 0) AS units_ordered,
+                        COALESCE(st.sessions, 0) AS sessions,
+                        COALESCE(st.page_views, 0) AS page_views,
+                        CASE WHEN st.sessions > 0 THEN CAST(st.units_ordered AS FLOAT) / st.sessions ELSE 0 END AS organic_cvr,
+                        CASE 
+                            WHEN inv.asin IS NULL THEN 999 -- Missing FBA data triggers safe fallback
+                            WHEN COALESCE(st.units_ordered_14d, 0) > 0 THEN 
+                                COALESCE(inv.afn_fulfillable_quantity, 0) / (CAST(st.units_ordered_14d AS FLOAT) / 14.0)
+                            ELSE 999 
+                        END AS days_of_supply,
+                        COALESCE(inv.afn_fulfillable_quantity, 0) AS fulfillable_quantity,
+                        COALESCE(inv.afn_total_quantity, 0) AS total_inventory
+                    FROM advertised_product_cache apc
+                    LEFT JOIN (
+                        -- Aggregate last 30 and 14 days of sales traffic
+                        SELECT child_asin, 
+                               SUM(ordered_revenue) as ordered_revenue,
+                               SUM(units_ordered) as units_ordered,
+                               SUM(sessions) as sessions,
+                               SUM(page_views) as page_views,
+                               SUM(CASE WHEN report_date >= CURRENT_DATE - INTERVAL '14 days' THEN units_ordered ELSE 0 END) as units_ordered_14d
+                        FROM sc_raw.sales_traffic
+                        WHERE report_date >= CURRENT_DATE - INTERVAL '30 days'
+                        GROUP BY child_asin
+                    ) st ON apc.asin = st.child_asin
+                    LEFT JOIN (
+                        -- Get latest inventory snapshot per ASIN/client
+                        SELECT DISTINCT ON (client_id, asin) 
+                               client_id, 
+                               asin, 
+                               afn_fulfillable_quantity, 
+                               afn_total_quantity
+                        FROM sc_raw.fba_inventory
+                        ORDER BY client_id, asin, snapshot_date DESC
+                    ) inv ON apc.client_id = inv.client_id AND apc.asin = inv.asin
+                    ORDER BY apc.client_id, apc.asin
+                """)
 
     def save_weekly_stats(self, client_id: str, start_date: date, end_date: date, spend: float, sales: float, roas: Optional[float] = None) -> int:
         if roas is None:
@@ -1179,17 +1308,67 @@ class PostgresManager:
         
         sku_col = 'SKU' if 'SKU' in df.columns else None
         asin_col = 'ASIN' if 'ASIN' in df.columns else None
-        
+
+        def _clean_str(value):
+            if value is None or (isinstance(value, float) and pd.isna(value)):
+                return None
+            s = str(value).strip()
+            return s if s else None
+
+        # Build SKU->ASIN fallback map from incoming file
+        fallback_sku_to_asin = {}
+        if sku_col and asin_col:
+            for _, row in df.iterrows():
+                sku_val = _clean_str(row.get(sku_col))
+                asin_val = _clean_str(row.get(asin_col))
+                if sku_val and asin_val:
+                    fallback_sku_to_asin[sku_val] = asin_val.upper()
+
+        # Extend fallback map from existing DB cache for this client
+        with self._get_connection() as conn:
+            with conn.cursor(cursor_factory=RealDictCursor) as cursor:
+                cursor.execute("""
+                    SELECT sku, asin
+                    FROM advertised_product_cache
+                    WHERE client_id = %s
+                      AND sku IS NOT NULL
+                      AND asin IS NOT NULL
+                """, (client_id,))
+                for rec in cursor.fetchall() or []:
+                    sku_val = _clean_str(rec.get("sku"))
+                    asin_val = _clean_str(rec.get("asin"))
+                    if sku_val and asin_val and sku_val not in fallback_sku_to_asin:
+                        fallback_sku_to_asin[sku_val] = asin_val.upper()
+
         data = []
+        seen = set()
         for _, row in df.iterrows():
-            data.append((
-                client_id,
-                row['Campaign Name'],
-                row['Ad Group Name'],
-                str(row[sku_col]) if sku_col and pd.notna(row[sku_col]) else None,
-                str(row[asin_col]) if asin_col and pd.notna(row[asin_col]) else None
-            ))
-            
+            campaign = _clean_str(row.get('Campaign Name'))
+            ad_group = _clean_str(row.get('Ad Group Name'))
+            sku_val = _clean_str(row.get(sku_col)) if sku_col else None
+            asin_val = _clean_str(row.get(asin_col)) if asin_col else None
+
+            # Skip invalid rows; these cannot map inventory intelligence correctly.
+            if not campaign or not ad_group:
+                continue
+            if not sku_val and not asin_val:
+                continue
+
+            if not asin_val and sku_val:
+                asin_val = fallback_sku_to_asin.get(sku_val)
+            if asin_val:
+                asin_val = asin_val.upper()
+
+            dedupe_key = (client_id, campaign, ad_group, sku_val, asin_val)
+            if dedupe_key in seen:
+                continue
+            seen.add(dedupe_key)
+
+            data.append((client_id, campaign, ad_group, sku_val, asin_val))
+
+        if not data:
+            return 0
+
         with self._get_connection() as conn:
             with conn.cursor(cursor_factory=RealDictCursor) as cursor:
                 execute_values(cursor, """
@@ -1200,6 +1379,23 @@ class PostgresManager:
                         asin = EXCLUDED.asin,
                         updated_at = CURRENT_TIMESTAMP
                 """, data)
+                # Backfill missing ASINs for existing rows using same client+SKU.
+                cursor.execute("""
+                    UPDATE advertised_product_cache apc
+                    SET asin = src.asin,
+                        updated_at = CURRENT_TIMESTAMP
+                    FROM (
+                        SELECT client_id, sku, MAX(asin) AS asin
+                        FROM advertised_product_cache
+                        WHERE client_id = %s
+                          AND sku IS NOT NULL
+                          AND asin IS NOT NULL
+                        GROUP BY client_id, sku
+                    ) src
+                    WHERE apc.client_id = src.client_id
+                      AND apc.sku = src.sku
+                      AND (apc.asin IS NULL OR apc.asin = '')
+                """, (client_id,))
         return len(data)
 
     def get_advertised_product_map(self, client_id: str) -> pd.DataFrame:
@@ -1292,6 +1488,67 @@ class PostgresManager:
                 WHERE client_id = %s
             """, conn, params=(client_id,))
 
+    def get_commerce_metrics_by_target(self, client_id: str) -> pd.DataFrame:
+        """
+        Fetch V2.1 Commerce Intelligence metrics for a client's targets.
+        Used to calculate flags like INVENTORY_RISK, CANNIBALIZE_RISK, HALO_ACTIVE.
+        """
+        with self._get_connection() as conn:
+            try:
+                return pd.read_sql_query("""
+                    SELECT DISTINCT ON (apc.campaign_name, apc.ad_group_name, COALESCE(apc.asin, cm.asin, apc.sku, cm.sku))
+                        apc.campaign_name,
+                        apc.ad_group_name,
+                        COALESCE(apc.sku, cm.sku) AS sku,
+                        COALESCE(apc.asin, cm.asin) AS asin,
+                        cm.product_lifecycle,
+                        cm.ordered_revenue,
+                        cm.units_ordered,
+                        cm.sessions,
+                        cm.organic_cvr,
+                        cm.days_of_supply,
+                        cm.fulfillable_quantity,
+                        cm.total_inventory
+                    FROM advertised_product_cache apc
+                    JOIN commerce_metrics cm 
+                        ON apc.client_id = cm.client_id
+                       AND (
+                            (apc.asin IS NOT NULL AND apc.asin = cm.asin)
+                            OR (apc.asin IS NULL AND apc.sku IS NOT NULL AND apc.sku = cm.sku)
+                       )
+                    WHERE apc.client_id = %s
+                    ORDER BY apc.campaign_name, apc.ad_group_name, COALESCE(apc.asin, cm.asin, apc.sku, cm.sku)
+                """, conn, params=(client_id,))
+            except Exception as e:
+                print(f"Failed to fetch commerce metrics: {e}")
+                return pd.DataFrame()
+
+    def has_active_spapi_integration(self, client_id: str) -> bool:
+        """
+        Return True only when this client has at least one active SP-API link.
+        """
+        with self._get_connection() as conn:
+            try:
+                with conn.cursor() as cursor:
+                    cursor.execute(
+                        """
+                        SELECT EXISTS (
+                            SELECT 1
+                            FROM sc_raw.spapi_account_links
+                            WHERE public_client_id = %s
+                              AND is_active = TRUE
+                        )
+                        """,
+                        (client_id,),
+                    )
+                    row = cursor.fetchone()
+                    return bool(row and row[0])
+            except (psycopg2.errors.UndefinedTable, psycopg2.ProgrammingError):
+                return False
+            except Exception as e:
+                print(f"Failed to check SP-API integration for {client_id}: {e}")
+                return False
+
     def log_action_batch(self, actions: List[Dict[str, Any]], client_id: str, batch_id: Optional[str] = None, action_date: Optional[str] = None) -> int:
         if not actions: return 0
         if batch_id is None: batch_id = str(uuid.uuid4())[:8]
@@ -1332,6 +1589,7 @@ class PostgresManager:
                 action.get('ad_group_name', ''),
                 action.get('target_text', ''),
                 action.get('match_type', ''),
+                action.get('intelligence_flags', ''),
                 action.get('winner_source_campaign'),
                 action.get('new_campaign_name'),
                 action.get('before_match_type'),
@@ -1346,7 +1604,7 @@ class PostgresManager:
                 execute_values(cursor, """
                     INSERT INTO actions_log 
                     (action_date, client_id, batch_id, entity_name, action_type, old_value, new_value, 
-                     reason, campaign_name, ad_group_name, target_text, match_type,
+                     reason, campaign_name, ad_group_name, target_text, match_type, intelligence_flags,
                      winner_source_campaign, new_campaign_name, before_match_type, after_match_type)
                     VALUES %s
                     ON CONFLICT (client_id, action_date, target_text, action_type, campaign_name) 
@@ -1356,14 +1614,164 @@ class PostgresManager:
                         old_value = EXCLUDED.old_value,
                         new_value = EXCLUDED.new_value,
                         reason = EXCLUDED.reason,
+                        campaign_name = EXCLUDED.campaign_name,
                         ad_group_name = EXCLUDED.ad_group_name,
                         match_type = EXCLUDED.match_type,
+                        intelligence_flags = EXCLUDED.intelligence_flags,
                         winner_source_campaign = EXCLUDED.winner_source_campaign,
                         new_campaign_name = EXCLUDED.new_campaign_name,
                         before_match_type = EXCLUDED.before_match_type,
                         after_match_type = EXCLUDED.after_match_type
                 """, data)
         return len(data)
+
+    def get_target_14d_roas(self, client_id: str) -> pd.DataFrame:
+        """
+        Fetch the 14-day rolling average ROAS for all targets for a client.
+        Formula: SUM(sales last 14d) / SUM(spend last 14d)
+        """
+        query = """
+        WITH latest_data AS (
+            SELECT MAX(start_date) as max_date 
+            FROM target_stats 
+            WHERE client_id = %(client_id)s
+        )
+        SELECT 
+            campaign_name as "Campaign Name",
+            ad_group_name as "Ad Group Name",
+            COALESCE(target_text, '') as "Targeting",
+            SUM(sales) as "14d_Sales",
+            SUM(spend) as "14d_Spend",
+            CASE 
+                WHEN SUM(spend) > 0 THEN SUM(sales) / SUM(spend)
+                ELSE 0.0 
+            END as "14d_avg_ROAS"
+        FROM target_stats
+        CROSS JOIN latest_data
+        WHERE client_id = %(client_id)s
+          AND start_date >= (latest_data.max_date - INTERVAL '13 days') -- 14 days inclusive
+        GROUP BY 1, 2, 3
+        """
+        with self._get_connection() as conn:
+            return pd.read_sql(query, conn, params={'client_id': client_id})
+
+    def get_recent_action_dates(self, client_id: str) -> pd.DataFrame:
+        """Fetch the most recent BID_CHANGE action date for each target to enforce cooldown."""
+        query = """
+        SELECT 
+            campaign_name as "Campaign Name",
+            ad_group_name as "Ad Group Name",
+            COALESCE(target_text, '') as "Targeting",
+            MAX(action_date) as last_action_date
+        FROM actions_log
+        WHERE client_id = %(client_id)s
+          AND action_type = 'BID_CHANGE'
+        GROUP BY 1, 2, 3
+        """
+        with self._get_connection() as conn:
+            return pd.read_sql(query, conn, params={'client_id': client_id})
+
+    def record_action_outcomes(self, client_id: str) -> int:
+        """
+        Evaluate and label BID_CHANGE actions that matured in the 14-day window.
+        - Evaluates actions aged 17 to 47 days.
+        - Labels improvement, worsening, or neutral.
+        
+        NOTE FOR FUTURE ML OPS (V3):
+        Raw outcome labels reflect absolute ROAS delta. Before ML 
+        training, labels must be market-adjusted by comparing target ROAS 
+        delta against account baseline drift for the same period. Raw 
+        worsened rate of ~43% is consistent across all action types 
+        including holds, confirming market-driven baseline rather than 
+        decision-caused harm.
+        """
+        
+        # 1. Ask for all action impacts for this client using the standard 14/14 window
+        impact_df = self.get_action_impact(client_id, before_days=14, after_days=14)
+        if impact_df.empty:
+            return 0
+            
+        # 2. Filter down to eligible BID_CHANGE actions
+        # Must be between 17 and 47 days old, and not yet evaluated
+        query = """
+        SELECT action_date, target_text, campaign_name
+        FROM actions_log
+        WHERE client_id = %(client_id)s
+          AND action_type = 'BID_CHANGE'
+          AND outcome_label IS NULL
+          AND action_date <= CURRENT_DATE - INTERVAL '17 days'
+          AND action_date >= CURRENT_DATE - INTERVAL '47 days'
+        """
+        with self._get_connection() as conn:
+            eligible_actions = pd.read_sql(query, conn, params={'client_id': client_id})
+            
+        if eligible_actions.empty:
+            return 0
+
+        # Create a unique key for matching
+        eligible_actions['match_key'] = (
+            eligible_actions['action_date'].astype(str) + "|" + 
+            eligible_actions['campaign_name'].str.lower() + "|" + 
+            eligible_actions['target_text'].str.lower()
+        )
+        
+        impact_df['match_key'] = (
+            impact_df['action_date'].astype(str) + "|" + 
+            impact_df['campaign_name'].str.lower() + "|" + 
+            impact_df['target_text'].str.lower()
+        )
+        
+        # 3. Calculate metrics and build the update list
+        updates = []
+        for _, row in impact_df.iterrows():
+            if row['match_key'] not in eligible_actions['match_key'].values:
+                continue
+                
+            b_spend = float(row.get('before_spend', 0))
+            b_sales = float(row.get('before_sales', 0))
+            a_spend = float(row.get('observed_after_spend', 0))
+            a_sales = float(row.get('observed_after_sales', 0))
+            
+            before_roas = b_sales / b_spend if b_spend > 0 else 0
+            after_roas = a_sales / a_spend if a_spend > 0 else 0
+            roas_delta = after_roas - before_roas
+            
+            if roas_delta > 0.1:
+                label = 'improved'
+            elif roas_delta < -0.1:
+                label = 'worsened'
+            else:
+                label = 'neutral'
+                
+            updates.append((
+                roas_delta,
+                label,
+                client_id,
+                row['action_date'],
+                row['target_text'],
+                row['campaign_name']
+            ))
+            
+        if not updates:
+            return 0
+            
+        # 4. Write back to actions_log
+        update_query = """
+            UPDATE actions_log 
+            SET 
+                outcome_roas_delta = %s,
+                outcome_label = %s,
+                outcome_evaluated_at = CURRENT_TIMESTAMP
+            WHERE client_id = %s
+              AND action_date = %s
+              AND target_text = %s
+              AND campaign_name = %s
+              AND action_type = 'BID_CHANGE'
+        """
+        with self._get_connection() as conn:
+            with conn.cursor() as cursor:
+                execute_batch(cursor, update_query, updates)
+                return cursor.rowcount
 
     def delete_action_batch(self, client_id: str, batch_id: str) -> int:
         """Delete a specific action batch (for undo functionality)."""
@@ -1886,6 +2294,12 @@ class PostgresManager:
         # ==========================================
         # If before window has 4 weeks of data and after only has 2 weeks,
         # we scale the 'after' up to be comparable (apples-to-apples).
+        
+        # Cast to float to avoid FutureWarning when multiplying by float ratio
+        df['before_spend'] = df['before_spend'].astype(float)
+        df['before_sales'] = df['before_sales'].astype(float)
+        df['before_clicks'] = df['before_clicks'].astype(float)
+
         for idx in df.index:
             b_days = float(df.at[idx, 'actual_before_days'] or 0)
             a_days = float(df.at[idx, 'actual_after_days'] or 0)

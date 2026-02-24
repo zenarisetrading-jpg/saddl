@@ -7,6 +7,7 @@ Upload all files in one place, use everywhere.
 import streamlit as st
 from app_core.data_hub import DataHub
 from datetime import datetime, timedelta
+from ui.onboarding import render_connect_amazon_account_button
 
 def render_data_hub():
     """Render the data hub upload interface."""
@@ -41,6 +42,133 @@ def render_data_hub():
         <span style="color: #22c55e;">✓</span>
     </div>
     """, unsafe_allow_html=True)
+
+    # ===========================================
+    # AMAZON SP-API CONNECTION SECTION
+    # ===========================================
+    st.markdown("""
+    <div style="display: flex; align-items: center; gap: 8px; margin: 8px 0 10px 0;">
+        <span style="font-size: 1rem; font-weight: 700; color: #e2e8f0; letter-spacing: 0.02em;">Amazon SP-API Connection</span>
+    </div>
+    """, unsafe_allow_html=True)
+
+    def _to_dict_row(cursor, row):
+        if row is None:
+            return None
+        if isinstance(row, dict):
+            return row
+        if hasattr(row, "keys"):
+            return {k: row[k] for k in row.keys()}
+        columns = [desc[0] for desc in cursor.description] if cursor.description else []
+        return dict(zip(columns, row))
+
+    def _fetch_client_settings_row(db, client_id: str):
+        if not db or not client_id:
+            return None
+        placeholder = getattr(db, "placeholder", "?")
+        queries = [
+            f"""
+            SELECT lwa_refresh_token, onboarding_status, connected_at, updated_at
+            FROM client_settings
+            WHERE client_id = {placeholder}
+            LIMIT 1
+            """,
+            f"""
+            SELECT lwa_refresh_token, onboarding_status, updated_at
+            FROM client_settings
+            WHERE client_id = {placeholder}
+            LIMIT 1
+            """,
+        ]
+        for query in queries:
+            try:
+                with db._get_connection() as conn:
+                    cursor = conn.cursor()
+                    cursor.execute(query, (client_id,))
+                    return _to_dict_row(cursor, cursor.fetchone())
+            except Exception:
+                continue
+        return None
+
+    def _format_timestamp(value):
+        if not value:
+            return None
+        if isinstance(value, datetime):
+            ts = value
+        else:
+            try:
+                normalized = str(value).replace("Z", "+00:00")
+                ts = datetime.fromisoformat(normalized)
+            except Exception:
+                return str(value)
+        return ts.strftime("%Y-%m-%d %H:%M:%S")
+
+    db_manager = st.session_state.get("db_manager")
+    settings_row = _fetch_client_settings_row(db_manager, active_account_id)
+    refresh_token = settings_row.get("lwa_refresh_token") if settings_row else None
+    onboarding_status = (settings_row.get("onboarding_status") if settings_row else None) or "not_connected"
+    onboarding_status_norm = str(onboarding_status).strip().lower()
+    is_connected = bool(refresh_token) and onboarding_status_norm in {"connected", "active"}
+
+    if not is_connected:
+        st.markdown("""
+        <div style="
+            background: rgba(245, 158, 11, 0.10);
+            border: 1px solid rgba(245, 158, 11, 0.35);
+            border-left: 4px solid #f59e0b;
+            border-radius: 10px;
+            padding: 12px 14px;
+            margin-bottom: 10px;
+            color: #fde68a;
+            font-weight: 600;
+        ">
+            SP-API not connected — required for inventory, orders and fee data
+        </div>
+        """, unsafe_allow_html=True)
+        render_connect_amazon_account_button(
+            client_id=active_account_id,
+            key=f"spapi_connect_{active_account_id}",
+            force_new_state=True,
+            label="🔗 Connect Amazon Account",
+        )
+    else:
+        connected_at = settings_row.get("connected_at") if settings_row else None
+        if not connected_at and settings_row:
+            connected_at = settings_row.get("updated_at")
+        connected_at_text = _format_timestamp(connected_at)
+        details = f" • Connected at: {connected_at_text}" if connected_at_text else ""
+        st.markdown(f"""
+        <div style="
+            background: rgba(34, 197, 94, 0.10);
+            border: 1px solid rgba(34, 197, 94, 0.35);
+            border-left: 4px solid #22c55e;
+            border-radius: 10px;
+            padding: 12px 14px;
+            margin-bottom: 10px;
+            color: #86efac;
+            font-weight: 600;
+        ">
+            SP-API Connected <span style="
+                display: inline-block;
+                margin-left: 8px;
+                background: rgba(34, 197, 94, 0.2);
+                border: 1px solid rgba(34, 197, 94, 0.4);
+                border-radius: 999px;
+                padding: 2px 10px;
+                font-size: 0.75rem;
+                letter-spacing: 0.03em;
+                text-transform: uppercase;
+            ">{onboarding_status}</span>{details}
+        </div>
+        """, unsafe_allow_html=True)
+        render_connect_amazon_account_button(
+            client_id=active_account_id,
+            key=f"spapi_reconnect_{active_account_id}",
+            force_new_state=True,
+            label="Reconnect",
+        )
+
+    st.markdown("<br>", unsafe_allow_html=True)
     
     # Initialize data hub
     hub = DataHub()

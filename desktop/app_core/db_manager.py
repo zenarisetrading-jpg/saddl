@@ -970,24 +970,88 @@ class DatabaseManager:
         with self._get_connection() as conn:
             cursor = conn.cursor()
             data = []
-            
+
             sku_col = 'SKU' if 'SKU' in df.columns else None
             asin_col = 'ASIN' if 'ASIN' in df.columns else None
-            
+
+            def _clean_str(value):
+                if value is None or (isinstance(value, float) and pd.isna(value)):
+                    return None
+                s = str(value).strip()
+                return s if s else None
+
+            # Build SKU->ASIN fallback map from current upload.
+            fallback_sku_to_asin = {}
+            if sku_col and asin_col:
+                for _, row in df.iterrows():
+                    sku_val = _clean_str(row.get(sku_col))
+                    asin_val = _clean_str(row.get(asin_col))
+                    if sku_val and asin_val:
+                        fallback_sku_to_asin[sku_val] = asin_val.upper()
+
+            # Extend fallback map from existing cache.
+            cursor.execute("""
+                SELECT sku, asin
+                FROM advertised_product_cache
+                WHERE client_id = ?
+                  AND sku IS NOT NULL
+                  AND asin IS NOT NULL
+            """, (client_id,))
+            for sku_val, asin_val in cursor.fetchall() or []:
+                sku_val = _clean_str(sku_val)
+                asin_val = _clean_str(asin_val)
+                if sku_val and asin_val and sku_val not in fallback_sku_to_asin:
+                    fallback_sku_to_asin[sku_val] = asin_val.upper()
+
+            seen = set()
             for _, row in df.iterrows():
-                data.append((
-                    client_id,
-                    row['Campaign Name'],
-                    row['Ad Group Name'],
-                    str(row[sku_col]) if sku_col and pd.notna(row[sku_col]) else None,
-                    str(row[asin_col]) if asin_col and pd.notna(row[asin_col]) else None
-                ))
-                
+                campaign = _clean_str(row.get('Campaign Name'))
+                ad_group = _clean_str(row.get('Ad Group Name'))
+                sku_val = _clean_str(row.get(sku_col)) if sku_col else None
+                asin_val = _clean_str(row.get(asin_col)) if asin_col else None
+
+                if not campaign or not ad_group:
+                    continue
+                if not sku_val and not asin_val:
+                    continue
+
+                if not asin_val and sku_val:
+                    asin_val = fallback_sku_to_asin.get(sku_val)
+                if asin_val:
+                    asin_val = asin_val.upper()
+
+                dedupe_key = (client_id, campaign, ad_group, sku_val, asin_val)
+                if dedupe_key in seen:
+                    continue
+                seen.add(dedupe_key)
+
+                data.append((client_id, campaign, ad_group, sku_val, asin_val))
+
+            if not data:
+                return 0
+
             cursor.executemany("""
                 INSERT OR REPLACE INTO advertised_product_cache 
                 (client_id, campaign_name, ad_group_name, sku, asin, updated_at)
                 VALUES (?, ?, ?, ?, ?, CURRENT_TIMESTAMP)
             """, data)
+
+            # Backfill missing ASINs for rows that have same client+SKU.
+            cursor.execute("""
+                UPDATE advertised_product_cache
+                SET asin = (
+                    SELECT ap2.asin
+                    FROM advertised_product_cache ap2
+                    WHERE ap2.client_id = advertised_product_cache.client_id
+                      AND ap2.sku = advertised_product_cache.sku
+                      AND ap2.asin IS NOT NULL
+                    LIMIT 1
+                ),
+                updated_at = CURRENT_TIMESTAMP
+                WHERE client_id = ?
+                  AND sku IS NOT NULL
+                  AND (asin IS NULL OR asin = '')
+            """, (client_id,))
             
             return len(data)
 
@@ -1938,5 +2002,4 @@ def get_db_manager(test_mode: bool = False):
         return DatabaseManager(Path("data/ppc_test.db"))
     
     return DatabaseManager(DEFAULT_DB_PATH)
-
 

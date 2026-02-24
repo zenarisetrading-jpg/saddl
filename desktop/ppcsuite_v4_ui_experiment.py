@@ -86,6 +86,7 @@ from pathlib import Path
 # === ONBOARDING ===
 from ui.onboarding import should_show_onboarding, render_onboarding_wizard
 from config.features import FEATURE_ONBOARDING_WIZARD
+from config.features import FeatureFlags
 
 # === AUTHENTICATION ===
 from app_core.auth.service import AuthService
@@ -203,6 +204,41 @@ def run_performance_hub():
     </style>
     """, unsafe_allow_html=True)
     
+    if FeatureFlags.is_enabled("ENABLE_PERFORMANCE_DASHBOARD_BUSINESS_OVERVIEW"):
+        if "active_perf_tab" not in st.session_state:
+            st.session_state["active_perf_tab"] = "Business Overview"
+
+        t1, t2 = st.columns(2)
+        with t1:
+            if st.button(
+                "BUSINESS OVERVIEW",
+                key="btn_business_overview",
+                use_container_width=True,
+                type="primary" if st.session_state["active_perf_tab"] == "Business Overview" else "secondary",
+            ):
+                st.session_state["active_perf_tab"] = "Business Overview"
+                st.rerun()
+        with t2:
+            if st.button(
+                "ACCOUNT OVERVIEW (LEGACY)",
+                key="btn_account_overview_legacy",
+                use_container_width=True,
+                type="primary" if st.session_state["active_perf_tab"] == "Client Report" else "secondary",
+            ):
+                st.session_state["active_perf_tab"] = "Client Report"
+                st.rerun()
+
+        st.markdown("<br>", unsafe_allow_html=True)
+        if st.session_state["active_perf_tab"] == "Business Overview":
+            from features.dashboard.business_overview import render_business_overview
+            render_business_overview()
+        else:
+            import ui.client_report_page as client_report
+            import importlib
+            importlib.reload(client_report)
+            client_report.run()
+        return
+
     if 'active_perf_tab' not in st.session_state:
         st.session_state['active_perf_tab'] = "Executive Dashboard"
         
@@ -321,6 +357,19 @@ def run_performance_hub():
         ExecutiveDashboard().run()
 
 
+def run_diagnostics_hub():
+    """Diagnostics Control Center v2.0."""
+    from features.diagnostics.control_center import render_control_center
+    
+    # Retrieve client ID (support both new primitive key and old dict legacy)
+    client_id = st.session_state.get('active_account_id')
+    if not client_id:
+        # Fallback to legacy dictionary if present
+        client_id = st.session_state.get('active_account', {}).get('account_id', 's2c_uae_test')
+        
+    render_control_center(client_id)
+
+
 # ==========================================
 # CONSOLIDATED V4 OPTIMIZER
 # ==========================================
@@ -341,8 +390,8 @@ def run_consolidated_optimizer():
     # User Request: "deprecate the optimizer legacy dashboard... remove all the wiring"
     # We now exclusively run the Refactored V2 Optimizer
     
-    from features.optimizer import OptimizerModule
-    OptimizerModule().run()
+    from features.optimizer_v2.main import render_optimizer_v2
+    render_optimizer_v2()
     return  # Stop execution here - do not run legacy code below
     
     # === LEGACY DEPRECATION NOTE ===
@@ -414,8 +463,8 @@ def run_consolidated_optimizer():
         include_db = True
         with st.spinner("Fetching historical data..."):
             # Use cached version to avoid repeated large queries
-            from features.optimizer.ui.landing import _fetch_target_stats_cached
-            db_df = _fetch_target_stats_cached(client_id, st.session_state.get('test_mode', False))
+            from features.optimizer_shared.data_access import fetch_target_stats_cached
+            db_df = fetch_target_stats_cached(client_id, st.session_state.get('test_mode', False))
             
             if not db_df.empty:
                 # Rename columns for consistency if needed (DB already returns standard names)
@@ -1426,6 +1475,24 @@ def main():
     auth_service = AuthService()
     user = auth_service.get_current_user() # Gets from session
     
+    # === AMAZON OAUTH CALLBACK INTERCEPTION ===
+    # Check if we are returning from the Amazon LWA OAuth flow (via Supabase Edge Function)
+    query_params = st.query_params
+    if query_params.get("amazon_auth") == "success":
+        connected_client_id = query_params.get("client_id")
+        if connected_client_id:
+            st.session_state['amazon_connected'] = True
+            st.session_state['amazon_client_id'] = connected_client_id
+            st.toast("✅ Successfully connected to Amazon Ads!")
+        
+        # Clear the params so a refresh doesn't trigger it again
+        st.query_params.clear()
+        
+    elif query_params.get("amazon_auth") == "failed":
+        reason = query_params.get("reason", "Unknown error")
+        st.error(f"Failed to connect to Amazon Ads: {reason}")
+        st.query_params.clear()
+
     if user is None:
         # === RUN SEEDING BEFORE LOGIN ===
         # Database must be initialized for login to work
@@ -1438,26 +1505,24 @@ def main():
             # Run seeding with timeout to prevent infinite hang
             with st.spinner("Initializing database..."):
                 start_time = time.time()
+                executor = ThreadPoolExecutor(max_workers=1)
+                future = executor.submit(run_seeding)
 
-                # Execute seeding in thread with 10 second timeout
-                with ThreadPoolExecutor(max_workers=1) as executor:
-                    future = executor.submit(run_seeding)
-                    try:
-                        seeding_result = future.result(timeout=10.0)
-                        elapsed = time.time() - start_time
-                        print(f"SEED: Completed in {elapsed:.2f}s")
+                try:
+                    seeding_result = future.result(timeout=10.0)
+                    elapsed = time.time() - start_time
+                    print(f"SEED: Completed in {elapsed:.2f}s")
 
-                        if seeding_result and "Error" in str(seeding_result):
-                            st.warning(f"⚠️ Database initialization had issues: {seeding_result}")
-                            st.info("You may still be able to log in if the database was previously initialized.")
-                    except FuturesTimeoutError:
-                        st.error("❌ Database initialization timed out after 10 seconds")
-                        st.warning("This usually means:")
-                        st.write("- Database is unreachable")
-                        st.write("- Connection pool is exhausted")
-                        st.write("- Network issues")
-                        st.info("Try refreshing the page. If issue persists, check DATABASE_URL.")
-                        st.stop()
+                    if seeding_result and "Error" in str(seeding_result):
+                        st.warning(f"⚠️ Database initialization had issues: {seeding_result}")
+                        st.info("You may still be able to log in if the database was previously initialized.")
+                except FuturesTimeoutError:
+                    # Do not block startup waiting for a stuck worker thread.
+                    future.cancel()
+                    st.warning("⚠️ Database initialization is taking too long.")
+                    st.info("Continuing to login. If sign-in fails, check DATABASE_URL and database reachability.")
+                finally:
+                    executor.shutdown(wait=False, cancel_futures=True)
         except Exception as e:
             st.error(f"❌ Database initialization failed: {e}")
             st.info("If the database was already initialized, you can proceed to login.")
@@ -1590,6 +1655,7 @@ def main():
         performance_icon = f'<svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="{nav_icon_color}" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="vertical-align: middle;"><rect width="18" height="18" x="3" y="3" rx="2"/><path d="M7 12v5"/><path d="M12 9v8"/><path d="M17 11v6"/></svg>'
         report_card_icon = f'<svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="{nav_icon_color}" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="vertical-align: middle;"><path d="M14.5 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V7.5L14.5 2z"/><polyline points="14 2 14 8 20 8"/><line x1="16" y1="13" x2="8" y2="13"/><line x1="16" y1="17" x2="8" y2="17"/><line x1="10" y1="9" x2="8" y2="9"/></svg>'
         impact_icon = f'<svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="{nav_icon_color}" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="vertical-align: middle;"><line x1="18" y1="20" x2="18" y2="10"></line><line x1="12" y1="20" x2="12" y2="4"></line><line x1="6" y1="20" x2="6" y2="14"></line></svg>'
+        diagnostics_icon = f'<svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="{nav_icon_color}" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="vertical-align: middle;"><path d="M3 3h7v7H3z"></path><path d="M14 3h7v7h-7z"></path><path d="M14 14h7v7h-7z"></path><path d="M3 14h7v7H3z"></path></svg>'
         check_icon = f'<svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="{nav_icon_color}" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="vertical-align: middle;"><path d="m9 11 3 3L22 4"></path><path d="M21 12v7a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11"></path></svg>'
         sim_icon = f'<svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="{nav_icon_color}" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="vertical-align: middle;"><polyline points="23 6 13.5 15.5 8.5 10.5 1 18"></polyline><polyline points="17 6 23 6 23 12"></polyline></svg>'
         rocket_icon = f'<svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="{nav_icon_color}" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="vertical-align: middle;"><path d="M4.5 16.5c-1.5 1.26-2 5-2 5s3.74-.5 5-2c.71-.84.7-2.13-.09-2.91a2.18 2.18 0 0 0-2.91-.09z"></path><path d="m12 15-3-3a22 22 0 0 1 2-3.95A12.88 12.88 0 0 1 22 2c0 2.72-.78 7.5-6 11a22.35 22.35 0 0 1-4 2z"></path><path d="m9 12 2.5 2.5"></path></svg>'
@@ -1726,9 +1792,10 @@ def main():
         # Optimizer - Requires 'run_optimizer'
         # Phase 3.5: Operator cannot run optimizer if overridden to VIEWER on this account
         if has_permission_for_account(user, 'run_optimizer', st.session_state.get('permission_account_context')):
-            nav_button_chiclet("Actions Review", check_icon, "optimizer")
+            nav_button_chiclet("Optimizer", check_icon, "optimizer")
             
         nav_button_chiclet("What If (Forecast)", sim_icon, "simulator")
+        nav_button_chiclet("Diagnostics", diagnostics_icon, "diagnostics")
         nav_button_chiclet("Impact & Results", impact_icon, "impact_v2")
 
 
@@ -1874,11 +1941,15 @@ def main():
             render_readme()
 
         elif current == 'optimizer':
-            run_consolidated_optimizer()
+            from features.optimizer_v2.main import render_optimizer_v2
+            render_optimizer_v2()
 
         elif current == 'simulator':
             from features.simulator import SimulatorModule
             SimulatorModule().run()
+
+        elif current == 'diagnostics':
+            run_diagnostics_hub()
 
         elif current == 'performance':
             run_performance_hub()
@@ -1920,4 +1991,3 @@ def main():
 
 if __name__ == "__main__":
     main()
-

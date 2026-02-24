@@ -1,7 +1,7 @@
 # PPC Optimizer - Product Requirements Document (PRD)
 
-**Version**: 2.1  
-**Last Updated**: January 22, 2026  
+**Version**: 2.2  
+**Last Updated**: February 20, 2026  
 **Document Owner**: Zayaan Yousuf
 
 ---
@@ -326,6 +326,12 @@ Soft Threshold = Expected Clicks × 2
 Hard Threshold = Expected Clicks × 3
 ```
 
+> **Empirical Validation (Feb 2026, 427 performance negatives):**
+> - Confirmed block rate: 92% (including correctly isolated terms)
+> - True false positive rate: 2.6%
+> - **Conclusion**: 2x/3x multipliers validated, no adjustment required.
+> - *Note: 79/90 apparent premature negations were correctly isolated harvest terms — classification requires cross-reference with HARVEST actions before labeling as a false positive.*
+
 #### 3.4.4 ASIN Detection
 Identifies Product Targeting (PT) negatives separately:
 - Pattern: `B0` followed by 8 alphanumeric characters
@@ -356,7 +362,7 @@ Calculate optimal bid adjustments for all targets based on performance vs. targe
 
 #### 3.5.3 Bid Calculation Formula
 ```
-Performance Gap = (Actual ROAS / Target ROAS) - 1
+Performance Gap = (14d_avg_ROAS / Target ROAS) - 1
 
 If Performance Gap > 0 (Outperforming):
     Bid Multiplier = 1 + (Gap × 0.5)  # Scale up cautiously
@@ -371,6 +377,14 @@ If Performance Gap < 0 (Underperforming):
 Clamp New Bid: Min = 0.10 AED, Max = 20.00 AED
 ```
 
+*Note: "14d_avg_ROAS" refers to the 14-day rolling average ROAS from `target_stats`, calculated as `SUM(sales last 14d) / SUM(spend last 14d)`, not a point-in-time snapshot.*
+
+#### 3.5.4 Decision Cooldown (NEW - V2)
+- Before any bid action fires, check `actions_log` for prior `BID_CHANGE` on the same Campaign + Ad Group + Target within 17 days.
+- **Maturity formula**: `(action_date + 17 days) <= latest_data_date`
+- Immature targets are logged as "Pending Observation" and not actioned.
+- **Rationale**: Prevents stacked changes before prior action can be measured, ensures clean pre/post windows for the Impact Model.
+
 #### 3.5.5 Visibility Boost (NEW - Dec 2025)
 
 For targets that are **not winning auctions** despite running for 2+ weeks.
@@ -379,6 +393,7 @@ For targets that are **not winning auctions** despite running for 2+ weeks.
 |-----------|-----------|
 | Data window | ≥ 14 days |
 | Impressions | < 100 (not winning auctions) |
+| Conversion Gate | orders > 0 OR (clicks >= 5 AND CVR > 0) |
 
 > **Note:** 0 impressions = bid SO low it can't even enter auctions. Paused targets are identified by `state='paused'`, not impressions.
 
@@ -391,7 +406,8 @@ For targets that are **not winning auctions** despite running for 2+ weeks.
 - ❌ ASIN targeting (product targeting)
 - ❌ Category targeting
 
-**Action:** Increase bid by **30%** to gain visibility.
+**Action:** Increase bid by **30%** to gain visibility. 
+If conversion gate is failed (zero-converting target), log as `REVIEW_FLAG` not `BID_CHANGE`. This was a known gap from v1 that was generating waste on non-converting targets.
 
 **Rationale:**
 - High impressions + low clicks = CTR problem (not bid issue)
@@ -403,11 +419,45 @@ For targets that are **not winning auctions** despite running for 2+ weeks.
 - Terms already in Negative list (will be blocked)
 - Low-data targets (below minimum thresholds)
 
-#### 3.5.7 Output
+#### 3.5.7 Minimum Click Thresholds by Action Type
+- **Promote (bid increase)**: MIN_CLICKS = 15
+- **Decrease (bid reduction)**: MIN_CLICKS = 3
+- **Rationale**: Asymmetric thresholds reflect that promoting needs statistical confidence, while decreasing does not (you don't need much data to know something isn't converting).
+
+#### 3.5.8 ROAS Target by Bucket
+The optimizer applies different multipliers to the global `TARGET_ROAS` based on the semantic match type bucket:
+  - **Exact**: 1.00x
+  - **Broad/Phrase**: 0.85x
+  - **Product Targeting**: 0.80x
+  - **Auto/Category**: 0.65x
+- **Rationale**: Auto campaigns are discovery by design and structurally produce lower ROAS. Using the exact same target penalizes them incorrectly.
+
+#### 3.5.9 Commerce Intelligence Flags (V2.1)
+The optimizer consumes real-time commerce data (SP-API inventory, business reports) via the `commerce_metrics` view to apply situational awareness before committing bid decisions.
+
+**Supported Flags & Behaviors:**
+1. **`INVENTORY_RISK`**:
+   - *Condition*: ASIN has `< 14 days` of FBA supply (`fulfillable_quantity / avg_daily_units`).
+   - *Behavior*: Overrides any calculated bid increase to a "Hold: Suppressed" state to prevent stocking out.
+2. **`HALO_ACTIVE`**:
+   - *Condition*: Ad Group Total Sales > 2.5x Ad Group Ad Sales (high organic halo effect).
+   - *Behavior*: Converts a bid decrease (if warranted by poor ROAS) into a "Hold: Protected" state to avoid collapsing organic rank.
+3. **`LAUNCH_PHASE`**:
+   - *Condition*: ASIN lifecycle is explicitly marked `LAUNCH` in `advertised_product_cache`.
+   - *Behavior*: Protects from strict ROAS-based bid decreases (Hold: Protected) to allow for data gathering and indexing.
+4. **`CANNIBALIZE_RISK`**:
+   - *Condition*: ASIN is the #1 organic rank for a search term, AND the ad ROAS < 1.0 (Exact match only).
+   - *Behavior*: Overrides bid to "Hold" to prevent spending on a term that is already organically dominated.
+5. **`BSR_DECLINING`**:
+   - *Condition*: ASIN's BSR has worsened by >20% WoW AND ad impressions have dropped.
+   - *Behavior*: Overrides specific conservative down-bids to maintain visibility.
+
+#### 3.5.10 Output
 - Bid adjustment recommendations per target
 - Grouped by bucket (Exact, PT, Broad/Phrase, Auto)
 - Before/After bid comparison
 - Expected impact calculation
+- Commerce Flags triggered (e.g. `INVENTORY_RISK`, `HALO_ACTIVE`)
 
 ---
 
@@ -681,9 +731,22 @@ Isolate **decision quality** from **market conditions** by comparing actual perf
 **Display**: "From X confirmed negatives" + "Confidence: High"
 
 **Why Not Total Spend Reduction?**
-- Bid optimizations may increase or decrease spend — both can be correct
 - Only NEGATIVE actions have the explicit goal of capital protection
 - Counting only confirmed blocks (spend = 0) provides clear proof
+
+### 4.12 Outcome Logging (Learning Loop - V2)
+- Provided by the `record_action_outcomes()` function.
+- Adds columns to `actions_log`: `outcome_roas_delta`, `outcome_label`, `outcome_evaluated_at`.
+- **Evaluation window**: Scans actions between 17-47 days old with a null outcome.
+- **Label thresholds**: `improved` (> +0.1), `worsened` (< -0.1), `neutral` otherwise.
+- **Purpose**: Generates labeled training data for future ML models.
+- **⚠️ CRITICAL ML CAVEAT (Market Baseline Drift)**: 
+  Raw outcome labels reflect absolute ROAS delta. Before ML 
+  training, labels must be market-adjusted by comparing target ROAS 
+  delta against account baseline drift for the same period. Raw 
+  worsened rate of ~43% is consistent across all action types 
+  including holds, confirming market-driven baseline rather than 
+  decision-caused harm.
 
 ### 4.11 ROAS Attribution Decomposition (V2 - Jan 2026)
 
@@ -804,16 +867,18 @@ The system uses PostgreSQL for persistent storage:
 Home (Account Overview)
 ├── Data Hub (Upload & Manage)
 ├── Performance Snapshot (Reports)
-├── Optimization Engine
-│   ├── Overview
-│   ├── Defence (Negatives)
-│   ├── Bids
-│   ├── Harvest
-│   ├── Audit
-│   └── Bulk Export
-├── Impact & Results
-├── Simulator
-├── Campaign Creator
+├── Optimizer Pipeline V2.1 (Beta)
+│   ├── Pre-Run Intelligence Brief (Account Health)
+│   ├── Decisions View
+│   │   ├── Bids
+│   │   ├── Defence (Negatives)
+│   │   └── Harvest
+│   └── Intelligence View
+│       ├── Wasted Spend Matrix
+│       └── Commerce Flags Overrides
+├── Legacy Modals (Deprecated)
+│   ├── Actions Review
+│   └── Simulator
 ├── ASIN Mapper
 └── AI Strategist
 ```
@@ -824,6 +889,13 @@ Home (Account Overview)
 - **Lazy Loading**: Heavy modules load on-demand
 - **Fragmented UI**: Interactive elements don't cause full reruns
 - **Responsive Layout**: Adapts to screen size
+
+### 7.3 Optimizer V2.1 UX (Beta)
+
+The V2.1 Optimizer introduces a modernized, commerce-aware workflow split into distinct views:
+- **Pre-Run Intelligence Brief**: Before optimization, the user sees Account Health, spend trends, and a summary of pending decisions from the last run to provide context.
+- **View 1 (Decisions)**: Replaces the fragmented tabs with a single scrollable page consolidating Bid Changes, Negatives, and Harvest. Each section shows top rows inline with a "Decision Memo" reason column explaining the AI's rationale in plain English.
+- **View 2 (Intelligence)**: Focuses on root-cause analysis, featuring the Wasted Spend Heatmap and the Commerce Flags panel to visualize which bids were suppressed or boosted due to inventory risks or organic halo effects.
 
 ---
 
@@ -849,6 +921,7 @@ Home (Account Overview)
 
 ### 9.2 Zero-State Experience
 *   **Onboarding Wizard**: 3-step guide for new users (Welcome -> Value Prop -> Connect).
+    *   **Amazon LWA OAuth Integration**: Step 3 includes a direct "Connect Amazon Ads Account" button. It generates a unique `client_id` (state parameter) and securely connects via Amazon's OAuth endpoint. Supabase Edge Functions manage the callback and token storage, redirecting seamlessly back to the Streamlit app state.
 *   **Empty States**:
     *   **No Accounts**: "Connect your first account" CTA.
     *   **No Data**: "Syncing in progress" state.
@@ -933,9 +1006,17 @@ To support Agency use cases (e.g., restricting interns from VIP clients), Admins
 
 - [ ] Real-time Amazon Ads API integration
 - [ ] Automated scheduled optimization runs
+- [ ] Inventory awareness before bid increases (requires SP-API)
 - [ ] Multi-marketplace support
 - [ ] Budget allocation optimizer
-- [ ] Dayparting recommendations
+- [ ] Seasonality-aware ROAS targets (requires 12+ months data)
+- [ ] Dayparting bid adjustments (data exists, not yet implemented)
+- [ ] Cannibalisation detection across duplicate targets
+- [ ] New product launch phase detection
+
+### 8.3 Completed (V2)
+- [x] Cooldown logic implementation (prevents stacked changes)
+- [x] Visibility boost conversion gate (prevents boosting non-converting terms)
 
 ---
 
