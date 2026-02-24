@@ -28,10 +28,10 @@ def get_config() -> Dict[str, str]:
     if missing:
         raise EnvironmentError(f"Missing required environment variables: {', '.join(missing)}")
 
-    marketplace_id = os.environ.get("MARKETPLACE_ID_UAE", "A2VIGQ35RCS4UG")
-    ad_client_id = os.environ.get("AD_CLIENT_ID", os.environ.get("CLIENT_ID", "s2c_uae_test"))
-    database_url = os.environ["DATABASE_URL"]
-    env_spapi_account_id = os.environ.get("SPAPI_ACCOUNT_ID", "s2c_uae_test")
+    marketplace_id = os.environ.get("MARKETPLACE_ID_UAE", "A2VIGQ35RCS4UG").strip()
+    ad_client_id = os.environ.get("AD_CLIENT_ID", os.environ.get("CLIENT_ID", "s2c_uae_test")).strip()
+    database_url = os.environ["DATABASE_URL"].strip()
+    env_spapi_account_id = os.environ.get("SPAPI_ACCOUNT_ID", "s2c_uae_test").strip()
 
     spapi_account_id = _resolve_spapi_account_id(
         database_url=database_url,
@@ -41,12 +41,12 @@ def get_config() -> Dict[str, str]:
     )
 
     return {
-        "lwa_client_id": os.environ["LWA_CLIENT_ID"],
-        "lwa_client_secret": os.environ["LWA_CLIENT_SECRET"],
-        "refresh_token_uae": os.environ["LWA_REFRESH_TOKEN_UAE"],
-        "aws_access_key": os.environ["AWS_ACCESS_KEY_ID"],
-        "aws_secret_key": os.environ["AWS_SECRET_ACCESS_KEY"],
-        "aws_region": os.environ.get("AWS_REGION", "eu-west-1"),
+        "lwa_client_id": os.environ["LWA_CLIENT_ID"].strip(),
+        "lwa_client_secret": os.environ["LWA_CLIENT_SECRET"].strip(),
+        "refresh_token_uae": os.environ["LWA_REFRESH_TOKEN_UAE"].strip(),
+        "aws_access_key": os.environ["AWS_ACCESS_KEY_ID"].strip(),
+        "aws_secret_key": os.environ["AWS_SECRET_ACCESS_KEY"].strip(),
+        "aws_region": os.environ.get("AWS_REGION", "eu-west-1").strip(),
         "marketplace_uae": marketplace_id,
         "spapi_account_id": spapi_account_id,
         "ad_client_id": ad_client_id,
