@@ -8,7 +8,7 @@ import streamlit as st
 import pandas as pd
 from datetime import datetime
 
-from core.platform_service import PlatformService
+from app_core.platform_service import PlatformService
 from config.design_system import COLORS, TYPOGRAPHY
 
 def render_platform_admin():

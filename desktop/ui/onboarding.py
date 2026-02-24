@@ -22,6 +22,7 @@ import streamlit as st
 from config.design_system import COLORS, TYPOGRAPHY, SPACING, GLASSMORPHIC
 from config.features import FEATURE_ONBOARDING_WIZARD
 from ui.components.icons import glassmorphic_icon
+from utils.amazon_oauth import generate_amazon_oauth_url
 
 
 def should_show_onboarding() -> bool:
@@ -59,6 +60,24 @@ def _save_onboarding_preference(completed: bool):
     # This could be extended to save to database
     # For now, just use session state
     st.session_state['onboarding_completed'] = completed
+
+
+def render_connect_amazon_account_button(
+    client_id: str | None = None,
+    key: str | None = None,
+    force_new_state: bool = False,
+    label: str = "🔗 Connect Amazon Account",
+):
+    """
+    Shared OAuth CTA used by onboarding and existing-account SP-API connection surfaces.
+    """
+    auth_url = generate_amazon_oauth_url(client_id=client_id, force_new_state=force_new_state)
+    st.link_button(
+        label,
+        auth_url,
+        type="primary",
+        use_container_width=True,
+    )
 
 
 def render_onboarding_wizard():
@@ -381,11 +400,14 @@ def _render_step_3_next_steps():
     col1, col2, col3 = st.columns([1, 2, 1])
 
     with col2:
+        # Check if Amazon is connected
+        is_connected = st.session_state.get('amazon_connected', False)
+        
         # Build checklist HTML properly
         checklist_html = _build_checklist_html([
             ('Account created', 'completed'),
             ('Welcome tour completed', 'completed'),
-            ('Connect your advertising accounts', 'current'),
+            ('Connect your advertising accounts', 'completed' if is_connected else 'current'),
             ('Run your first optimization', 'pending'),
             ('Review impact results', 'pending'),
         ])
@@ -410,22 +432,41 @@ def _render_step_3_next_steps():
             </div>
         """)
 
-        # Info banner
+        # Info banner / Action area
         st.markdown(f"<div style='height: {SPACING['md']};'></div>", unsafe_allow_html=True)
-        st.html(f"""
-            <div style="
-                background: {GLASSMORPHIC['background']};
-                backdrop-filter: {GLASSMORPHIC['backdrop_filter']};
-                border-left: 4px solid {COLORS['info']};
-                border-radius: 8px;
-                padding: {SPACING['md']} {SPACING['lg']};
-                color: {COLORS['text_primary']};
-                font-size: {TYPOGRAPHY['body_md']};
-            ">
-                <strong>What's next?</strong> Your administrator will provide access to advertising accounts. 
-                You'll receive a notification when data is available for analysis.
-            </div>
-        """)
+        
+        if not is_connected:
+            st.html(f"""
+                <div style="
+                    background: {GLASSMORPHIC['background']};
+                    backdrop-filter: {GLASSMORPHIC['backdrop_filter']};
+                    border-left: 4px solid {COLORS['warning']};
+                    border-radius: 8px;
+                    padding: {SPACING['md']} {SPACING['lg']};
+                    color: {COLORS['text_primary']};
+                    font-size: {TYPOGRAPHY['body_md']};
+                    margin-bottom: {SPACING['md']};
+                ">
+                    <strong>Action Required:</strong> Connect your Amazon Advertising account to enable AI optimization and analytics.
+                </div>
+            """)
+            render_connect_amazon_account_button()
+        else:
+            client_id = st.session_state.get('amazon_client_id', '')
+            st.html(f"""
+                <div style="
+                    background: {GLASSMORPHIC['background']};
+                    backdrop-filter: {GLASSMORPHIC['backdrop_filter']};
+                    border-left: 4px solid {COLORS['success']};
+                    border-radius: 8px;
+                    padding: {SPACING['md']} {SPACING['lg']};
+                    color: {COLORS['text_primary']};
+                    font-size: {TYPOGRAPHY['body_md']};
+                ">
+                    <strong>✅ Successfully Connected!</strong> Your advertising data is now syncing. 
+                    <br><span style="color: {COLORS['text_secondary']}; font-size: 0.9em;">Client ID: {client_id}</span>
+                </div>
+            """)
 
     # Navigation buttons
     st.markdown(f"<div style='height: {SPACING['xl']};'></div>", unsafe_allow_html=True)

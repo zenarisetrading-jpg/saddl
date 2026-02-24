@@ -14,11 +14,11 @@ import html
 from features.assistant import AssistantModule
 from features.executive_dashboard import ExecutiveDashboard
 from features.report_card import ReportCardModule
-from core.data_hub import DataHub
+from app_core.data_hub import DataHub
 from utils.formatters import get_account_currency
 from ui.theme import ThemeManager
 from config.deployment import build_share_url, get_environment, get_display_url
-from core.db_manager import get_db_manager
+from app_core.db_manager import get_db_manager
 
 
 def safe_html(text: str) -> str:
@@ -689,17 +689,26 @@ def render_landing_page():
             </div>
             ''', unsafe_allow_html=True)
             
+            # Determine default index from session state
+            default_preset = st.session_state.get('exec_dash_date_range', 'Last 30 Days')
+            preset_options = [
+                "Last 7 Days",
+                "Last 14 Days",
+                "Last 30 Days",
+                "Last 60 Days",
+                "Last 90 Days",
+                "Custom Range"
+            ]
+            
+            try:
+                default_index = preset_options.index(default_preset)
+            except ValueError:
+                default_index = 2  # Default to Last 30 Days if not found
+
             date_preset = st.selectbox(
                 "Select date range",
-                [
-                    "Last 7 Days",
-                    "Last 14 Days",
-                    "Last 30 Days",
-                    "Last 60 Days",
-                    "Last 90 Days",
-                    "Custom Range"
-                ],
-                index=2,  # Default: Last 30 Days
+                preset_options,
+                index=default_index,
                 label_visibility="collapsed"
             )
             
@@ -1179,7 +1188,15 @@ def run():
 
         with st.spinner("🤖 Generating AI insights..."):
             try:
-                narratives = assistant.generate_report_narratives(panels_to_generate)
+                # Pass explicit date range to Assistant
+                start_date = report_config.get('start_date')
+                end_date = report_config.get('end_date')
+                
+                narratives = assistant.generate_report_narratives(
+                    panels_to_generate, 
+                    start_date=start_date, 
+                    end_date=end_date
+                )
                 # Only cache if generation succeeded
                 st.session_state[cache_key] = narratives
             except Exception as e:
@@ -1221,7 +1238,12 @@ def run():
     # Fetch visual data
     with st.spinner("📊 Loading performance data..."):
         print(f"[CLIENT_REPORT] Fetching exec dashboard data...")
-        exec_data = exec_dash._fetch_data()
+        
+        # Pass configured dates for strict alignment
+        start_date = report_config.get('start_date')
+        end_date = report_config.get('end_date')
+        
+        exec_data = exec_dash._fetch_data(custom_start=start_date, custom_end=end_date)
         print(f"[CLIENT_REPORT] Exec data result: {exec_data is not None}")
 
         # Override date_str if configured

@@ -78,7 +78,7 @@ def render_action_confirmation_modal():
 
 def _save_pending_actions_and_navigate(target_module: str):
     """Save pending actions to database, set up undo, and navigate to target."""
-    from core.db_manager import get_db_manager
+    from app_core.db_manager import get_db_manager
     
     pending = st.session_state.get('pending_actions')
     if not pending:
@@ -149,7 +149,7 @@ def show_undo_toast():
 
 def undo_last_batch():
     """Delete the last saved batch of actions."""
-    from core.db_manager import get_db_manager
+    from app_core.db_manager import get_db_manager
     
     batch_id = st.session_state.get('_last_saved_batch_id')
     client_id = st.session_state.get('_last_saved_client_id')
@@ -176,7 +176,7 @@ def undo_last_batch():
 
 def clear_todays_actions(client_id: str) -> int:
     """Clear all actions logged today for the given client."""
-    from core.db_manager import get_db_manager
+    from app_core.db_manager import get_db_manager
     
     db = get_db_manager(st.session_state.get('test_mode', False))
     

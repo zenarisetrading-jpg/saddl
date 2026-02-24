@@ -7,7 +7,7 @@ import pandas as pd
 from typing import Dict, Any, Optional
 
 from features.impact.styles.css import get_hero_styles, BRAND_COLORS
-from features.impact.data.transforms import ensure_impact_columns
+from features.impact.data.transforms import validate_impact_columns
 
 
 def render_hero_banner(
@@ -71,8 +71,8 @@ def render_hero_banner(
         'gap_count': gap_count,
     }
 
-    # Ensure columns exist
-    df = ensure_impact_columns(impact_df)
+    # Validate columns exist (v3.3)
+    df = validate_impact_columns(impact_df)
     impact_col = 'final_decision_impact' if 'final_decision_impact' in df.columns else 'decision_impact'
 
     # Determine state
@@ -133,21 +133,30 @@ def render_hero_banner(
     gap_icon = '<svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="#EF4444" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="vertical-align: middle;"><path d="m21.73 18-8-14a2 2 0 0 0-3.48 0l-8 14A2 2 0 0 0 4 21h16a2 2 0 0 0 1.73-3Z"></path><line x1="12" y1="9" x2="12" y2="13"></line><line x1="12" y1="17" x2="12.01" y2="17"></line></svg>'
     drag_icon = '<svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="#64748B" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="vertical-align: middle;"><polyline points="23 18 13.5 8.5 8.5 13.5 1 6"></polyline><polyline points="17 18 23 18 23 12"></polyline></svg>'
 
+    # Format dollar values for wins and gaps
+    wins_value_str = f"+{currency}{total_wins:,.0f}" if total_wins >= 0 else f"{currency}{total_wins:,.0f}"
+    gaps_value_str = f"{currency}{gap_val:,.0f}" if gap_val < 0 else f"+{currency}{gap_val:,.0f}"
+
     # Render hero banner
     st.markdown(f"""
     <div style="background: {styles['bg']}; border: {styles['border']}; border-radius: 16px; padding: 32px 40px; margin-bottom: 24px; box-shadow: {styles['glow']}; backdrop-filter: blur(10px);">
         <div style="display: flex; align-items: center; gap: 8px; margin-bottom: 24px;">
             <span style="color: {answer_color};">{checkmark_icon}</span>
             <span style="font-size: 1.1rem; font-weight: 600; color: #F8FAFC;">Did your optimizations make money?</span>
-            <span style="margin-left: auto; font-size: 0.85rem; color: #94a3b8; opacity: 0.7;">({horizon_label})</span>
+            <span style="margin-left: auto; font-size: 0.85rem; color: #94a3b8; opacity: 0.7;">({horizon_label}) <span title="Impact adjusted for market conditions and scale effects">v3.3</span></span>
         </div>
         <div style="font-size: 2.8rem; font-weight: 800; color: {answer_color}; margin-bottom: 8px; {styles['text_glow']}">{answer_prefix} — {impact_display}{badge_html}</div>
         <div style="background: rgba(255,255,255,0.08); border-radius: 8px; height: 12px; margin: 16px 0; overflow: hidden; border: 1px solid rgba(255,255,255,0.05);">
             <div style="background: linear-gradient(90deg, #10B981 0%, #059669 100%); height: 100%; width: {win_pct}%; border-radius: 8px;"></div>
         </div>
         <div style="display: flex; justify-content: space-between; color: #94a3b8; font-size: 0.9rem;">
-            <span style="display: inline-flex; align-items: center; gap: 4px;">{trophy_icon} {win_count} wins ({win_pct:.0f}%)</span>
-            <span style="display: inline-flex; align-items: center; gap: 8px;">{gap_icon} <span style="color: #EF4444;">{gap_count} gaps</span> | {drag_icon} {drag_count} market drag</span>
+            <span style="display: inline-flex; align-items: center; gap: 4px;" title="Total value from winning actions">
+                {trophy_icon} Wins: <span style="color: #10B981; font-weight: 600;">{wins_value_str}</span> <span style="opacity: 0.7;">({win_count})</span>
+            </span>
+            <span style="display: inline-flex; align-items: center; gap: 8px;">
+                <span title="Actions where decisions underperformed expectations">{gap_icon} Gaps: <span style="color: #EF4444; font-weight: 600;">{gaps_value_str}</span> <span style="opacity: 0.7;">({gap_count})</span></span>
+                <span style="margin-left: 8px; opacity: 0.7;" title="Actions excluded from impact calculation due to market conditions">| {drag_icon} Excluded: {drag_count}</span>
+            </span>
         </div>
     </div>
     """, unsafe_allow_html=True)

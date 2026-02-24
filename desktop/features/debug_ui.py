@@ -6,7 +6,7 @@ Refactored to run as a module.
 import streamlit as st
 import pandas as pd
 from datetime import datetime, timedelta
-from core.db_manager import get_db_manager
+from app_core.db_manager import get_db_manager
 
 def render_debug_metrics():
     """Render the debug diagnostics UI."""

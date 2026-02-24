@@ -7,7 +7,7 @@ broken down into clean, focused sub-modules.
 Public API:
     - render_impact_dashboard: Main dashboard render function
     - get_recent_impact_summary: Export for home page
-    - get_maturity_status: Re-exported from core.utils
+    - get_maturity_status: Re-exported from app_core.utils
     - create_roas_waterfall_figure: Chart factory for reports
     - create_decision_timeline_figure: Chart factory for reports
 """
@@ -21,8 +21,8 @@ from features.impact.exports import (
     render_reference_data_badge,
 )
 
-# Re-export from core.utils for backward compatibility
-from core.utils import get_maturity_status
+# Re-export from app_core.utils for backward compatibility
+from app_core.utils import get_maturity_status
 
 # Chart factories used by client reports
 from features.impact.charts.waterfall import create_roas_waterfall_figure

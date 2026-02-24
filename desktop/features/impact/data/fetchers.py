@@ -6,7 +6,7 @@ import streamlit as st
 import pandas as pd
 from typing import Dict, Any, Tuple
 
-from core.db_manager import get_db_manager
+from app_core.db_manager import get_db_manager
 
 
 @st.cache_data(ttl=3600, show_spinner=False)

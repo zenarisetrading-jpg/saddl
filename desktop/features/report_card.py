@@ -7,8 +7,8 @@ from typing import Dict, Any, List, Optional, Tuple
 
 # Core imports
 from features._base import BaseFeature
-from core.data_hub import DataHub
-from core.account_utils import get_active_account_id, get_test_mode
+from app_core.data_hub import DataHub
+from app_core.account_utils import get_active_account_id, get_test_mode
 from ui.components import metric_card
 from utils.formatters import format_currency, format_percentage, get_account_currency
 from features.impact_metrics import ImpactMetrics
@@ -1636,7 +1636,7 @@ def get_account_health_score() -> Optional[float]:
     Returns pre-calculated health score from database, or calculates on-demand if not available.
     Returns None if no data.
     """
-    from core.db_manager import get_db_manager
+    from app_core.db_manager import get_db_manager
     
     # Check for test mode - also check session state for db_manager type
     test_mode = st.session_state.get('test_mode', False)
@@ -1677,7 +1677,7 @@ def get_account_health_score() -> Optional[float]:
 
             
         # Ensure Spend and Sales are numeric
-        from core.data_loader import safe_numeric
+        from app_core.data_loader import safe_numeric
         
         # Normalize column names for matching (handle both Spend and spend)
         col_lower_map = {c.lower(): c for c in df.columns}
@@ -1787,7 +1787,7 @@ def get_account_health_score(client_id: str) -> Optional[float]:
     Public helper to get the latest health score for an account.
     Used by the Home Dashboard tiles.
     """
-    from core.db_manager import get_db_manager
+    from app_core.db_manager import get_db_manager
     db_manager = get_db_manager()
     
     # Try fetch from DB first (fastest)

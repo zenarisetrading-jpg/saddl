@@ -13,8 +13,8 @@ Features:
 
 import streamlit as st
 import os
-from core.auth.permissions import Role, PERMISSION_MATRIX, get_billable_default, can_manage_role, has_permission
-from core.auth.middleware import require_permission
+from app_core.auth.permissions import Role, PERMISSION_MATRIX, get_billable_default, can_manage_role, has_permission
+from app_core.auth.middleware import require_permission
 from config.features import FEATURE_EMAIL_INVITATIONS, FeatureFlags
 
 # Example price (could come from config/DB)
@@ -23,7 +23,7 @@ from config.features import FEATURE_EMAIL_INVITATIONS, FeatureFlags
 @st.cache_data(ttl=60, show_spinner=False)
 def _fetch_users_cached(org_id: str):
     """Cache user list query - prevents repeated DB calls."""
-    from core.auth.service import AuthService
+    from app_core.auth.service import AuthService
     auth = AuthService()
     return auth.list_users(org_id)
 
@@ -82,7 +82,7 @@ def render_user_management():
     """, unsafe_allow_html=True)
 
     # V2 Backend Wiring
-    from core.auth.service import AuthService
+    from app_core.auth.service import AuthService
 
     # Get current user (AuthService is already initialized in main, so this is fast)
     auth = AuthService()
@@ -263,7 +263,7 @@ def _render_email_invitation_form(auth, current_user):
     Render the new email invitation form.
     Sends invitation email with secure link instead of showing temp password.
     """
-    from core.auth.invitation_service import InvitationService
+    from app_core.auth.invitation_service import InvitationService
 
     # Check SMTP configuration
     smtp_configured = all([
@@ -373,7 +373,7 @@ def _render_pending_invitations(auth, current_user):
     """
     Render the list of pending invitations with resend/revoke options.
     """
-    from core.auth.invitation_service import InvitationService
+    from app_core.auth.invitation_service import InvitationService
 
     st.divider()
     st.subheader("Pending Invitations")
@@ -449,7 +449,7 @@ def _get_organization_name(organization_id) -> str:
     Returns a default if not found.
     """
     try:
-        from core.auth.service import AuthService
+        from app_core.auth.service import AuthService
         auth = AuthService()
         with auth._get_connection() as conn:
             with conn.cursor() as cur:

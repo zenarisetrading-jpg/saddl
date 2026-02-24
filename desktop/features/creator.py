@@ -14,10 +14,10 @@ from io import BytesIO
 import plotly.graph_objects as go
 
 from features._base import BaseFeature
-from core.data_loader import SmartMapper, safe_numeric, is_asin, load_uploaded_file
+from app_core.data_loader import SmartMapper, safe_numeric, is_asin, load_uploaded_file
 from utils.formatters import to_excel_download
-from core.data_hub import DataHub
-from core.db_manager import get_db_manager
+from app_core.data_hub import DataHub
+from app_core.db_manager import get_db_manager
 from features.bulk_export import generate_harvest_bulk
 
 # ==========================================
@@ -564,11 +564,13 @@ class CreatorModule(BaseFeature):
             s_col = None
             ag_col = None
             
-            # Direct DB columns
-            if 'Campaign Name' in camp_df.columns: c_col = 'Campaign Name'
-            if 'SKU' in camp_df.columns: s_col = 'SKU'
-            if 'Ad Group Name' in camp_df.columns: ag_col = 'Ad Group Name'
-                
+            # Direct DB columns (case-insensitive matching)
+            col_map_lower = {col.lower(): col for col in camp_df.columns}
+
+            if 'campaign name' in col_map_lower: c_col = col_map_lower['campaign name']
+            if 'sku' in col_map_lower: s_col = col_map_lower['sku']
+            if 'ad group name' in col_map_lower: ag_col = col_map_lower['ad group name']
+
             # SmartMapper fallback
             if not c_col or not s_col:
                 col_map = SmartMapper.map_columns(camp_df)

@@ -16,7 +16,7 @@ from ui.theme import ThemeManager
 @st.cache_data(ttl=300, show_spinner=False)
 def _fetch_home_insights_cached(client_id: str, test_mode: bool):
     """Cache home page insights calculation - prevents repeated large DB queries."""
-    from core.db_manager import get_db_manager
+    from app_core.db_manager import get_db_manager
     db_manager = get_db_manager(test_mode)
 
     if not db_manager or not client_id:
@@ -28,7 +28,7 @@ def _fetch_home_insights_cached(client_id: str, test_mode: bool):
 @st.cache_data(ttl=600, show_spinner=False)
 def _fetch_available_dates_cached(client_id: str):
     """Cache available dates check - rarely changes."""
-    from core.db_manager import get_db_manager
+    from app_core.db_manager import get_db_manager
     db = get_db_manager()
 
     if not db or not client_id:
@@ -38,7 +38,7 @@ def _fetch_available_dates_cached(client_id: str):
 # Lazy imports moved inside functions to prevent circular dependencies
 # from features.impact_dashboard import get_recent_impact_summary
 # from features.report_card import get_account_health_score
-# from core.account_utils import get_active_account_id
+# from app_core.account_utils import get_active_account_id
 
 def setup_page():
     """Setup page CSS and styling."""
@@ -140,7 +140,7 @@ def render_home():
 
     from features.impact_dashboard import get_recent_impact_summary
     from features.report_card import get_account_health_score
-    from core.account_utils import get_active_account_id
+    from app_core.account_utils import get_active_account_id
     from ui.components.empty_states import render_empty_state
     
     # === EMPTY STATE CHECKS ===
@@ -155,7 +155,7 @@ def render_home():
     has_accounts = False
     if db:
         # Get Organization Context
-        from core.auth.service import AuthService
+        from app_core.auth.service import AuthService
         auth = AuthService()
         current_user = auth.get_current_user()
         org_id = str(current_user.organization_id) if current_user else None
@@ -175,7 +175,7 @@ def render_home():
     account_name = st.session_state.get('active_account_name', 'Account')
     
     # Check if data loaded in DataHub or DB has data
-    from core.data_hub import DataHub
+    from app_core.data_hub import DataHub
     hub = DataHub()
     
     # Try basic data existence check
@@ -654,7 +654,7 @@ def render_home():
     # ========================================
     from datetime import date, timedelta
     from utils.formatters import get_account_currency
-    from core.account_utils import get_active_account_id
+    from app_core.account_utils import get_active_account_id
     from features.impact_dashboard import get_recent_impact_summary
     import numpy as np
     import pandas as pd

@@ -46,6 +46,12 @@ class FeatureFlags:
         'ENABLE_EMAIL_INVITATIONS': True,       # Phase 1: Email invites (Enabled)
         'ENABLE_ONBOARDING_WIZARD': True,       # Phase 3: Welcome wizard (Enabled)
         'ENABLE_ENHANCED_EMPTY_STATES': True,   # Phase 4: Styled empty states
+        # Performance Dashboard rollout flags (all OFF by default until validated)
+        'ENABLE_PERFORMANCE_DASHBOARD_BUSINESS_OVERVIEW': False,
+        'ENABLE_PERFORMANCE_DASHBOARD_PRODUCT': False,
+        'ENABLE_PERFORMANCE_DASHBOARD_INVENTORY_OVERVIEW': False,
+        'ENABLE_PERFORMANCE_DASHBOARD_INTELLIGENCE': False,
+        'ENABLE_PERFORMANCE_DASHBOARD_PPC_OVERVIEW': False,
     }
 
     @staticmethod
@@ -85,6 +91,11 @@ class FeatureFlags:
             'email_invitations': FeatureFlags.is_enabled('ENABLE_EMAIL_INVITATIONS'),
             'onboarding_wizard': FeatureFlags.is_enabled('ENABLE_ONBOARDING_WIZARD'),
             'enhanced_empty_states': FeatureFlags.is_enabled('ENABLE_ENHANCED_EMPTY_STATES'),
+            'perf_dashboard_business_overview': FeatureFlags.is_enabled('ENABLE_PERFORMANCE_DASHBOARD_BUSINESS_OVERVIEW'),
+            'perf_dashboard_product': FeatureFlags.is_enabled('ENABLE_PERFORMANCE_DASHBOARD_PRODUCT'),
+            'perf_dashboard_inventory_overview': FeatureFlags.is_enabled('ENABLE_PERFORMANCE_DASHBOARD_INVENTORY_OVERVIEW'),
+            'perf_dashboard_intelligence': FeatureFlags.is_enabled('ENABLE_PERFORMANCE_DASHBOARD_INTELLIGENCE'),
+            'perf_dashboard_ppc_overview': FeatureFlags.is_enabled('ENABLE_PERFORMANCE_DASHBOARD_PPC_OVERVIEW'),
         }
 
     @staticmethod
@@ -123,6 +134,41 @@ class FeatureFlags:
                 'phase': 'Phase 4',
                 'risk': 'minimal',
             },
+            'ENABLE_PERFORMANCE_DASHBOARD_BUSINESS_OVERVIEW': {
+                'value': FeatureFlags.is_enabled('ENABLE_PERFORMANCE_DASHBOARD_BUSINESS_OVERVIEW'),
+                'default': False,
+                'description': 'Performance Dashboard: Business Overview tab',
+                'phase': 'Performance Dashboard',
+                'risk': 'medium',
+            },
+            'ENABLE_PERFORMANCE_DASHBOARD_PRODUCT': {
+                'value': FeatureFlags.is_enabled('ENABLE_PERFORMANCE_DASHBOARD_PRODUCT'),
+                'default': False,
+                'description': 'Performance Dashboard: Product tab',
+                'phase': 'Performance Dashboard',
+                'risk': 'medium',
+            },
+            'ENABLE_PERFORMANCE_DASHBOARD_INVENTORY_OVERVIEW': {
+                'value': FeatureFlags.is_enabled('ENABLE_PERFORMANCE_DASHBOARD_INVENTORY_OVERVIEW'),
+                'default': False,
+                'description': 'Performance Dashboard: Inventory Overview tab',
+                'phase': 'Performance Dashboard',
+                'risk': 'medium',
+            },
+            'ENABLE_PERFORMANCE_DASHBOARD_INTELLIGENCE': {
+                'value': FeatureFlags.is_enabled('ENABLE_PERFORMANCE_DASHBOARD_INTELLIGENCE'),
+                'default': False,
+                'description': 'Performance Dashboard: Intelligence tab',
+                'phase': 'Performance Dashboard',
+                'risk': 'medium',
+            },
+            'ENABLE_PERFORMANCE_DASHBOARD_PPC_OVERVIEW': {
+                'value': FeatureFlags.is_enabled('ENABLE_PERFORMANCE_DASHBOARD_PPC_OVERVIEW'),
+                'default': False,
+                'description': 'Performance Dashboard: PPC Overview tab',
+                'phase': 'Performance Dashboard',
+                'risk': 'medium',
+            },
         }
 
     @staticmethod
@@ -153,6 +199,26 @@ class FeatureFlags:
 FEATURE_EMAIL_INVITATIONS = FeatureFlags.is_enabled('ENABLE_EMAIL_INVITATIONS')
 FEATURE_ONBOARDING_WIZARD = FeatureFlags.is_enabled('ENABLE_ONBOARDING_WIZARD')
 FEATURE_ENHANCED_EMPTY_STATES = FeatureFlags.is_enabled('ENABLE_ENHANCED_EMPTY_STATES')
+FEATURE_PERF_DASH_BUSINESS_OVERVIEW = FeatureFlags.is_enabled('ENABLE_PERFORMANCE_DASHBOARD_BUSINESS_OVERVIEW')
+FEATURE_PERF_DASH_PRODUCT = FeatureFlags.is_enabled('ENABLE_PERFORMANCE_DASHBOARD_PRODUCT')
+FEATURE_PERF_DASH_INVENTORY_OVERVIEW = FeatureFlags.is_enabled('ENABLE_PERFORMANCE_DASHBOARD_INVENTORY_OVERVIEW')
+FEATURE_PERF_DASH_INTELLIGENCE = FeatureFlags.is_enabled('ENABLE_PERFORMANCE_DASHBOARD_INTELLIGENCE')
+FEATURE_PERF_DASH_PPC_OVERVIEW = FeatureFlags.is_enabled('ENABLE_PERFORMANCE_DASHBOARD_PPC_OVERVIEW')
+
+
+def is_performance_dashboard_tab_enabled(tab_key: str) -> bool:
+    """Check if a given performance dashboard tab is enabled."""
+    mapping = {
+        'business_overview': 'ENABLE_PERFORMANCE_DASHBOARD_BUSINESS_OVERVIEW',
+        'product': 'ENABLE_PERFORMANCE_DASHBOARD_PRODUCT',
+        'inventory_overview': 'ENABLE_PERFORMANCE_DASHBOARD_INVENTORY_OVERVIEW',
+        'intelligence': 'ENABLE_PERFORMANCE_DASHBOARD_INTELLIGENCE',
+        'ppc_overview': 'ENABLE_PERFORMANCE_DASHBOARD_PPC_OVERVIEW',
+    }
+    env_name = mapping.get(tab_key)
+    if not env_name:
+        return False
+    return FeatureFlags.is_enabled(env_name)
 
 
 # ============================================================================

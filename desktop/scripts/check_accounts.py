@@ -3,7 +3,7 @@ import sys
 import os
 sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), '..')))
 
-from core.db_manager import get_db_manager
+from app_core.db_manager import get_db_manager
 import pandas as pd
 
 def check():

@@ -17,8 +17,8 @@ try:
 except ImportError:
     pass
 
-from core.auth.invitation_service import InvitationService
-from core.postgres_manager import PostgresManager
+from app_core.auth.invitation_service import InvitationService
+from app_core.postgres_manager import PostgresManager
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)

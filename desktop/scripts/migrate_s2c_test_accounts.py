@@ -15,7 +15,7 @@ desktop_path = os.path.abspath(os.path.join(os.path.dirname(__file__), '..'))
 if desktop_path not in sys.path:
     sys.path.insert(0, desktop_path)
 
-from core.db_manager import get_db_manager
+from app_core.db_manager import get_db_manager
 
 def run_migration():
     print("MIGRATE: Starting S2C account migration...")

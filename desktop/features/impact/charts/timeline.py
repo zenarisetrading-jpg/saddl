@@ -8,6 +8,7 @@ import plotly.graph_objects as go
 from typing import Dict, Any, Optional
 
 from features.impact.styles.css import BRAND_COLORS
+from features.impact.utils import get_impact_col
 
 
 def create_decision_timeline_figure(
@@ -41,9 +42,11 @@ def create_decision_timeline_figure(
     df = impact_df.copy()
     df['action_date'] = pd.to_datetime(df['action_date'])
 
+    impact_col = get_impact_col(df)
+
     # Group by date
     daily = df.groupby('action_date').agg({
-        'decision_impact': 'sum',
+        impact_col: 'sum',
         'action_type': 'count'
     }).reset_index()
     daily.columns = ['date', 'impact', 'count']

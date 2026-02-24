@@ -97,18 +97,29 @@ class ImpactMetrics:
                 working_df = working_df[working_df['validated'] == True]
             elif 'validation_status' in working_df.columns:
                 # Use standard regex for validation (matches Dashboard logic)
-                mask = working_df['validation_status'].str.contains('✓|CPC Validated|CPC Match|Directional|Confirmed|Normalized|Volume', na=False, regex=True)
+                mask = working_df['validation_status'].str.contains('✓|CPC Validated|CPC Match|Directional|Confirmed|Normalized|Volume|Strict', na=False, regex=True)
                 working_df = working_df[mask]
         
         if working_df.empty:
             return cls._empty_metrics(filters, horizon_days)
         
         # === Step 2: Determine impact column ===
-        impact_col = 'final_decision_impact' if 'final_decision_impact' in working_df.columns else 'decision_impact'
-        
+        # CRITICAL: Check for v3.3 columns FIRST, then fall back to v3.2
+        # This ensures we use the latest model when available
+        if 'final_impact_v33' in working_df.columns:
+            impact_col = 'final_impact_v33'  # v3.3 weighted impact (PREFERRED)
+            model_version = 'v3.3'
+        elif 'final_decision_impact' in working_df.columns:
+            impact_col = 'final_decision_impact'  # v3.2 weighted impact (fallback)
+            model_version = 'v3.2'
+        else:
+            impact_col = 'decision_impact'  # Raw unweighted impact (last resort)
+            model_version = 'unknown'
+
         # DEBUG: Trace column selection
         print(f"[ImpactMetrics] Columns available: {list(working_df.columns)}")
         print(f"[ImpactMetrics] Selected Impact Col: {impact_col}")
+        print(f"[ImpactMetrics] Model Version: {model_version}")
         
         # === Step 3: Calculate breakdown by market_tag ===
         # Market tags: 'Offensive Win', 'Defensive Win', 'Gap', 'Market Drag'

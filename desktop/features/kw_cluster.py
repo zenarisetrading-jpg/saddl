@@ -12,7 +12,7 @@ from typing import Dict, Any
 from sklearn.feature_extraction.text import TfidfVectorizer
 from sklearn.cluster import KMeans
 from features._base import BaseFeature
-from core.data_loader import SmartMapper, load_uploaded_file, safe_numeric
+from app_core.data_loader import SmartMapper, load_uploaded_file, safe_numeric
 from api.anthropic_client import AnthropicClient
 
 class AIInsightsModule(BaseFeature):
@@ -43,7 +43,7 @@ class AIInsightsModule(BaseFeature):
         st.title("📊 Keyword Cluster Analysis")
         
         # Check if data loaded in Data Hub
-        from core.data_hub import DataHub
+        from app_core.data_hub import DataHub
         hub = DataHub()
         
         if hub.is_loaded('search_term_report'):

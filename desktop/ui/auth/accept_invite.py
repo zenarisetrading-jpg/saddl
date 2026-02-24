@@ -21,10 +21,10 @@ import streamlit as st
 import re
 from typing import Optional, Tuple
 
-from core.auth.invitation_service import InvitationService, Invitation
-from core.auth.service import AuthService
-from core.auth.hashing import hash_password
-from core.auth.permissions import Role, get_billable_default
+from app_core.auth.invitation_service import InvitationService, Invitation
+from app_core.auth.service import AuthService
+from app_core.auth.hashing import hash_password
+from app_core.auth.permissions import Role, get_billable_default
 from config.features import FEATURE_ONBOARDING_WIZARD
 from config.design_system import COLORS, TYPOGRAPHY, SPACING, GLASSMORPHIC
 

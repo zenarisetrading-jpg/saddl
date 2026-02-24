@@ -4,7 +4,7 @@ import os
 # Add project root to path
 sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), '..')))
 
-from core.postgres_manager import PostgresManager
+from app_core.postgres_manager import PostgresManager
 from dotenv import load_dotenv
 
 def test_digiaansh():

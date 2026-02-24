@@ -16,17 +16,17 @@ import plotly.express as px
 import numpy as np
 from typing import Dict, Any, Optional, Tuple
 from datetime import datetime, timedelta
-from core.db_manager import get_db_manager
+from app_core.db_manager import get_db_manager
 
 # === PHASE 2: Single Source of Truth ===
 from features.impact_metrics import ImpactMetrics
-from core.utils import IMPACT_WINDOWS, get_maturity_status
+from app_core.utils import IMPACT_WINDOWS, get_maturity_status
 from utils.formatters import format_currency
 
 # ==========================================
 # MULTI-HORIZON IMPACT MEASUREMENT CONFIG
 # ==========================================
-# IMPACT_WINDOWS imported from core.utils
+# IMPACT_WINDOWS imported from app_core.utils
 
 # ==========================================
 # HELPER: Ensure Required Impact Columns Exist
@@ -44,15 +44,26 @@ def _ensure_impact_columns(df: pd.DataFrame) -> pd.DataFrame:
     df = df.copy()
     MIN_CLICKS_FOR_RELIABLE = 5
     
-    # If market_tag already exists, return as-is
-    if 'market_tag' in df.columns and 'expected_trend_pct' in df.columns:
-        return df
+    # CRITICAL: Always recalculate to ensure 0.85x harvest logic is applied
+    # if 'market_tag' in df.columns and 'expected_trend_pct' in df.columns:
+    #     return df
     
     # Calculate counterfactual metrics
     df['spc_before'] = df['before_sales'] / df['before_clicks'].replace(0, np.nan)
     df['cpc_before'] = df['before_spend'] / df['before_clicks'].replace(0, np.nan)
     df['expected_clicks'] = df['observed_after_spend'] / df['cpc_before']
     df['expected_sales'] = df['expected_clicks'] * df['spc_before']
+    
+    # APPLY HARVEST BASELINE: 0.85x Efficiency Decline Factor
+    # This aligns dashboard categorization (Market Drag/Win) with DB Impact Logic
+    if 'action_type' in df.columns:
+        harvest_mask = df['action_type'].astype(str).str.upper() == 'HARVEST'
+        harvest_count = harvest_mask.sum()
+        print(f"[DEBUG] _ensure_impact_columns: Found {harvest_count} HARVEST actions, applying 0.85x factor")
+        if harvest_count > 0:
+            # For harvests, lower the expected baseline to account for efficiency loss
+            df.loc[harvest_mask, 'expected_sales'] = df.loc[harvest_mask, 'expected_sales'] * 0.85
+            print(f"[DEBUG] Sample expected_sales after 0.85x: {df.loc[harvest_mask, 'expected_sales'].head(3).tolist()}")
     
     df['expected_trend_pct'] = ((df['expected_sales'] - df['before_sales']) / df['before_sales'] * 100).fillna(0)
     df['actual_change_pct'] = ((df['observed_after_sales'] - df['before_sales']) / df['before_sales'] * 100).fillna(0)
@@ -80,7 +91,7 @@ def _ensure_impact_columns(df: pd.DataFrame) -> pd.DataFrame:
 # ==========================================
 # MARKET DECOMPOSITION - Import from clean module
 # ==========================================
-# from core.roas_attribution import get_roas_attribution  # Moved locally to prevent circular import
+# from app_core.roas_attribution import get_roas_attribution  # Moved locally to prevent circular import
 
 
 # ==========================================
@@ -254,7 +265,7 @@ def compute_spend_avoided_confidence(
         "totalSpendAvoided": round(total_spend_avoided, 2)
     }
 
-# get_maturity_status imported from core.utils
+# get_maturity_status imported from app_core.utils
 
 @st.cache_data(ttl=3600, show_spinner=False)  # Restored production TTL
 def _fetch_impact_data(client_id: str, test_mode: bool, before_days: int = 14, after_days: int = 14, cache_version: str = "v14_impact_tiers") -> Tuple[pd.DataFrame, Dict[str, Any]]:
@@ -411,7 +422,7 @@ def render_impact_dashboard():
         # Use cached fetcher
         test_mode = st.session_state.get('test_mode', False)
         # Cache invalidation via version string (changes when data uploaded)
-        cache_version = "v19_perf_" + str(st.session_state.get('data_upload_timestamp', 'init'))
+        cache_version = "v20_harvest_fix_" + str(st.session_state.get('data_upload_timestamp', 'init'))
         
         # Get horizon config
         horizon_config = IMPACT_WINDOWS["horizons"].get(horizon, IMPACT_WINDOWS["horizons"]["14D"])
@@ -420,6 +431,11 @@ def render_impact_dashboard():
         buffer_days = IMPACT_WINDOWS["maturity_buffer_days"]  # 3 days
         
         impact_df, full_summary = _fetch_impact_data(selected_client, test_mode, before_days, after_days, cache_version)
+        
+        # === FORCE RECALCULATION OF METRICS ===
+        # Apply 0.85x Harvest Factor and assign Market Tags correctly
+        if not impact_df.empty:
+            impact_df = _ensure_impact_columns(impact_df)
         
         # ================================================================
         # CRITICAL FIX: Recalculate maturity BEFORE ImpactMetrics calculation
@@ -652,7 +668,7 @@ def render_impact_dashboard():
     # ==========================================
     client_id = st.session_state.get('active_account_id', '')  # Fixed: use correct session state key
     if client_id:
-        from core.roas_attribution import get_roas_attribution
+        from app_core.roas_attribution import get_roas_attribution
         roas_attr = get_roas_attribution(client_id, days=30)
         if roas_attr:
             display_summary.update(roas_attr)  # Adds cpc_impact, cvr_impact, aov_impact, market_impact_roas, periods, etc.
