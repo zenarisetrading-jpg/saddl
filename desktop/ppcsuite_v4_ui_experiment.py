@@ -205,11 +205,13 @@ def run_performance_hub():
     """, unsafe_allow_html=True)
     
     if FeatureFlags.is_enabled("ENABLE_PERFORMANCE_DASHBOARD_BUSINESS_OVERVIEW"):
+        _show_ppc_tab = FeatureFlags.is_enabled("ENABLE_PERFORMANCE_DASHBOARD_PPC_OVERVIEW")
+
         if "active_perf_tab" not in st.session_state:
             st.session_state["active_perf_tab"] = "Business Overview"
 
-        t1, t2 = st.columns(2)
-        with t1:
+        _tab_cols = st.columns(3 if _show_ppc_tab else 2)
+        with _tab_cols[0]:
             if st.button(
                 "BUSINESS OVERVIEW",
                 key="btn_business_overview",
@@ -218,7 +220,7 @@ def run_performance_hub():
             ):
                 st.session_state["active_perf_tab"] = "Business Overview"
                 st.rerun()
-        with t2:
+        with _tab_cols[1]:
             if st.button(
                 "ACCOUNT OVERVIEW (LEGACY)",
                 key="btn_account_overview_legacy",
@@ -227,11 +229,24 @@ def run_performance_hub():
             ):
                 st.session_state["active_perf_tab"] = "Client Report"
                 st.rerun()
+        if _show_ppc_tab:
+            with _tab_cols[2]:
+                if st.button(
+                    "PPC OVERVIEW",
+                    key="btn_ppc_overview",
+                    use_container_width=True,
+                    type="primary" if st.session_state["active_perf_tab"] == "PPC Overview" else "secondary",
+                ):
+                    st.session_state["active_perf_tab"] = "PPC Overview"
+                    st.rerun()
 
         st.markdown("<br>", unsafe_allow_html=True)
         if st.session_state["active_perf_tab"] == "Business Overview":
             from features.dashboard.business_overview import render_business_overview
             render_business_overview()
+        elif _show_ppc_tab and st.session_state["active_perf_tab"] == "PPC Overview":
+            from ui.performance_dashboard.ppc_overview import render_ppc_overview
+            render_ppc_overview()
         else:
             import ui.client_report_page as client_report
             import importlib
