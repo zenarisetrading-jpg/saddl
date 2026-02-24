@@ -16,6 +16,55 @@ from typing import Optional, Dict, Any
 
 
 # ===========================================================================
+# EXECUTIVE DASHBOARD BRIDGE  (reuse existing chart methods)
+# ===========================================================================
+
+def _to_exec_df(cur_df: pd.DataFrame) -> pd.DataFrame:
+    """
+    Rename snake_case PPC columns to title-case aliases expected by
+    ExecutiveDashboard chart methods (_render_performance_scatter,
+    _render_spend_breakdown, etc.).
+    Also derives 'Refined Match Type' display names.
+    """
+    df = cur_df.rename(columns={
+        "start_date":    "Date",
+        "campaign_name": "Campaign Name",
+        "ad_group_name": "Ad Group Name",
+        "target_text":   "Targeting",
+        "match_type":    "Match Type",
+        "spend":         "Spend",
+        "sales":         "Sales",
+        "clicks":        "Clicks",
+        "impressions":   "Impressions",
+        "orders":        "Orders",
+    })
+    _mt_map = {
+        "EXACT": "Exact", "BROAD": "Broad", "PHRASE": "Phrase",
+        "AUTO": "Auto", "PT": "PT", "CATEGORY": "Category",
+    }
+    if "Match Type" in df.columns:
+        df["Refined Match Type"] = df["Match Type"].apply(
+            lambda x: _mt_map.get(str(x).upper(), str(x).title()) if pd.notna(x) else "Other"
+        )
+    return df
+
+
+@st.cache_data(ttl=300, show_spinner=False)
+def _fetch_exec_data(client_id: str, test_mode: bool, start_date, end_date):
+    """
+    Cached wrapper around ExecutiveDashboard._fetch_data().
+    Returns the full exec_data dict (canonical_metrics, impact_df, df_current …)
+    or None on failure.
+    """
+    try:
+        from features.executive_dashboard import ExecutiveDashboard
+        exec_dash = ExecutiveDashboard()
+        return exec_dash._fetch_data(custom_start=start_date, custom_end=end_date)
+    except Exception:
+        return None
+
+
+# ===========================================================================
 # GUARDRAILS  (PRD 6.1)
 # ===========================================================================
 
@@ -498,14 +547,19 @@ def _render_health_strip(stats: Dict[str, Any]) -> None:
         )
 
 
-def _render_campaign_table(campaign_df: pd.DataFrame, target_roas: float) -> None:
-    if campaign_df.empty:
+def _render_campaign_table(
+    campaign_df: pd.DataFrame,
+    target_roas: float,
+    max_rows: Optional[int] = 10,
+) -> None:
+    display_df = campaign_df.head(max_rows) if max_rows is not None else campaign_df
+    if display_df.empty:
         _empty_state("No campaign data for this period")
         return
 
     # Build HTML table
     rows_html = ""
-    for _, row in campaign_df.iterrows():
+    for _, row in display_df.iterrows():
         cpc_val = _fmt_currency(row.get("cpc")) if "cpc" in row else "N/A"
         rows_html += f"""
         <tr>
@@ -552,13 +606,18 @@ def _render_campaign_table(campaign_df: pd.DataFrame, target_roas: float) -> Non
     )
 
 
-def _render_keyword_diagnostics(kw_df: pd.DataFrame, target_roas: float) -> None:
-    if kw_df.empty:
+def _render_keyword_diagnostics(
+    kw_df: pd.DataFrame,
+    target_roas: float,
+    max_rows: Optional[int] = 10,
+) -> None:
+    display_df = kw_df.head(max_rows) if max_rows is not None else kw_df
+    if display_df.empty:
         _empty_state("No keyword data for this period")
         return
 
     rows_html = ""
-    for _, row in kw_df.iterrows():
+    for _, row in display_df.iterrows():
         match_label = f"[{row['match_type']}]" if "match_type" in row and pd.notna(row.get("match_type")) else ""
         campaign = str(row.get("campaign_name", ""))[:48] + ("…" if len(str(row.get("campaign_name", ""))) > 48 else "")
         roas_str = f"{min(float(row['roas']), 99.9):.2f}×" if row["sales"] > 0 else "0.00×"
@@ -766,16 +825,50 @@ def render_ppc_overview() -> None:
     stats = _build_stats(cur_df, prev_df)
     match_filter = st.session_state["ppc_match_filter"]
 
+    # Prepare title-case df for ExecutiveDashboard chart methods
+    df_for_charts = _to_exec_df(cur_df)
+
+    # Compute date bounds for exec_data fetch (used by Decision Impact)
+    _max_date  = raw_df["start_date"].max().date()
+    _min_date  = (_max_date - timedelta(days=window_days))
+    exec_data  = _fetch_exec_data(client_id, test_mode, _min_date, _max_date)
+
+    # Instantiate ExecutiveDashboard once (CSS injected once, chart methods reused)
+    try:
+        from features.executive_dashboard import ExecutiveDashboard
+        _exec_dash = ExecutiveDashboard()
+    except Exception:
+        _exec_dash = None
+
     # ── Section 1: PPC Health Strip ──────────────────────────────────────────
     _section_header("PPC Health", f"Last {window_days} days · vs prior {window_days}-day period")
     _render_health_strip(stats)
 
     st.markdown("<br>", unsafe_allow_html=True)
 
-    # ── Sections 2 + 3: Campaign table + Intelligence Log (side by side) ────
-    main_col, side_col = st.columns([2, 1])
+    # ── Section 2: Decision Impact ────────────────────────────────────────────
+    _section_header("Decision Impact", "14-day validated attributed revenue from optimizer actions")
+    if exec_data and _exec_dash:
+        _di_l, _di_r = st.columns([3, 7])
+        with _di_l:
+            try:
+                _exec_dash._render_decision_impact_card(exec_data)
+            except Exception as _e:
+                _empty_state(f"Impact card unavailable ({_e})")
+        with _di_r:
+            try:
+                _exec_dash._render_decision_timeline(exec_data)
+            except Exception as _e:
+                _empty_state(f"Impact timeline unavailable ({_e})")
+    else:
+        _empty_state("Decision impact data not available — run the optimizer to generate attributed revenue data.")
 
-    with main_col:
+    st.markdown("<br>", unsafe_allow_html=True)
+
+    # ── Section 3: Campaign Performance + Match Type Efficiency ──────────────
+    camp_col, eff_col = st.columns([6, 4])
+
+    with camp_col:
         _section_header(
             "Campaign Performance",
             "Sorted by spend · ROAS color-coded against target",
@@ -809,21 +902,54 @@ def render_ppc_overview() -> None:
             ]
 
         campaign_df = _build_campaign_df(filtered_df, target_roas)
-        _render_campaign_table(campaign_df, target_roas)
+        _render_campaign_table(campaign_df, target_roas, max_rows=10)
+        if len(campaign_df) > 10:
+            with st.expander(f"Show all {len(campaign_df)} campaigns →"):
+                _render_campaign_table(campaign_df, target_roas, max_rows=None)
 
-    with side_col:
-        _section_header("SADDL Intelligence Log", "Optimizer run history")
-        _render_intelligence_log(client_id, test_mode)
+    with eff_col:
+        _section_header("Match Type Efficiency", "Revenue % ÷ Spend % · values above 1.0 outperform their budget share")
+        if _exec_dash:
+            try:
+                _exec_dash._render_spend_breakdown({"df_current": df_for_charts, "medians": {}})
+            except Exception as _e:
+                _empty_state(f"Efficiency chart unavailable ({_e})")
+        else:
+            _empty_state("Match type efficiency unavailable")
 
     st.markdown("<br>", unsafe_allow_html=True)
 
-    # ── Section 4: Keyword Diagnostics ──────────────────────────────────────
+    # ── Section 4: Performance Quadrants ─────────────────────────────────────
     _section_header(
-        "Keyword Diagnostics",
-        "Top 20 by spend · automated flagging for over-spending, under-bidding, and zero-conversion terms",
+        "Performance Quadrants",
+        "ROAS vs Conversion Rate · bubble size = spend · quadrant dividers = portfolio averages",
     )
+    if _exec_dash:
+        try:
+            _exec_dash._render_performance_scatter({"df_current": df_for_charts, "medians": {}})
+        except Exception as _e:
+            _empty_state(f"Performance quadrants unavailable ({_e})")
+    else:
+        _empty_state("Performance quadrants unavailable")
 
-    kw_df = _build_keyword_df(cur_df, target_roas, match_filter)
-    _render_keyword_diagnostics(kw_df, target_roas)
+    st.markdown("<br>", unsafe_allow_html=True)
+
+    # ── Section 5: Keyword Diagnostics + Intelligence Log ────────────────────
+    kw_col, log_col = st.columns([13, 7])
+
+    with kw_col:
+        _section_header(
+            "Keyword Diagnostics",
+            "Top keywords by spend · automated flagging: over-spending, under-bidding, zero-conversion",
+        )
+        kw_df = _build_keyword_df(cur_df, target_roas, match_filter)
+        _render_keyword_diagnostics(kw_df, target_roas, max_rows=10)
+        if len(kw_df) > 10:
+            with st.expander(f"Show all {len(kw_df)} keywords →"):
+                _render_keyword_diagnostics(kw_df, target_roas, max_rows=None)
+
+    with log_col:
+        _section_header("SADDL Intelligence Log", "Optimizer run history")
+        _render_intelligence_log(client_id, test_mode)
 
     st.markdown("<br>", unsafe_allow_html=True)
