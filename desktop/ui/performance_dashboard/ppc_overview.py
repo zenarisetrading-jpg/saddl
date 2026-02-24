@@ -743,6 +743,12 @@ def render_ppc_overview() -> None:
         _empty_state("No PPC data found. Upload a bulk file via the Data Hub to get started.")
         return
 
+    # Normalize column names: DB query returns title-case display aliases
+    # e.g. "Spend" → "spend", "Campaign Name" → "campaign_name", "Date" → "start_date"
+    raw_df = raw_df.copy()
+    raw_df.columns = [c.strip().lower().replace(" ", "_") for c in raw_df.columns]
+    raw_df = raw_df.rename(columns={"date": "start_date", "targeting": "target_text"})
+
     # Filter current window
     cur_df = _filter_by_date(raw_df, window_days)
 
