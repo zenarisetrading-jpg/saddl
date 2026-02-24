@@ -40,4 +40,5 @@ jobs:
         MARKETPLACE_ID_UAE: ${{ secrets.MARKETPLACE_ID_UAE }}
       run: |
         export PYTHONPATH=.
-        ./scripts/run_pipeline_once.sh
+        chmod +x scripts/run_pipeline_once.sh
+        bash scripts/run_pipeline_once.sh
