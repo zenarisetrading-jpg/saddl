@@ -26,7 +26,7 @@ except FileNotFoundError:
 # Import Core Modules
 from ui.layout import setup_page, render_sidebar, render_home
 from core.data_hub import DataHub
-from features.optimizer import (
+from features.optimizer_shared import (
     OptimizerModule, 
     prepare_data, 
     identify_harvest_candidates, 
@@ -296,7 +296,7 @@ def run_consolidated_optimizer():
     # ==========================================
     # LOG ACTIONS FOR IMPACT ANALYSIS (Silent)
     # ==========================================
-    from features.optimizer import _log_optimization_events
+    from features.optimizer_shared import _log_optimization_events
     try:
         client_id = st.session_state.get('last_stats_save', {}).get('client_id', 'default_client')
         report_date = date_info.get('start_date') or st.session_state.get('last_stats_save', {}).get('start_date')

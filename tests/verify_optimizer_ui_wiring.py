@@ -14,13 +14,13 @@ class TestOptimizerWiring(unittest.TestCase):
         """Verify all new UI modules can be imported and the OptimizerModule initializes."""
         try:
             print("\nAttempting to import OptimizerModule...")
-            from features.optimizer import OptimizerModule
+            from features.optimizer_shared import OptimizerModule
             
             print("Attempting to import UI Submodules directly...")
-            from features.optimizer.ui.landing import render_landing_page
-            from features.optimizer.ui.results import render_results_dashboard
-            from features.optimizer.ui.components import inject_optimizer_css
-            from features.optimizer.ui.charts import render_spend_reallocation_chart
+            from features.optimizer_shared.ui.landing import render_landing_page
+            from features.optimizer_shared.ui.results import render_results_dashboard
+            from features.optimizer_shared.ui.components import inject_optimizer_css
+            from features.optimizer_shared.ui.charts import render_spend_reallocation_chart
             
             print("Initializing OptimizerModule...")
             opt = OptimizerModule()

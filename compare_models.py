@@ -7,7 +7,7 @@ import sys
 sys.path.append(os.path.join(os.path.dirname(__file__), 'desktop'))
 
 try:
-    from features.optimizer.strategies.bids import calculate_bid_optimizations
+    from features.optimizer_shared.strategies.bids import calculate_bid_optimizations
     from app_core.data_hub import DataHub
 except ImportError as e:
     print(f"Warning: Could not import existing optimizer: {e}")
