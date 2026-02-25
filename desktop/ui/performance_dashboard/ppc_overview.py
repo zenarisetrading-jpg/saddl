@@ -900,6 +900,7 @@ def render_ppc_overview() -> None:
         f"Last {window_days} days · vs prior {window_days}-day period",
         icon="health",
     )
+    st.markdown('<div style="height:14px"></div>', unsafe_allow_html=True)
     _render_health_strip(stats)
 
     st.markdown("<br>", unsafe_allow_html=True)
@@ -935,6 +936,7 @@ def render_ppc_overview() -> None:
             "Sorted by spend · ROAS color-coded against target",
             icon="campaign",
         )
+        st.markdown('<div style="height:14px"></div>', unsafe_allow_html=True)
 
         # Match type filter
         match_options = ["All", "Exact", "Broad", "Phrase", "Auto", "PT"]
