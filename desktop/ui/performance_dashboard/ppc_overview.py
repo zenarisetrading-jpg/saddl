@@ -290,10 +290,64 @@ def _inject_ppc_theme() -> None:
 # UI COMPONENTS
 # ===========================================================================
 
-def _section_header(title: str, subtitle: str = "") -> None:
-    sub_html = f"<p>{subtitle}</p>" if subtitle else ""
+# SVG icon library — all 20×20, fill="none", stroke-width="2", viewBox="0 0 24 24"
+_ICONS: Dict[str, str] = {
+    # Cyan bar-chart — PPC Health
+    "health": (
+        '<svg width="20" height="20" viewBox="0 0 24 24" fill="none" '
+        'stroke="#06B6D4" stroke-width="2" stroke-linecap="round">'
+        '<line x1="18" y1="20" x2="18" y2="10"/>'
+        '<line x1="12" y1="20" x2="12" y2="4"/>'
+        '<line x1="6"  y1="20" x2="6"  y2="14"/>'
+        '<line x1="2"  y1="20" x2="22" y2="20"/>'
+        '</svg>'
+    ),
+    # Emerald table/grid — Campaign Performance
+    "campaign": (
+        '<svg width="20" height="20" viewBox="0 0 24 24" fill="none" '
+        'stroke="#10B981" stroke-width="2" stroke-linecap="round">'
+        '<rect x="3" y="3" width="18" height="18" rx="2"/>'
+        '<line x1="3" y1="9"  x2="21" y2="9"/>'
+        '<line x1="3" y1="15" x2="21" y2="15"/>'
+        '<line x1="9" y1="3"  x2="9"  y2="21"/>'
+        '</svg>'
+    ),
+    # Indigo magnifying glass — Keyword Diagnostics
+    "keyword": (
+        '<svg width="20" height="20" viewBox="0 0 24 24" fill="none" '
+        'stroke="#818CF8" stroke-width="2" stroke-linecap="round">'
+        '<circle cx="11" cy="11" r="8"/>'
+        '<line x1="21" y1="21" x2="16.65" y2="16.65"/>'
+        '</svg>'
+    ),
+    # Amber clock/history — Intelligence Log
+    "intel": (
+        '<svg width="20" height="20" viewBox="0 0 24 24" fill="none" '
+        'stroke="#F59E0B" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">'
+        '<polyline points="12 8 12 12 14 14"/>'
+        '<path d="M3.05 11a9 9 0 1 1 .5 4m-.5 5v-5h5"/>'
+        '</svg>'
+    ),
+}
+
+
+def _section_header(title: str, subtitle: str = "", icon: str = "") -> None:
+    """
+    Render a section header matching ExecutiveDashboard._chart_header() style:
+    dark-gradient band, optional SVG icon left, title + subtitle.
+    Uses .panel-header-content CSS (injected by ExecutiveDashboard.__init__).
+    """
+    svg = _ICONS.get(icon, "")
+    sub = (
+        f'<p style="color:#64748B;font-size:0.7rem;margin:2px 0 0 0">{subtitle}</p>'
+        if subtitle else ""
+    )
     st.markdown(
-        f'<div class="ppc-section"><h3>{title}</h3>{sub_html}</div>',
+        f'<div class="panel-header-content" style="display:flex;align-items:center;gap:10px">'
+        f'{svg}'
+        f'<div><span style="font-size:1rem;color:#F5F5F7;font-weight:600">{title}</span>'
+        f'{sub}</div>'
+        f'</div>',
         unsafe_allow_html=True,
     )
 
@@ -841,19 +895,25 @@ def render_ppc_overview() -> None:
         _exec_dash = None
 
     # ── Section 1: PPC Health Strip ──────────────────────────────────────────
-    _section_header("PPC Health", f"Last {window_days} days · vs prior {window_days}-day period")
+    _section_header(
+        "PPC Health",
+        f"Last {window_days} days · vs prior {window_days}-day period",
+        icon="health",
+    )
     _render_health_strip(stats)
 
     st.markdown("<br>", unsafe_allow_html=True)
 
     # ── Section 2: Decision Impact ────────────────────────────────────────────
-    _section_header("Decision Impact", "14-day validated attributed revenue from optimizer actions")
+    # NOTE: _render_decision_impact_card() and _render_decision_timeline() each call
+    # self._chart_header() internally — no outer _section_header() needed here.
     if exec_data and _exec_dash:
         _di_l, _di_r = st.columns([3, 7])
         with _di_l:
             try:
                 _exec_dash._render_decision_impact_card(exec_data)
             except Exception as _e:
+                _section_header("Decision Impact", icon="intel")
                 _empty_state(f"Impact card unavailable ({_e})")
         with _di_r:
             try:
@@ -861,7 +921,8 @@ def render_ppc_overview() -> None:
             except Exception as _e:
                 _empty_state(f"Impact timeline unavailable ({_e})")
     else:
-        _empty_state("Decision impact data not available — run the optimizer to generate attributed revenue data.")
+        _section_header("Decision Impact", "14-day validated attributed revenue from optimizer actions", icon="intel")
+        _empty_state("Run the optimizer to generate attributed revenue data.")
 
     st.markdown("<br>", unsafe_allow_html=True)
 
@@ -872,6 +933,7 @@ def render_ppc_overview() -> None:
         _section_header(
             "Campaign Performance",
             "Sorted by spend · ROAS color-coded against target",
+            icon="campaign",
         )
 
         # Match type filter
@@ -908,28 +970,31 @@ def render_ppc_overview() -> None:
                 _render_campaign_table(campaign_df, target_roas, max_rows=None)
 
     with eff_col:
-        _section_header("Match Type Efficiency", "Revenue % ÷ Spend % · values above 1.0 outperform their budget share")
+        # NOTE: _render_spend_breakdown() calls self._chart_header("Where The Money Is")
+        # internally — no outer header needed.
         if _exec_dash:
             try:
                 _exec_dash._render_spend_breakdown({"df_current": df_for_charts, "medians": {}})
             except Exception as _e:
+                _section_header("Match Type Efficiency", icon="campaign")
                 _empty_state(f"Efficiency chart unavailable ({_e})")
         else:
+            _section_header("Match Type Efficiency", icon="campaign")
             _empty_state("Match type efficiency unavailable")
 
     st.markdown("<br>", unsafe_allow_html=True)
 
     # ── Section 4: Performance Quadrants ─────────────────────────────────────
-    _section_header(
-        "Performance Quadrants",
-        "ROAS vs Conversion Rate · bubble size = spend · quadrant dividers = portfolio averages",
-    )
+    # NOTE: _render_performance_scatter() calls self._chart_header("Performance Quadrants")
+    # internally — no outer header needed.
     if _exec_dash:
         try:
             _exec_dash._render_performance_scatter({"df_current": df_for_charts, "medians": {}})
         except Exception as _e:
+            _section_header("Performance Quadrants", icon="health")
             _empty_state(f"Performance quadrants unavailable ({_e})")
     else:
+        _section_header("Performance Quadrants", icon="health")
         _empty_state("Performance quadrants unavailable")
 
     st.markdown("<br>", unsafe_allow_html=True)
@@ -941,6 +1006,7 @@ def render_ppc_overview() -> None:
         _section_header(
             "Keyword Diagnostics",
             "Top keywords by spend · automated flagging: over-spending, under-bidding, zero-conversion",
+            icon="keyword",
         )
         kw_df = _build_keyword_df(cur_df, target_roas, match_filter)
         _render_keyword_diagnostics(kw_df, target_roas, max_rows=10)
@@ -949,7 +1015,7 @@ def render_ppc_overview() -> None:
                 _render_keyword_diagnostics(kw_df, target_roas, max_rows=None)
 
     with log_col:
-        _section_header("SADDL Intelligence Log", "Optimizer run history")
+        _section_header("SADDL Intelligence Log", "Optimizer run history", icon="intel")
         _render_intelligence_log(client_id, test_mode)
 
     st.markdown("<br>", unsafe_allow_html=True)
