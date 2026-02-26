@@ -18,6 +18,9 @@ Usage:
         render_onboarding_wizard()
 """
 
+import os
+import time
+
 import streamlit as st
 from config.design_system import COLORS, TYPOGRAPHY, SPACING, GLASSMORPHIC
 from config.features import FEATURE_ONBOARDING_WIZARD
@@ -453,20 +456,65 @@ def _render_step_3_next_steps():
             render_connect_amazon_account_button()
         else:
             client_id = st.session_state.get('amazon_client_id', '')
-            st.html(f"""
-                <div style="
-                    background: {GLASSMORPHIC['background']};
-                    backdrop-filter: {GLASSMORPHIC['backdrop_filter']};
-                    border-left: 4px solid {COLORS['success']};
-                    border-radius: 8px;
-                    padding: {SPACING['md']} {SPACING['lg']};
-                    color: {COLORS['text_primary']};
-                    font-size: {TYPOGRAPHY['body_md']};
-                ">
-                    <strong>✅ Successfully Connected!</strong> Your advertising data is now syncing. 
-                    <br><span style="color: {COLORS['text_secondary']}; font-size: 0.9em;">Client ID: {client_id}</span>
-                </div>
-            """)
+            db_status = _get_backfill_status(client_id) if client_id else 'unknown'
+
+            if db_status == 'active':
+                st.html(f"""
+                    <div style="
+                        background: {GLASSMORPHIC['background']};
+                        backdrop-filter: {GLASSMORPHIC['backdrop_filter']};
+                        border-left: 4px solid {COLORS['success']};
+                        border-radius: 8px;
+                        padding: {SPACING['md']} {SPACING['lg']};
+                        color: {COLORS['text_primary']};
+                        font-size: {TYPOGRAPHY['body_md']};
+                    ">
+                        <strong>✅ Data ready!</strong> Your 90-day history has been synced.
+                        Taking you to the dashboard…
+                        <br><span style="color: {COLORS['text_secondary']}; font-size: 0.9em;">Client ID: {client_id}</span>
+                    </div>
+                """)
+                time.sleep(2)
+                dismiss_onboarding()
+                st.rerun()
+
+            elif db_status == 'backfilling':
+                st.html(f"""
+                    <div style="
+                        background: {GLASSMORPHIC['background']};
+                        backdrop-filter: {GLASSMORPHIC['backdrop_filter']};
+                        border-left: 4px solid {COLORS['primary']};
+                        border-radius: 8px;
+                        padding: {SPACING['md']} {SPACING['lg']};
+                        color: {COLORS['text_primary']};
+                        font-size: {TYPOGRAPHY['body_md']};
+                    ">
+                        <strong>Syncing your data…</strong> Pulling 90 days of sales &amp; traffic history.
+                        This usually takes 3–8 minutes. This page refreshes automatically.
+                        <br><span style="color: {COLORS['text_secondary']}; font-size: 0.9em;">Client ID: {client_id}</span>
+                    </div>
+                """)
+                time.sleep(5)
+                st.rerun()
+
+            else:
+                # status = 'connected' — OAuth done, worker hasn't picked it up yet
+                st.html(f"""
+                    <div style="
+                        background: {GLASSMORPHIC['background']};
+                        backdrop-filter: {GLASSMORPHIC['backdrop_filter']};
+                        border-left: 4px solid {COLORS['warning']};
+                        border-radius: 8px;
+                        padding: {SPACING['md']} {SPACING['lg']};
+                        color: {COLORS['text_primary']};
+                        font-size: {TYPOGRAPHY['body_md']};
+                    ">
+                        <strong>Connected!</strong> Waiting for the sync worker to start…
+                        <br><span style="color: {COLORS['text_secondary']}; font-size: 0.9em;">Client ID: {client_id}</span>
+                    </div>
+                """)
+                time.sleep(5)
+                st.rerun()
 
     # Navigation buttons
     st.markdown(f"<div style='height: {SPACING['xl']};'></div>", unsafe_allow_html=True)
@@ -682,6 +730,25 @@ def _build_checklist_html(items: list) -> str:
             </div>
         '''
     return html
+
+
+def _get_backfill_status(client_id: str) -> str:
+    """Query DB for the current onboarding_status of a client. Returns 'unknown' on any error."""
+    try:
+        import psycopg2  # type: ignore
+        db_url = os.environ.get("DATABASE_URL", "")
+        if not db_url:
+            return "unknown"
+        with psycopg2.connect(db_url) as conn:
+            with conn.cursor() as cur:
+                cur.execute(
+                    "SELECT onboarding_status FROM client_settings WHERE client_id = %s",
+                    (client_id,),
+                )
+                row = cur.fetchone()
+        return row[0] if row else "unknown"
+    except Exception:
+        return "unknown"
 
 
 # ============================================================================

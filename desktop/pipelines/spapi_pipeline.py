@@ -140,16 +140,35 @@ def _get_connection():
     return psycopg2.connect(db_url)
 
 
-def upsert_sales_traffic(records: List[Dict], report_date: str, marketplace_id: str) -> int:
+def upsert_sales_traffic(
+    records: List[Dict],
+    report_date: str,
+    marketplace_id: str,
+    account_id: str = "",
+) -> int:
+    """Write raw sales/traffic rows to sc_raw.sales_traffic.
+
+    ``account_id`` must be the caller's local client identifier (e.g. the
+    value stored in ``client_settings.client_id``) so that rows are
+    isolated per tenant and can be aggregated correctly by the downstream
+    ``pipeline.aggregator.upsert_account_daily`` function.
+    """
     rows = _extract_rows(records)
     if not rows:
         logger.warning("No sales/traffic rows found for %s", report_date)
         return 0
 
+    if not account_id:
+        logger.warning(
+            "upsert_sales_traffic called without account_id for %s — rows will be untagged",
+            report_date,
+        )
+
     sql = """
     INSERT INTO sc_raw.sales_traffic (
         report_date,
         marketplace_id,
+        account_id,
         child_asin,
         parent_asin,
         ordered_revenue,
@@ -162,8 +181,8 @@ def upsert_sales_traffic(records: List[Dict], report_date: str, marketplace_id: 
         unit_session_percentage,
         pulled_at
     )
-    VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, NOW())
-    ON CONFLICT (report_date, marketplace_id, child_asin)
+    VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, NOW())
+    ON CONFLICT (report_date, marketplace_id, account_id, child_asin)
     DO UPDATE SET
         parent_asin = EXCLUDED.parent_asin,
         ordered_revenue = EXCLUDED.ordered_revenue,
@@ -189,6 +208,7 @@ def upsert_sales_traffic(records: List[Dict], report_date: str, marketplace_id: 
                     (
                         row.get("startDate") or report_date,
                         marketplace_id,
+                        account_id or None,
                         row.get("childAsin"),
                         row.get("parentAsin"),
                         ordered_sales.get("amount"),
@@ -207,7 +227,7 @@ def upsert_sales_traffic(records: List[Dict], report_date: str, marketplace_id: 
     return inserted
 
 
-def upsert_account_totals(report_date: str, marketplace_id: str) -> None:
+def upsert_account_totals(report_date: str, marketplace_id: str, account_id: str = "") -> None:
     sql = """
     INSERT INTO sc_raw.account_totals (
         report_date,
@@ -231,6 +251,7 @@ def upsert_account_totals(report_date: str, marketplace_id: str) -> None:
     FROM sc_raw.sales_traffic
     WHERE report_date = %s
       AND marketplace_id = %s
+      AND (%s = '' OR account_id = %s)
     GROUP BY report_date, marketplace_id
     ON CONFLICT (report_date, marketplace_id)
     DO UPDATE SET
@@ -244,11 +265,11 @@ def upsert_account_totals(report_date: str, marketplace_id: str) -> None:
 
     with _get_connection() as conn:
         with conn.cursor() as cur:
-            cur.execute(sql, (report_date, marketplace_id))
+            cur.execute(sql, (report_date, marketplace_id, account_id, account_id))
         conn.commit()
 
 
-def fetch_for_date(report_date: str) -> int:
+def fetch_for_date(report_date: str, account_id: str = "") -> int:
     settings = get_settings()
     access_token = get_token()
     query_body = build_sales_traffic_query(report_date, report_date, settings.marketplace_id)
@@ -261,9 +282,9 @@ def fetch_for_date(report_date: str) -> int:
         raise RuntimeError(f"No dataDocumentId returned for queryId={query_id}")
 
     payloads = download_query_document(access_token, data_document_id)
-    row_count = upsert_sales_traffic(payloads, report_date, settings.marketplace_id)
-    upsert_account_totals(report_date, settings.marketplace_id)
-    logger.info("Processed %s rows for date=%s", row_count, report_date)
+    row_count = upsert_sales_traffic(payloads, report_date, settings.marketplace_id, account_id=account_id)
+    upsert_account_totals(report_date, settings.marketplace_id, account_id=account_id)
+    logger.info("Processed %s rows for date=%s account_id=%s", row_count, report_date, account_id)
     return row_count
 
 
@@ -457,7 +478,7 @@ def run_daily_pull(client_id: str = "s2c_uae_test") -> None:
                     time.sleep(sleep_for)
 
             # Fetch sales & traffic
-            fetch_for_date(target_date)
+            fetch_for_date(target_date, account_id=client_id)
 
             if not inventory_synced:
                 try:
