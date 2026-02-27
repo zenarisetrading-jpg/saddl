@@ -51,7 +51,7 @@ log = logging.getLogger("saddl.daily")
 # ── DB helpers ─────────────────────────────────────────────────────────────────
 
 def _get_db_url() -> str:
-    url = os.getenv("DATABASE_URL")
+    url = os.getenv("DATABASE_URL", "").strip()   # strip trailing newlines from GitHub secrets
     if not url:
         sys.exit("❌  DATABASE_URL is not set.")
     return url

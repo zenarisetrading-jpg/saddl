@@ -56,13 +56,19 @@ def _connect():
     return psycopg2.connect(_get_db_url())
 
 
+# How many days of sales_traffic must be present to consider a backfill complete.
+# Accounts with fewer days than this will be re-queued for backfill even if
+# they are marked 'active' (handles interrupted backfills gracefully).
+_MIN_BACKFILL_DAYS = BACKFILL_DAYS - 5   # allow a small tolerance
+
+
 def _find_pending_clients() -> list[dict]:
     """
-    Return accounts that:
-      - have onboarding_status = 'connected'  (OAuth done, backfill not yet run)
-      - have an lwa_refresh_token stored
-      - have NO rows yet in sc_raw.fba_inventory for their client_id
-        (proxy for "backfill has never completed successfully")
+    Return accounts that need a (re-)backfill:
+      1. onboarding_status = 'connected'  — OAuth done, never backfilled
+      2. onboarding_status = 'active' but fewer than _MIN_BACKFILL_DAYS of
+         sales_traffic data — backfill was interrupted and needs to resume
+    Both cases require a stored lwa_refresh_token.
     """
     with _connect() as conn:
         with conn.cursor() as cur:
@@ -70,14 +76,22 @@ def _find_pending_clients() -> list[dict]:
                 SELECT cs.client_id, cs.lwa_refresh_token,
                        cs.marketplace_id, cs.region_endpoint
                 FROM client_settings cs
-                WHERE cs.onboarding_status = 'connected'
-                  AND cs.lwa_refresh_token IS NOT NULL
-                  AND NOT EXISTS (
-                      SELECT 1 FROM sc_raw.fba_inventory fi
-                      WHERE fi.client_id = cs.client_id
-                      LIMIT 1
+                WHERE cs.lwa_refresh_token IS NOT NULL
+                  AND (
+                    -- Never backfilled
+                    cs.onboarding_status = 'connected'
+                    OR
+                    -- Active but incomplete sales data (interrupted backfill)
+                    (
+                      cs.onboarding_status = 'active'
+                      AND (
+                        SELECT COUNT(DISTINCT report_date)
+                        FROM sc_raw.sales_traffic st
+                        WHERE st.account_id = cs.client_id
+                      ) < %(min_days)s
+                    )
                   )
-            """)
+            """, {"min_days": _MIN_BACKFILL_DAYS})
             rows = cur.fetchall()
     return [
         {
@@ -149,12 +163,31 @@ def _run_backfill_for(
         # takes ~2–3 hours — well within the expected backfill window.
         log.info("  [1/4] Submitting Data Kiosk queries day-by-day (%s → %s)…", start_dt, end_dt)
         rows_sc        = 0
-        day_cur        = date.fromisoformat(start_dt)
-        day_end        = date.fromisoformat(end_dt)
+        days_done      = 0
         last_submit_ts: Optional[float] = None
+
+        # Skip days already in the DB so interrupted backfills resume cleanly
+        with _connect() as _chk_conn:
+            with _chk_conn.cursor() as _chk_cur:
+                _chk_cur.execute(
+                    "SELECT DISTINCT report_date FROM sc_raw.sales_traffic "
+                    "WHERE account_id = %s",
+                    (client_id,)
+                )
+                already_done = {r[0] for r in _chk_cur.fetchall()}
+        log.info("  [1/4] %d days already in DB — will skip those", len(already_done))
+
+        day_cur = date.fromisoformat(start_dt)
+        day_end = date.fromisoformat(end_dt)
 
         while day_cur <= day_end:
             day_str = day_cur.isoformat()
+            day_cur += timedelta(days=1)   # always advance regardless of outcome
+
+            if date.fromisoformat(day_str) in already_done:
+                days_done += 1
+                continue
+
             try:
                 # Respect Data Kiosk createQuery rate limit (1 per 60s)
                 if last_submit_ts:
@@ -177,14 +210,15 @@ def _run_backfill_for(
                     records  = download_query_document(access_token, doc_id, region_endpoint=region_endpoint)
                     day_rows = upsert_sales_traffic(records, day_str, settings.marketplace_id, account_id=client_id)
                     rows_sc += day_rows
-                    log.info("    %s  %d rows", day_str, day_rows)
+                    days_done += 1
+                    log.info("    %s  %d rows  (total days: %d)", day_str, day_rows, days_done)
                 else:
                     log.warning("    %s  no dataDocumentId — skipping", day_str)
             except Exception as day_exc:
-                log.warning("    %s  failed (skipping): %s", day_str, day_exc)
-            day_cur += timedelta(days=1)
+                log.warning("    %s  failed (continuing): %s", day_str, day_exc)
 
-        log.info("  [1/4] ✓ %d rows written (account_id=%s)", rows_sc, client_id)
+        log.info("  [1/4] ✓ %d rows written across %d days (account_id=%s)",
+                 rows_sc, days_done, client_id)
 
 
 
