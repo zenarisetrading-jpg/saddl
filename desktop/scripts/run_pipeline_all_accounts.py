@@ -126,8 +126,31 @@ def _run_for_account(account: dict, target_date: str) -> dict:
         )
         from pipeline.aggregator import upsert_account_daily, upsert_osi_index
 
-        settings     = get_settings(marketplace_id=marketplace_id, region_endpoint=region_endpoint)
-        access_token = get_token(force_refresh=True)
+        # Inject per-account marketplace config as env vars so get_settings()
+        # picks them up regardless of which version of sp_api_client is deployed
+        prev_marketplace  = os.environ.get("MARKETPLACE_ID_UAE")
+        prev_endpoint     = os.environ.get("SP_API_ENDPOINT")
+        os.environ["MARKETPLACE_ID_UAE"] = marketplace_id
+        if region_endpoint:
+            os.environ["SP_API_ENDPOINT"] = (
+                f"https://{region_endpoint}"
+                if not region_endpoint.startswith("http")
+                else region_endpoint
+            )
+
+        try:
+            settings     = get_settings()
+            access_token = get_token(force_refresh=True)
+        finally:
+            # Restore marketplace env vars
+            if prev_marketplace is not None:
+                os.environ["MARKETPLACE_ID_UAE"] = prev_marketplace
+            else:
+                os.environ.pop("MARKETPLACE_ID_UAE", None)
+            if prev_endpoint is not None:
+                os.environ["SP_API_ENDPOINT"] = prev_endpoint
+            else:
+                os.environ.pop("SP_API_ENDPOINT", None)
         db_url       = _get_db_url()
 
         # ── 1. Sales & Traffic (single batch query, granularity=DAY) ──────────
