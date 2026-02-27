@@ -65,10 +65,11 @@ _MIN_BACKFILL_DAYS = BACKFILL_DAYS - 5   # allow a small tolerance
 def _find_pending_clients() -> list[dict]:
     """
     Return accounts that need a (re-)backfill:
-      1. onboarding_status = 'connected'  — OAuth done, never backfilled
-      2. onboarding_status = 'active' but fewer than _MIN_BACKFILL_DAYS of
+      1. onboarding_status = 'connected'    — OAuth done, never backfilled
+      2. onboarding_status = 'backfilling'  — previous worker crashed mid-loop
+      3. onboarding_status = 'active' but fewer than _MIN_BACKFILL_DAYS of
          sales_traffic data — backfill was interrupted and needs to resume
-    Both cases require a stored lwa_refresh_token.
+    All cases require a stored lwa_refresh_token.
     """
     with _connect() as conn:
         with conn.cursor() as cur:
@@ -78,8 +79,8 @@ def _find_pending_clients() -> list[dict]:
                 FROM client_settings cs
                 WHERE cs.lwa_refresh_token IS NOT NULL
                   AND (
-                    -- Never backfilled
-                    cs.onboarding_status = 'connected'
+                    -- Never backfilled, or previous worker crashed mid-run
+                    cs.onboarding_status IN ('connected', 'backfilling')
                     OR
                     -- Active but incomplete sales data (interrupted backfill)
                     (
@@ -93,6 +94,7 @@ def _find_pending_clients() -> list[dict]:
                   )
             """, {"min_days": _MIN_BACKFILL_DAYS})
             rows = cur.fetchall()
+
     return [
         {
             "client_id": r[0],
