@@ -27,6 +27,7 @@ import os
 import sys
 import time
 from pathlib import Path
+from typing import Optional
 
 ROOT = Path(__file__).resolve().parent
 sys.path.insert(0, str(ROOT))
@@ -66,7 +67,8 @@ def _find_pending_clients() -> list[dict]:
     with _connect() as conn:
         with conn.cursor() as cur:
             cur.execute("""
-                SELECT cs.client_id, cs.lwa_refresh_token
+                SELECT cs.client_id, cs.lwa_refresh_token,
+                       cs.marketplace_id, cs.region_endpoint
                 FROM client_settings cs
                 WHERE cs.onboarding_status = 'connected'
                   AND cs.lwa_refresh_token IS NOT NULL
@@ -77,17 +79,39 @@ def _find_pending_clients() -> list[dict]:
                   )
             """)
             rows = cur.fetchall()
-    return [{"client_id": r[0], "refresh_token": r[1]} for r in rows]
+    return [
+        {
+            "client_id": r[0],
+            "refresh_token": r[1],
+            "marketplace_id": r[2],
+            "region_endpoint": r[3],
+        }
+        for r in rows
+    ]
 
 
-def _run_backfill_for(client_id: str, refresh_token: str) -> None:
+def _run_backfill_for(
+    client_id: str,
+    refresh_token: str,
+    marketplace_id: Optional[str] = None,
+    region_endpoint: Optional[str] = None,
+) -> None:
     """Run the full backfill for one client. Mirrors _backfill_thread_fn in data_hub.py."""
     from datetime import date, timedelta
+    from utils.marketplace_config import get_client_marketplace_config  # type: ignore
 
     log.info("▶  Starting backfill  client=%s", client_id)
 
-    marketplace_id = os.getenv("MARKETPLACE_ID_UAE", "A2VIGQ35RCS4UG")
-    prev_token     = os.environ.get("LWA_REFRESH_TOKEN_UAE")
+    # Resolve per-client marketplace config — use stored DB values when available,
+    # fall back to env var for legacy clients that predate marketplace discovery.
+    if not marketplace_id or not region_endpoint:
+        marketplace_id, region_endpoint = get_client_marketplace_config(
+            client_id, _get_db_url()
+        )
+
+    log.info("  Marketplace : %s  endpoint=%s", marketplace_id, region_endpoint)
+
+    prev_token = os.environ.get("LWA_REFRESH_TOKEN_UAE")
     os.environ["LWA_REFRESH_TOKEN_UAE"] = refresh_token
 
     # Clear cached access token so we auth with this client's token
@@ -108,7 +132,9 @@ def _run_backfill_for(client_id: str, refresh_token: str) -> None:
             upsert_sales_traffic, pull_fba_inventory,
         )
 
-        settings     = get_settings()
+        settings     = get_settings(
+            marketplace_id=marketplace_id, region_endpoint=region_endpoint
+        )
         access_token = get_token(force_refresh=True)
         today        = date.today()
         start_dt     = (today - timedelta(days=BACKFILL_DAYS)).strftime("%Y-%m-%d")
@@ -116,19 +142,51 @@ def _run_backfill_for(client_id: str, refresh_token: str) -> None:
 
         log.info("  Date range  : %s → %s", start_dt, end_dt)
 
-        # Step 1 — Sales & Traffic (raw rows, tagged with client_id)
-        log.info("  [1/4] Submitting Data Kiosk query…")
-        qbody    = build_sales_traffic_query(start_dt, end_dt, settings.marketplace_id)
-        qid      = create_data_kiosk_query(access_token, qbody)
-        payload  = poll_query_status(access_token, qid, poll_seconds=30, max_wait_minutes=30)
-        doc_id   = payload.get("dataDocumentId")
-        if not doc_id:
-            raise RuntimeError(f"No dataDocumentId for queryId={qid}")
-        payloads = download_query_document(access_token, doc_id)
-        rows_sc  = upsert_sales_traffic(
-            payloads, end_dt, settings.marketplace_id, account_id=client_id
-        )
+        # ── Step 1 — Sales & Traffic (day-by-day for daily ASIN-level granularity) ──
+        # The Data Kiosk salesAndTrafficByAsin query aggregates the full date range
+        # into one row per ASIN, so we submit one query per day to preserve daily
+        # granularity. The rate limit is 1 createQuery per 60s; at 90 days this
+        # takes ~2–3 hours — well within the expected backfill window.
+        log.info("  [1/4] Submitting Data Kiosk queries day-by-day (%s → %s)…", start_dt, end_dt)
+        rows_sc        = 0
+        day_cur        = date.fromisoformat(start_dt)
+        day_end        = date.fromisoformat(end_dt)
+        last_submit_ts: Optional[float] = None
+
+        while day_cur <= day_end:
+            day_str = day_cur.isoformat()
+            try:
+                # Respect Data Kiosk createQuery rate limit (1 per 60s)
+                if last_submit_ts:
+                    elapsed = time.time() - last_submit_ts
+                    if elapsed < 62:
+                        time.sleep(62 - elapsed)
+
+                qbody          = build_sales_traffic_query(day_str, day_str, settings.marketplace_id)
+                qid            = create_data_kiosk_query(access_token, qbody, region_endpoint=region_endpoint)
+                last_submit_ts = time.time()
+
+                # Poll with 10s intervals (Amazon resolves most queries in < 2 min)
+                payload = poll_query_status(
+                    access_token, qid,
+                    poll_seconds=10, max_wait_minutes=30,
+                    region_endpoint=region_endpoint,
+                )
+                doc_id = payload.get("dataDocumentId")
+                if doc_id:
+                    records  = download_query_document(access_token, doc_id, region_endpoint=region_endpoint)
+                    day_rows = upsert_sales_traffic(records, day_str, settings.marketplace_id, account_id=client_id)
+                    rows_sc += day_rows
+                    log.info("    %s  %d rows", day_str, day_rows)
+                else:
+                    log.warning("    %s  no dataDocumentId — skipping", day_str)
+            except Exception as day_exc:
+                log.warning("    %s  failed (skipping): %s", day_str, day_exc)
+            day_cur += timedelta(days=1)
+
         log.info("  [1/4] ✓ %d rows written (account_id=%s)", rows_sc, client_id)
+
+
 
         # Step 1b — Aggregate raw rows → sc_analytics.account_daily
         log.info("  [2/4] Aggregating sales/traffic → account_daily…")
@@ -161,7 +219,11 @@ def _run_backfill_for(client_id: str, refresh_token: str) -> None:
 
         # Step 3 — FBA Inventory
         log.info("  [3/4] FBA inventory snapshot…")
-        rows_inv = pull_fba_inventory(client_id)
+        rows_inv = pull_fba_inventory(
+            client_id,
+            marketplace_id=settings.marketplace_id,
+            region_endpoint=region_endpoint,
+        )
         log.info("  [3/4] ✓ %s rows written", rows_inv)
 
         # Step 4 — BSR (best-effort)
@@ -189,7 +251,7 @@ def _run_backfill_for(client_id: str, refresh_token: str) -> None:
                     "aws_region":        os.getenv("AWS_REGION", "eu-west-1"),
                     "marketplace_uae":   settings.marketplace_id,
                     "spapi_account_id":  client_id,
-                    "endpoint":          "https://sellingpartnerapi-eu.amazon.com",
+                    "endpoint":          f"https://{region_endpoint}" if region_endpoint else "https://sellingpartnerapi-eu.amazon.com",
                     "database_url":      db_url,
                 }
                 bsr_rows = fetch_bsr_batch(cfg, token=access_token,
@@ -201,6 +263,25 @@ def _run_backfill_for(client_id: str, refresh_token: str) -> None:
         except Exception as bsr_exc:
             log.warning("  [4/4] BSR failed (non-fatal): %s", bsr_exc)
 
+        # ── Sanity check before declaring victory ─────────────────────
+        # If both Data Kiosk (0 rows) AND FBA inventory failed (None),
+        # the account has no data at all — most likely a transient Amazon
+        # API issue.  Keep status as 'connected' so the worker retries
+        # on the next poll instead of silently marking the account active
+        # with an empty database.
+        fba_ok = rows_inv is not None and rows_inv >= 0
+        sales_ok = rows_sc > 0
+        if not fba_ok and not sales_ok:
+            log.warning(
+                "⚠️  No data written for client=%s "
+                "(Data Kiosk: %d rows, FBA: %s rows). "
+                "Resetting to 'connected' for retry on next poll.",
+                client_id, rows_sc, rows_inv,
+            )
+            _set_status(client_id, "connected")
+            return
+
+        _upsert_account_link(client_id, settings.marketplace_id)
         _set_status(client_id, "active")
         log.info("✅  Backfill complete  client=%s", client_id)
 
@@ -218,6 +299,30 @@ def _run_backfill_for(client_id: str, refresh_token: str) -> None:
             _spc._token_cache.update({"access_token": None, "expires_at": None})
         except Exception:
             pass
+
+
+def _upsert_account_link(client_id: str, marketplace_id: str) -> None:
+    """Ensure sc_raw.spapi_account_links has an entry for this client so the
+    dashboard can resolve the correct marketplace when querying data."""
+    try:
+        with _connect() as conn:
+            with conn.cursor() as cur:
+                cur.execute(
+                    """
+                    INSERT INTO sc_raw.spapi_account_links
+                        (account_id, public_client_id, marketplace_id, is_active, notes)
+                    VALUES (%s, %s, %s, TRUE, 'Auto-created by worker on backfill')
+                    ON CONFLICT (account_id, marketplace_id) DO UPDATE SET
+                        public_client_id = EXCLUDED.public_client_id,
+                        is_active        = TRUE,
+                        updated_at       = NOW()
+                    """,
+                    (client_id, client_id, marketplace_id),
+                )
+            conn.commit()
+        log.info("  account_link upserted  client=%s  marketplace=%s", client_id, marketplace_id)
+    except Exception as exc:
+        log.warning("  account_link upsert failed (non-fatal): %s", exc)
 
 
 def _set_status(client_id: str, status: str) -> None:
@@ -251,7 +356,12 @@ def main() -> None:
             if pending:
                 log.info("Found %d account(s) needing backfill", len(pending))
                 for client in pending:
-                    _run_backfill_for(client["client_id"], client["refresh_token"])
+                    _run_backfill_for(
+                        client["client_id"],
+                        client["refresh_token"],
+                        marketplace_id=client.get("marketplace_id"),
+                        region_endpoint=client.get("region_endpoint"),
+                    )
         except Exception as exc:
             log.error("Worker poll error (will retry): %s", exc)
 

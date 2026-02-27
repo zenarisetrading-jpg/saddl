@@ -118,16 +118,83 @@ def log_optimization_events(results: dict, client_id: str, report_date: str):
     if not actions_to_log:
         return 0
     
-    # PENDING ACTIONS WORKFLOW: Store actions in session state for confirmation on tab exit
-    # This allows user to run multiple scenarios before committing to actions_log table
+    # PENDING ACTIONS WORKFLOW: Store actions in session state for immediate flush via flush_pending_actions_to_db()
     st.session_state['pending_actions'] = {
         'actions': actions_to_log,
         'client_id': client_id,
         'batch_id': batch_id,
         'report_date': report_date
     }
-    
-    # Show user feedback that actions are ready (not saved yet)
-    st.info(f"{len(actions_to_log)} actions ready. Will prompt to save when you leave this tab.")
-    
+
     return len(actions_to_log)
+
+
+
+def flush_pending_actions_to_db(test_mode: bool = False) -> int:
+    """
+    Commit all pending optimizer actions from session_state to the actions_log table.
+    
+    Returns the number of rows written, or 0 if nothing to save.
+    Raises on DB connection failure so the caller can show an error message.
+    """
+    pending = st.session_state.get('pending_actions')
+    if not pending or not pending.get('actions'):
+        return 0
+
+    actions = pending['actions']
+    client_id = pending['client_id']
+    batch_id = pending['batch_id']
+    report_date = pending['report_date']
+
+    db = get_db_manager(test_mode)
+    if not db:
+        raise RuntimeError("Database manager unavailable")
+
+    sql = """
+    INSERT INTO actions_log (
+        action_date, client_id, batch_id, entity_name, action_type,
+        old_value, new_value, reason,
+        campaign_name, ad_group_name, target_text, match_type,
+        winner_source_campaign, new_campaign_name,
+        before_match_type, after_match_type,
+        intelligence_flags
+    )
+    VALUES (
+        %s, %s, %s, %s, %s,
+        %s, %s, %s,
+        %s, %s, %s, %s,
+        %s, %s,
+        %s, %s,
+        %s
+    )
+    """
+
+    written = 0
+    with db._get_connection() as conn:
+        with conn.cursor() as cur:
+            for action in actions:
+                cur.execute(sql, (
+                    report_date,
+                    client_id,
+                    batch_id,
+                    action.get('entity_name', ''),
+                    action.get('action_type', ''),
+                    action.get('old_value', ''),
+                    action.get('new_value', ''),
+                    action.get('reason', ''),
+                    action.get('campaign_name', ''),
+                    action.get('ad_group_name', ''),
+                    action.get('target_text', ''),
+                    action.get('match_type', ''),
+                    action.get('winner_source_campaign', None),
+                    action.get('new_campaign_name', None),
+                    action.get('before_match_type', None),
+                    action.get('after_match_type', None),
+                    action.get('intelligence_flags', None),
+                ))
+                written += 1
+        conn.commit()
+
+    # Clear the queue so double-saves don't happen
+    st.session_state.pop('pending_actions', None)
+    return written

@@ -178,6 +178,19 @@ def render_results_dashboard(results: dict):
     Args:
         results (dict): Dictionary containing optimization results (df, harvest, neg_kw, etc.)
     """
+    # === HANDLE SAVE TRIGGER (must run before any rendering) ===
+    if st.session_state.pop("trigger_save", False):
+        try:
+            from features.optimizer_shared.logging import flush_pending_actions_to_db
+            test_mode = bool(st.session_state.get("test_mode", False))
+            saved = flush_pending_actions_to_db(test_mode=test_mode)
+            if saved > 0:
+                st.success(f"✅ {saved} optimization actions saved to history successfully!")
+            else:
+                st.info("No pending actions to save. Run the optimizer first.")
+        except Exception as e:
+            st.error(f"❌ Failed to save run: {e}")
+
     # 1. Extract Data
     # === PREMIUM STYLES ===
     st.markdown("""

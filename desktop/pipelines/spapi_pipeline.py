@@ -22,7 +22,13 @@ if not logger.handlers:
 
 
 def build_sales_traffic_query(start_date: str, end_date: str, marketplace_id: str) -> str:
-    """Build Data Kiosk GraphQL query body using aggregateBy=CHILD."""
+    """Build Data Kiosk GraphQL query body using aggregateBy=CHILD.
+
+    Use startDate == endDate for a single-day query (returns one row per ASIN
+    for that day).  Use a date range for a multi-day aggregated pull (returns
+    one row per ASIN covering the whole range — daily granularity requires
+    separate per-day queries).
+    """
     query = f"""
     {{
       analytics_salesAndTraffic_2024_04_24 {{
@@ -57,8 +63,10 @@ def build_sales_traffic_query(start_date: str, end_date: str, marketplace_id: st
     return json.dumps({"query": query})
 
 
-def create_data_kiosk_query(access_token: str, query_body: str) -> str:
-    settings = get_settings()
+def create_data_kiosk_query(
+    access_token: str, query_body: str, region_endpoint: Optional[str] = None
+) -> str:
+    settings = get_settings(region_endpoint=region_endpoint)
     url = f"{settings.endpoint}/dataKiosk/2023-11-15/queries"
     response = requests.post(
         url,
@@ -73,8 +81,14 @@ def create_data_kiosk_query(access_token: str, query_body: str) -> str:
     return query_id
 
 
-def poll_query_status(access_token: str, query_id: str, poll_seconds: int = 60, max_wait_minutes: int = 60) -> Dict:
-    settings = get_settings()
+def poll_query_status(
+    access_token: str,
+    query_id: str,
+    poll_seconds: int = 60,
+    max_wait_minutes: int = 60,
+    region_endpoint: Optional[str] = None,
+) -> Dict:
+    settings = get_settings(region_endpoint=region_endpoint)
     url = f"{settings.endpoint}/dataKiosk/2023-11-15/queries/{query_id}"
     max_polls = max_wait_minutes * 60 // poll_seconds
 
@@ -95,8 +109,10 @@ def poll_query_status(access_token: str, query_id: str, poll_seconds: int = 60, 
     raise TimeoutError(f"Query {query_id} did not complete within {max_wait_minutes} minutes")
 
 
-def download_query_document(access_token: str, data_document_id: str) -> List[Dict]:
-    settings = get_settings()
+def download_query_document(
+    access_token: str, data_document_id: str, region_endpoint: Optional[str] = None
+) -> List[Dict]:
+    settings = get_settings(region_endpoint=region_endpoint)
     url = f"{settings.endpoint}/dataKiosk/2023-11-15/documents/{data_document_id}"
     response = requests.get(url, headers=make_headers(access_token), auth=get_auth(), timeout=60)
     response.raise_for_status()
@@ -288,7 +304,11 @@ def fetch_for_date(report_date: str, account_id: str = "") -> int:
     return row_count
 
 
-def pull_fba_inventory(client_id: str) -> Optional[int]:
+def pull_fba_inventory(
+    client_id: str,
+    marketplace_id: Optional[str] = None,
+    region_endpoint: Optional[str] = None,
+) -> Optional[int]:
     def _as_int(value: Optional[str]) -> Optional[int]:
         if value in (None, ""):
             return None
@@ -298,7 +318,7 @@ def pull_fba_inventory(client_id: str) -> Optional[int]:
             return None
 
     try:
-        settings = get_settings()
+        settings = get_settings(marketplace_id=marketplace_id, region_endpoint=region_endpoint)
         access_token = get_token(force_refresh=True)
         auth = get_auth()
 
@@ -306,7 +326,7 @@ def pull_fba_inventory(client_id: str) -> Optional[int]:
         parsed_rows: List[Dict] = []
         next_token = None
         page = 1
-        
+
         while True:
             request_url = f"{settings.endpoint}/fba/inventory/v1/summaries"
             params = {
@@ -319,16 +339,30 @@ def pull_fba_inventory(client_id: str) -> Optional[int]:
                 params["nextToken"] = next_token
 
             logger.info("Fetching FBA inventory API page %d", page)
-            
+
             response = None
+            last_exc: Optional[Exception] = None
             for attempt in range(1, 5):
-                response = requests.get(
-                    request_url,
-                    params=params,
-                    headers=make_headers(access_token),
-                    auth=auth,
-                    timeout=30,
-                )
+                try:
+                    response = requests.get(
+                        request_url,
+                        params=params,
+                        headers=make_headers(access_token),
+                        auth=auth,
+                        timeout=30,
+                    )
+                except Exception as req_exc:
+                    last_exc = req_exc
+                    logger.warning(
+                        "FBA Inventory request error (attempt %d/4): %s: %s",
+                        attempt, type(req_exc).__name__, req_exc,
+                    )
+                    if attempt < 4:
+                        time.sleep(2 ** attempt)
+                        continue
+                    logger.error("FBA Inventory API failed after %d attempts: %s", attempt, req_exc)
+                    return None
+
                 if response.status_code == 429:
                     if attempt <= 3:
                         logger.warning("FBA Inventory API throttled (429). Waiting 10s before retry %s/3", attempt)
@@ -337,9 +371,13 @@ def pull_fba_inventory(client_id: str) -> Optional[int]:
                     logger.error("FBA Inventory API failed after retries. status=%s body=%s", response.status_code, response.text)
                     return None
                 break
-                
+
             if not response or not response.ok:
-                logger.error("FBA Inventory API failed. status=%s body=%s", response.status_code if response else None, response.text if response else None)
+                logger.error(
+                    "FBA Inventory API failed. status=%s body=%s",
+                    response.status_code if response else None,
+                    (response.text[:500] if response else None),
+                )
                 return None
 
             data = response.json()

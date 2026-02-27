@@ -451,3 +451,51 @@ def _render_v2_results_view():
             "agg_bids": agg_bids,
         }
         render_downloads_tab(results_for_downloads)
+
+    # ── SAVE RUN ─────────────────────────────────────────────────────────────
+    st.divider()
+    st.markdown(
+        """
+        <div style='background:rgba(30,41,59,0.55);border:1px solid rgba(45,212,191,0.25);
+                    border-radius:12px;padding:18px 22px;margin-top:8px;'>
+            <div style='color:#f8fafc;font-weight:700;font-size:16px;margin-bottom:6px;'>
+                💾 Save This Optimization Run
+            </div>
+            <div style='color:#94a3b8;font-size:13px;'>
+                Saves all bid changes, negatives, and harvest actions to the database
+                so the Impact Dashboard can track what you actually implemented.
+            </div>
+        </div>
+        """,
+        unsafe_allow_html=True,
+    )
+
+    save_col, _ = st.columns([1, 2])
+    with save_col:
+        if st.button("💾 Save Run to History", type="primary", use_container_width=True, key="v2_runner_save_run"):
+            try:
+                from features.optimizer_shared.logging import log_optimization_events, flush_pending_actions_to_db
+                import datetime
+
+                client_id = st.session_state.get("active_account_id", "")
+                test_mode = bool(st.session_state.get("test_mode", False))
+                report_date = datetime.date.today().isoformat()
+
+                # Map v2 result keys to what log_optimization_events expects
+                loggable = {
+                    "neg_kw": neg_kw,
+                    "neg_pt": neg_pt,
+                    "harvest": harvest,
+                    "bids_exact": bids_ex,
+                    "bids_pt": bids_pt,
+                    "bids_agg": bids_agg,
+                    "bids_auto": bids_auto,
+                }
+                queued = log_optimization_events(loggable, client_id, report_date)
+                if queued > 0:
+                    saved = flush_pending_actions_to_db(test_mode=test_mode)
+                    st.success(f"✅ {saved} optimization actions saved to history!")
+                else:
+                    st.info("No actions to save from this run.")
+            except Exception as e:
+                st.error(f"❌ Save failed: {e}")
