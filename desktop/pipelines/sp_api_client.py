@@ -46,7 +46,22 @@ def _required_env(name: str) -> str:
     return value
 
 
-def get_settings() -> SPAPISettings:
+def get_settings(
+    marketplace_id: Optional[str] = None,
+    region_endpoint: Optional[str] = None,
+) -> SPAPISettings:
+    """Build SP-API settings.
+
+    When marketplace_id / region_endpoint are provided (per-client dynamic
+    values fetched from client_settings), they override the env-var defaults.
+    Callers that do not pass these args get the legacy env-var behaviour.
+    """
+    effective_marketplace = marketplace_id or os.getenv("MARKETPLACE_ID_UAE", "A2VIGQ35RCS4UG")
+    effective_endpoint = (
+        f"https://{region_endpoint}"
+        if region_endpoint and not region_endpoint.startswith("http")
+        else region_endpoint
+    ) or os.getenv("SP_API_ENDPOINT", "https://sellingpartnerapi-eu.amazon.com")
     return SPAPISettings(
         lwa_client_id=_required_env("LWA_CLIENT_ID"),
         lwa_client_secret=_required_env("LWA_CLIENT_SECRET"),
@@ -54,8 +69,8 @@ def get_settings() -> SPAPISettings:
         aws_access_key_id=_required_env("AWS_ACCESS_KEY_ID"),
         aws_secret_access_key=_required_env("AWS_SECRET_ACCESS_KEY"),
         aws_region=os.getenv("AWS_REGION", "eu-west-1"),
-        marketplace_id=os.getenv("MARKETPLACE_ID_UAE", "A2VIGQ35RCS4UG"),
-        endpoint=os.getenv("SP_API_ENDPOINT", "https://sellingpartnerapi-eu.amazon.com"),
+        marketplace_id=effective_marketplace,
+        endpoint=effective_endpoint,
     )
 
 
