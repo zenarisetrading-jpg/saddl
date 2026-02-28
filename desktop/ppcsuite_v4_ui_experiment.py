@@ -77,7 +77,7 @@ def run_seeding():
 # Delay heavy feature imports by moving them into routing/main logic
 from ui.layout import setup_page, render_sidebar, render_home
 from app_core.data_hub import DataHub
-from app_core.db_manager import DatabaseManager, get_db_manager
+from app_core.db_manager import get_db_manager
 from utils.matchers import ExactMatcher
 from utils.formatters import format_currency
 from app_core.data_loader import safe_numeric
@@ -93,6 +93,14 @@ from app_core.auth.service import AuthService
 from app_core.auth.middleware import require_auth, require_permission
 from ui.auth.login import render_login
 # Legacy import removed: from auth import require_authentication, render_user_menu
+
+# ── PostgreSQL enforcement ──────────────────────────────────────────────────
+import sys as _sys
+_db_url = os.environ.get("DATABASE_URL", "")
+if not _db_url.startswith("postgresql"):
+    print("ERROR: SADDL requires a PostgreSQL connection. SQLite is not supported.")
+    _sys.exit(1)
+# ────────────────────────────────────────────────────────────────────────────
 
 # Global dark theme CSS for sidebar buttons
 st.markdown("""
@@ -158,6 +166,9 @@ if 'test_mode' not in st.session_state:
 
 if 'db_manager' not in st.session_state:
     st.session_state['db_manager'] = None
+
+if "active_perf_tab" not in st.session_state:
+    st.session_state["active_perf_tab"] = "overview"
 
 
 # ==========================================
@@ -447,8 +458,6 @@ def render_shared_report():
     
     try:
         # Fetch report from database
-        # This automatically uses PostgresManager if DATABASE_URL is set (Production)
-        # Or DatabaseManager (SQLite) for local dev fallback
         db = get_db_manager()
         report_data = db.get_shared_report(report_id)
         

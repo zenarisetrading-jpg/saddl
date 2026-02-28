@@ -257,7 +257,7 @@ If Auto outperforms Manual: Discovery is working - harvest more aggressively
         print(f"[ASSISTANT] Constructing granular dataset...")
         print(f"[ASSISTANT] Checking session state: unified_data={st.session_state.get('unified_data') is not None}, data={st.session_state.get('data') is not None}")
 
-        if 'unified_data' in st.session_state and st.session_state.unified_data.get('search_term_report') is not None:
+        if 'unified_data' in st.session_state and st.session_state.get("unified_data", {}).get('search_term_report') is not None:
             str_df = st.session_state.unified_data['search_term_report']
             print(f"[ASSISTANT] Loaded from unified_data: {len(str_df)} rows")
         elif 'data' in st.session_state and 'search_term_report' in st.session_state['data']:
