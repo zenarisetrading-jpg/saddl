@@ -314,7 +314,7 @@ def fetch_business_overview_data(
 
     account_id, marketplace_id = _resolve_spapi_scope(db, client_id)
 
-    target_df = db.get_target_stats_df(client_id)
+    target_df = db.get_target_stats_df(client_id, start_date=prev_start)
     if target_df is None:
         target_df = pd.DataFrame()
     if not target_df.empty and "Date" in target_df.columns:

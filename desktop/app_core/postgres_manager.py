@@ -1243,17 +1243,36 @@ class PostgresManager:
     # Actually, for this specific large query, let's just disable the broken custom cache.
     
     @retry_on_connection_error()
-    def get_target_stats_df(self, client_id: str = 'default_client') -> pd.DataFrame:
-        """Get large historical dataset. Custom caching removed to fix stale data issues."""
-        
-        # cache_key = f'target_stats_df_{client_id}'
-        # cached = _query_cache.get(cache_key)
-        # if cached is not None:
-        #     return cached
+    def get_target_stats_df(
+        self,
+        client_id: str = 'default_client',
+        start_date=None,
+    ) -> pd.DataFrame:
+        """Get target stats, optionally filtered to a start_date.
+
+        Pass start_date to avoid fetching the entire history when only a
+        recent window is needed (e.g. the homepage).  Results are cached
+        in-process for 5 minutes; the cache key includes client_id + start_date
+        so different callers don't collide.
+        """
+        import time as _time
+
+        # —— In-process TTL cache ——
+        if not hasattr(PostgresManager, '_ts_cache'):
+            PostgresManager._ts_cache = {}   # {key: (ts, df)}
+        cache_key = f"{client_id}|{start_date}"
+        cached = PostgresManager._ts_cache.get(cache_key)
+        if cached:
+            ts, df = cached
+            if _time.time() - ts < 300:   # 5-minute TTL
+                return df
+
+        date_filter = "AND start_date >= %s" if start_date else ""
+        params = (client_id, start_date) if start_date else (client_id,)
 
         with self._get_connection() as conn:
-            query = """
-                SELECT 
+            query = f"""
+                SELECT
                     start_date as "Date",
                     campaign_name as "Campaign Name",
                     ad_group_name as "Ad Group Name",
@@ -1265,16 +1284,16 @@ class PostgresManager:
                     orders as "Orders",
                     clicks as "Clicks",
                     impressions as "Impressions"
-                FROM target_stats 
-                WHERE client_id = %s 
+                FROM target_stats
+                WHERE client_id = %s
+                {date_filter}
                 ORDER BY start_date DESC
             """
-            df = pd.read_sql(query, conn, params=(client_id,))
+            df = pd.read_sql(query, conn, params=params)
             if not df.empty and 'Date' in df.columns:
                 df['Date'] = pd.to_datetime(df['Date'])
-                print(f"DEBUG: DB fetch for {client_id}: {len(df)} rows. Range: {df['Date'].min()} to {df['Date'].max()}")
-        
-        # _query_cache.set(cache_key, df)
+
+        PostgresManager._ts_cache[cache_key] = (_time.time(), df)
         return df
     
             
