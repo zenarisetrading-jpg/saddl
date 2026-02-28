@@ -1056,15 +1056,12 @@ def main():
             run_account_settings()
 
         elif current == 'team_settings':
-            import importlib
-            import sys
-            # Clear module cache to prevent KeyError
-            if 'ui.auth.user_management' in sys.modules:
-                importlib.reload(sys.modules['ui.auth.user_management'])
+            try:
                 from ui.auth.user_management import render_user_management
-            else:
-                from ui.auth.user_management import render_user_management
-            render_user_management()
+                render_user_management()
+            except Exception as e:
+                st.error(f"❌ Teams page error: {e}")
+                st.exception(e)
 
         elif current == 'profile':
             from features.account_settings import run_account_settings
