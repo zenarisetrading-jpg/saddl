@@ -118,9 +118,6 @@ def _read_sql(query: str, params: Optional[List[Any]] = None) -> pd.DataFrame:
     with db._get_connection() as conn:  # Existing manager pattern uses internal connection context.
         sql = query
         sql_params = params or []
-        # SQLite expects '?' placeholders; signal queries use Postgres-style '%s'.
-        if conn.__class__.__module__.startswith("sqlite3"):
-            sql = sql.replace("%s", "?")
         return pd.read_sql_query(sql, conn, params=sql_params)
 
 
@@ -228,12 +225,8 @@ def fetch_all_signal_views(
 def get_recent_validation_summary(client_id: str = CLIENT_ID, days: int = 14, validated_only: bool = True) -> Dict[str, Any]:
     """Read Impact Dashboard summary via existing manager API (read-only)."""
     db = get_db_manager(test_mode=False)
-    try:
-        # PostgresManager signature
-        summary = db.get_impact_summary(client_id=client_id, before_days=14, after_days=days)
-    except TypeError:
-        # SQLite DatabaseManager signature fallback
-        summary = db.get_impact_summary(client_id=client_id)
+    # PostgresManager signature
+    summary = db.get_impact_summary(client_id=client_id, before_days=14, after_days=days)
 
     # PostgresManager returns nested {"all": {...}, "validated": {...}}.
     # Impact Dashboard default is validated-only, but this can be switched off.
