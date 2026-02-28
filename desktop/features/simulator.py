@@ -29,7 +29,11 @@ class SimulatorModule(BaseFeature):
     def run(self):
         """Main execution method for the Simulator module."""
         self._inject_forecast_premium_css()
-        self.render_ui()
+        try:
+            self.render_ui()
+        except Exception as e:
+            st.error(f"❌ Simulator error: {e}")
+            st.exception(e)
 
     def _inject_forecast_premium_css(self):
         """Premium styling matching Executive Dashboard quality."""
