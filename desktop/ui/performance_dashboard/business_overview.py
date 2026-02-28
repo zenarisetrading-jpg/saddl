@@ -1669,8 +1669,6 @@ def render_business_overview() -> None:
     window_days = int(str(st.session_state.get("biz_overview_window", "30D")).replace("D", ""))
     test_mode = bool(st.session_state.get("test_mode", False))
     spapi_available = check_spapi_available(client_id)
-    st.session_state["perf_dash_spapi_available"] = spapi_available
-
     data = fetch_business_overview_data(
         client_id=client_id,
         window_days=window_days,
