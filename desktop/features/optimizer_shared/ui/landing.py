@@ -3,13 +3,42 @@ import datetime
 from .components import render_status_badge
 
 @st.cache_data(ttl=300, show_spinner=False)
-def _fetch_target_stats_cached(client_id: str, test_mode: bool):
-    """Cache database query for target stats - prevents repeated DB calls on every rerun."""
+def _fetch_daily_stats_cached(client_id: str, test_mode: bool):
+    """Fetch daily PPC data from raw_search_term_data for the landing page.
+    
+    Uses the daily table (report_date) instead of weekly target_stats so that
+    the date picker and KPIs match Campaign Manager's daily granularity exactly.
+    """
     from app_core.db_manager import get_db_manager
+    import pandas as pd
     db_manager = get_db_manager(test_mode)
-    if db_manager and client_id:
-        return db_manager.get_target_stats_df(client_id)
-    return None
+    if not db_manager or not client_id:
+        return None
+    try:
+        with db_manager._get_connection() as conn:
+            query = """
+                SELECT
+                    report_date AS "Date",
+                    campaign_name AS "Campaign Name",
+                    ad_group_name AS "Ad Group Name",
+                    targeting AS "Targeting",
+                    customer_search_term AS "Customer Search Term",
+                    match_type AS "Match Type",
+                    spend AS "Spend",
+                    sales AS "Sales",
+                    orders AS "Orders",
+                    clicks AS "Clicks",
+                    impressions AS "Impressions"
+                FROM raw_search_term_data
+                WHERE client_id = %s
+                ORDER BY report_date DESC
+            """
+            df = pd.read_sql(query, conn, params=(client_id,))
+            if not df.empty and 'Date' in df.columns:
+                df['Date'] = pd.to_datetime(df['Date'])
+            return df
+    except Exception:
+        return None
 
 def render_landing_page(config: dict):
     """
@@ -494,7 +523,7 @@ def render_landing_page(config: dict):
 
     if client_id:
         try:
-            db_df = _fetch_target_stats_cached(client_id, test_mode)
+            db_df = _fetch_daily_stats_cached(client_id, test_mode)
             if db_df is not None and not db_df.empty:
                 df = db_df.copy()
                 if 'Date' in df.columns:
@@ -504,11 +533,11 @@ def render_landing_page(config: dict):
                         df_max = df['Date'].max()
                         if pd.notna(df_min) and pd.notna(df_max):
                             min_date = df_min.date()
-                            max_date = df_max.date() + datetime.timedelta(days=6)
+                            # No +6-day buffer — raw daily data, use actual last date
+                            max_date = df_max.date()
                     except Exception:
                         pass
         except Exception:
-            # Handle database connection errors gracefully
             pass
     elif hub.is_loaded("search_term_report"):
         df_raw = hub.get_data("search_term_report")
@@ -572,7 +601,8 @@ def render_landing_page(config: dict):
             total_sales = filtered_df['Sales'].sum() if 'Sales' in filtered_df.columns else 0
             current_roas = total_sales / total_spend if total_spend > 0 else 0
             current_acos = (total_spend / total_sales * 100) if total_sales > 0 else 0
-            num_terms = len(filtered_df)
+            # Unique search terms (not row count)
+            num_terms = filtered_df['Customer Search Term'].nunique() if 'Customer Search Term' in filtered_df.columns else len(filtered_df)
 
             if total_spend >= 100000:
                 spend_display = f"{currency}{total_spend/1000:.0f}K"
