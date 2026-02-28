@@ -212,14 +212,15 @@ class PostgresManager:
         """
         self.db_url = db_url
         self._init_pool()
-        
-        # Optimization: Only init schema once per process per DB URL
-        if not hasattr(PostgresManager, '_initialized_dbs'):
-            PostgresManager._initialized_dbs = set()
-            
-        if self.db_url not in PostgresManager._initialized_dbs:
+
+        # ── Schema init guard ────────────────────────────────────────────────
+        # The old process-level set (`_initialized_dbs`) was reset on every
+        # Streamlit hot-reload, causing 33 DDL round-trips (~4 s) on each page
+        # navigation. We now persist a single `schema_version` row in the DB
+        # and skip `_init_schema()` when the version already matches. The guard
+        # check costs one fast SELECT (≈50 ms) instead of 33 DDL statements.
+        if not self._schema_is_current():
             self._init_schema()
-            PostgresManager._initialized_dbs.add(self.db_url)
     
     def _init_pool(self):
         """Initialize or reinitialize connection pool with optimal settings."""
@@ -315,6 +316,57 @@ class PostgresManager:
                     except Exception:
                         pass
     
+    # Bump this string whenever you add a new table or column to _init_schema.
+    # Any running instance will detect the version mismatch and re-run the DDL.
+    _SCHEMA_VERSION = "v9"
+
+    def _schema_is_current(self) -> bool:
+        """Return True if the DB already has the expected schema version.
+
+        Costs one fast SELECT (≈50 ms on Supabase).  Falls back to False
+        (triggers full init) if the marker table doesn't exist yet.
+        """
+        # Also cache in class-level set to avoid even the SELECT on same process restarts
+        if not hasattr(PostgresManager, '_initialized_dbs'):
+            PostgresManager._initialized_dbs = set()
+        cache_key = f"{self.db_url}:{self._SCHEMA_VERSION}"
+        if cache_key in PostgresManager._initialized_dbs:
+            return True
+
+        try:
+            with self._get_connection() as conn:
+                with conn.cursor() as cur:
+                    cur.execute("""
+                        SELECT version FROM app_schema_version LIMIT 1
+                    """)
+                    row = cur.fetchone()
+                    if row and row[0] == self._SCHEMA_VERSION:
+                        PostgresManager._initialized_dbs.add(cache_key)
+                        return True
+        except Exception:
+            pass  # Table doesn't exist yet — need full init
+        return False
+
+    def _mark_schema_current(self):
+        """Persist the current schema version to the DB."""
+        with self._get_connection() as conn:
+            with conn.cursor() as cur:
+                cur.execute("""
+                    CREATE TABLE IF NOT EXISTS app_schema_version (
+                        version TEXT PRIMARY KEY,
+                        applied_at TIMESTAMP DEFAULT NOW()
+                    )
+                """)
+                cur.execute("""
+                    INSERT INTO app_schema_version (version, applied_at)
+                    VALUES (%s, NOW())
+                    ON CONFLICT (version) DO UPDATE SET applied_at = NOW()
+                """, (self._SCHEMA_VERSION,))
+        cache_key = f"{self.db_url}:{self._SCHEMA_VERSION}"
+        if not hasattr(PostgresManager, '_initialized_dbs'):
+            PostgresManager._initialized_dbs = set()
+        PostgresManager._initialized_dbs.add(cache_key)
+
     def _init_schema(self):
         """Create tables if they don't exist."""
         with self._get_connection() as conn:
@@ -753,6 +805,9 @@ class PostgresManager:
                     ) inv ON apc.client_id = inv.client_id AND apc.asin = inv.asin
                     ORDER BY apc.client_id, apc.asin
                 """)
+
+        # Persist schema version — subsequent startups skip all DDL above
+        self._mark_schema_current()
 
     def save_weekly_stats(self, client_id: str, start_date: date, end_date: date, spend: float, sales: float, roas: Optional[float] = None) -> int:
         if roas is None:
