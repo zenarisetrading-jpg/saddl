@@ -62,6 +62,7 @@ import pandas as pd
 import uuid
 import time
 import functools
+import logging
 
 # ==========================================
 # BID VALIDATION CONFIGURATION
@@ -2043,7 +2044,7 @@ class PostgresManager:
                     ))
             return True
         except Exception as e:
-            print(f"Failed to save account health: {e}")
+            logging.error(f"Failed to save account health: {e}")
             return False
     
     def get_account_health(self, client_id: str) -> Optional[Dict[str, Any]]:

@@ -81,6 +81,7 @@ from app_core.db_manager import DatabaseManager, get_db_manager
 from utils.matchers import ExactMatcher
 from utils.formatters import format_currency
 from app_core.data_loader import safe_numeric
+from app_core.session_state import init_session_state
 from pathlib import Path
 
 # === ONBOARDING ===
@@ -149,9 +150,6 @@ st.markdown("""
 # Initialize session state
 if 'current_module' not in st.session_state:
     st.session_state['current_module'] = 'home'
-
-if 'data' not in st.session_state:
-    st.session_state['data'] = {}
 
 if 'test_mode' not in st.session_state:
     st.session_state['test_mode'] = False
@@ -497,6 +495,10 @@ def render_shared_report():
 # MAIN ROUTER
 # ==========================================
 def main():
+    # Initialize all session state keys with safe defaults before any logic runs.
+    # This eliminates the entire class of KeyError crashes permanently.
+    init_session_state()
+
     # === SHARED REPORT ROUTE (Public/No Auth) ===
     # Must be first to bypass auth
     query_params = st.query_params
