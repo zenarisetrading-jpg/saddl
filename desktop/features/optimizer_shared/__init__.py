@@ -101,14 +101,15 @@ class OptimizerModule(BaseFeature):
                 from app_core.db_manager import get_db_manager
                 import pandas as pd
                 from datetime import timedelta
-                from features.optimizer_shared.ui.landing import _fetch_daily_stats_cached
+                from features.optimizer_shared.data_access import fetch_target_stats_cached
 
                 client_id = st.session_state.get('active_account_id')
                 test_mode = st.session_state.get('test_mode', False)
 
-                # Fetch from database like legacy optimizer (USING CACHED VERSION)
+                # Engine uses weekly target_stats — thresholds (MIN_CLICKS, HARVEST_ORDERS)
+                # are calibrated to weekly aggregated rows, not daily rows.
                 if client_id:
-                    df = _fetch_daily_stats_cached(client_id, test_mode)
+                    df = fetch_target_stats_cached(client_id, test_mode)
 
                     # Apply date filtering based on session state
                     if not df.empty and 'Date' in df.columns:
