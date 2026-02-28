@@ -160,7 +160,7 @@ def _run_for_account(account: dict, target_date: str) -> dict:
             qid     = create_data_kiosk_query(access_token, qbody, region_endpoint=region_endpoint)
             payload = poll_query_status(
                 access_token, qid,
-                poll_seconds=30, max_wait_minutes=15,
+                poll_seconds=30, max_wait_minutes=45,
                 region_endpoint=region_endpoint,
             )
             doc_id = payload.get("dataDocumentId")

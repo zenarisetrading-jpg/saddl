@@ -273,11 +273,13 @@ class MappingEngine:
         
         # ========== PHASE 3: Bid Columns ===========
         # Map Ad Group Default Bid and Keyword Bid from bulk file
-        if 'Ad Group Default Bid' in bulk.columns or 'Bid' in bulk.columns:
+        _enr_has_keys = 'Campaign Name' in enriched.columns and 'Ad Group Name' in enriched.columns
+        _bulk_has_keys = 'Campaign Name' in bulk.columns and 'Ad Group Name' in bulk.columns
+        if ('Ad Group Default Bid' in bulk.columns or 'Bid' in bulk.columns) and _enr_has_keys and _bulk_has_keys:
             # Normalize keys for matching
             enriched['_camp_norm'] = MappingEngine.normalize(enriched['Campaign Name'])
             enriched['_ag_norm'] = MappingEngine.normalize(enriched['Ad Group Name'])
-            
+
             bulk_norm = bulk.copy()
             bulk_norm['_camp_norm'] = MappingEngine.normalize(bulk_norm['Campaign Name'])
             bulk_norm['_ag_norm'] = MappingEngine.normalize(bulk_norm['Ad Group Name'])

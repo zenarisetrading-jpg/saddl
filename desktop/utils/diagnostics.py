@@ -9,6 +9,7 @@ from typing import Any, Dict, List, Optional
 
 import numpy as np
 import pandas as pd
+import streamlit as st
 from dotenv import load_dotenv
 
 from app_core.db_manager import get_db_manager
@@ -64,6 +65,7 @@ SIGNAL_META = {
 }
 
 
+@st.cache_data(ttl=300, show_spinner=False)
 def get_analysis_anchor_date(client_id: str = CLIENT_ID) -> date:
     """
     Latest common date across core diagnostics inputs.
@@ -344,6 +346,7 @@ def get_diagnostics_overview_payload(client_id: str = CLIENT_ID, days: int = 14)
     }
 
 
+@st.cache_data(ttl=300, show_spinner=False)
 def compute_health_score(client_id: str = CLIENT_ID, days: int = 30) -> Dict[str, Any]:
     """Compute 0-100 health score based on 4 metrics."""
     # Get current vs prior period
@@ -734,6 +737,7 @@ def compute_bsr_roas_correlation(days: int = 60, client_id: str = CLIENT_ID) -> 
     }
 
 
+@st.cache_data(ttl=300, show_spinner=False)
 def detect_cvr_divergence(days: int = 60, client_id: str = CLIENT_ID) -> Dict[str, Any]:
     """Detect if organic and paid CVR are moving together or diverging."""
     account_id = _resolve_scoped_account_id(client_id)
@@ -803,6 +807,7 @@ def detect_cvr_divergence(days: int = 60, client_id: str = CLIENT_ID) -> Dict[st
     }
 
 
+@st.cache_data(ttl=300, show_spinner=False)
 def get_asin_action_table(days: int = 30, client_id: str = CLIENT_ID) -> pd.DataFrame:
     """Generate ASIN-level diagnostic table with recommendations."""
     account_id = _resolve_scoped_account_id(client_id)
@@ -858,6 +863,7 @@ def get_asin_action_table(days: int = 30, client_id: str = CLIENT_ID) -> pd.Data
     return _read_sql(query)
 
 
+@st.cache_data(ttl=300, show_spinner=False)
 def get_session_trend(days: int = 30, client_id: str = CLIENT_ID) -> float:
     """Get period-over-period sessions trend percent."""
     account_id = _resolve_scoped_account_id(client_id)
@@ -893,6 +899,7 @@ def get_session_trend(days: int = 30, client_id: str = CLIENT_ID) -> float:
     return float(result.iloc[0, 0])
 
 
+@st.cache_data(ttl=300, show_spinner=False)
 def get_cvr_trend(days: int = 30, client_id: str = CLIENT_ID) -> float:
     """Get period-over-period organic conversion rate trend percent."""
     account_id = _resolve_scoped_account_id(client_id)
@@ -1068,6 +1075,7 @@ def _resolve_common_commerce_end_date(client_id: str) -> Optional[date]:
     return _coerce_date(result.iloc[0].get("account_daily_max_date"))
 
 
+@st.cache_data(ttl=300, show_spinner=False)
 def get_revenue_breakdown(
     days: int = 90,
     client_id: str = CLIENT_ID,
@@ -1206,6 +1214,7 @@ def get_revenue_breakdown(
     }
 
 
+@st.cache_data(ttl=300, show_spinner=False)
 def get_bsr_trend(days: int = 90, client_id: str = CLIENT_ID) -> Dict[str, Any]:
     """Get BSR trend with rank-improvement-aware interpretation."""
     scope = _resolve_scoped_account_context(client_id)
@@ -1249,6 +1258,7 @@ def get_bsr_trend(days: int = 90, client_id: str = CLIENT_ID) -> Dict[str, Any]:
     }
 
 
+@st.cache_data(ttl=300, show_spinner=False)
 def get_bsr_traffic_overlay(
     days: int = 90,
     client_id: str = CLIENT_ID,
@@ -1344,6 +1354,7 @@ def get_bsr_traffic_overlay(
     }
 
 
+@st.cache_data(ttl=300, show_spinner=False)
 def get_optimization_performance(
     days: int = 30,
     client_id: str = CLIENT_ID,
@@ -1395,6 +1406,7 @@ def get_optimization_performance(
     }
 
 
+@st.cache_data(ttl=300, show_spinner=False)
 def identify_brutal_underperformers(days: int = 30, limit: int = 10, client_id: str = CLIENT_ID) -> List[Dict[str, Any]]:
     """Identify volume-aware underperforming campaigns."""
     anchor_date = get_analysis_anchor_date(client_id=client_id)

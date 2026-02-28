@@ -8,9 +8,11 @@ import streamlit as st
 import pandas as pd
 import numpy as np
 from datetime import timedelta
-import plotly.graph_objects as go  # Import at module level to avoid delay
 
 from ui.theme import ThemeManager
+# plotly is intentionally NOT imported at module level — it adds 3-10 s to cold
+# start and is only needed when the Home page renders a gauge chart.
+# It is imported lazily inside render_home() instead.
 
 
 @st.cache_data(ttl=300, show_spinner=False)
@@ -35,10 +37,216 @@ def _fetch_available_dates_cached(client_id: str):
         return []
 
     return db.get_available_dates(client_id)
-# Lazy imports moved inside functions to prevent circular dependencies
-# from features.impact_dashboard import get_recent_impact_summary
-# from features.report_card import get_account_health_score
-# from app_core.account_utils import get_active_account_id
+
+
+@st.cache_data(ttl=300, show_spinner=False)
+def _fetch_home_pillar_data(client_id: str, window_days: int = 30) -> dict:
+    """
+    Fetch analytics-pillar data + health-score inputs for the Phase-3 homepage.
+
+    Queries (in order, each wrapped in try/except for graceful fallback):
+      1. sc_raw.spapi_account_links  → resolve account_id / marketplace_id
+      2. sc_analytics.account_daily  → revenue, tacos, organic %, sessions, units (current)
+      3. sc_analytics.account_daily  → same fields for previous window (CVR delta, revenue delta)
+      4. raw_search_term_data        → ad spend + last refresh date
+      5. sc_raw.fba_inventory        → latest stock → derive avg days-of-cover
+    """
+    from app_core.db_manager import get_db_manager
+    from datetime import date, timedelta
+
+    _MKTPLACE = "A2VIGQ35RCS4UG"
+
+    empty: dict = {
+        "revenue_30d": 0.0, "revenue_prev_30d": 0.0,
+        # NOTE: tacos_current is NOT read from account_daily — that column is stored
+        # in percentage points (e.g. 12.5 for 12.5 %), NOT as a decimal.
+        # We always compute TACOS ourselves: ad_spend / total_ordered_revenue → decimal.
+        "organic_share_pct": None,    # from account_daily (percentage points, e.g. 60.2)
+        "organic_sales_30d": None,    # from account_daily (AED amount)
+        "ad_sales_30d":      None,    # from account_daily (AED amount)
+        "ad_spend_30d": 0.0,          # from raw_search_term_data
+        "sessions_current": None, "sessions_prev": None,
+        "units_current": None, "units_prev": None,
+        "avg_days_cover": None,
+        "last_refresh_date": None,
+        "spapi_available": False,
+    }
+
+    db = get_db_manager()
+    if not db or not client_id:
+        return empty
+
+    today   = date.today()
+    end_d   = today   - timedelta(days=1)
+    start_d = end_d   - timedelta(days=window_days - 1)
+    prev_e  = start_d - timedelta(days=1)
+    prev_s  = prev_e  - timedelta(days=window_days - 1)
+
+    result = dict(empty)
+    try:
+        with db._get_connection() as conn:
+            cur = conn.cursor()
+
+            # ── 1. Resolve SPAPI scope ────────────────────────────────────
+            account_id     = client_id
+            marketplace_id = _MKTPLACE
+            try:
+                cur.execute("""
+                    SELECT account_id, marketplace_id
+                    FROM sc_raw.spapi_account_links
+                    WHERE public_client_id = %s AND is_active = TRUE
+                    ORDER BY updated_at DESC, id DESC LIMIT 1
+                """, (client_id,))
+                row = cur.fetchone()
+                if row:
+                    account_id     = str(row[0] or client_id)
+                    marketplace_id = str(row[1] or _MKTPLACE)
+                    result["spapi_available"] = True
+            except Exception:
+                pass
+
+            # ── 2. account_daily — current window ────────────────────────
+            # NOTE: tacos column intentionally excluded — it's stored in percentage
+            # points (e.g. 12.5), NOT decimal. TACOS is recomputed in render_home
+            # as ad_spend_30d / revenue_30d to keep it consistent with BO page.
+            # organic_share_pct is also in percentage points (e.g. 60.2 = 60.2 %).
+            try:
+                cur.execute("""
+                    SELECT
+                        COALESCE(SUM(total_ordered_revenue), 0),
+                        AVG(NULLIF(organic_share_pct, 0)),
+                        COALESCE(SUM(organic_revenue), 0),
+                        COALESCE(SUM(ad_attributed_revenue), 0),
+                        COALESCE(SUM(total_sessions), 0),
+                        COALESCE(SUM(total_units_ordered), 0)
+                    FROM sc_analytics.account_daily
+                    WHERE account_id = %s AND marketplace_id = %s
+                      AND report_date BETWEEN %s AND %s
+                """, (account_id, marketplace_id, str(start_d), str(end_d)))
+                row = cur.fetchone()
+                if row:
+                    result.update({
+                        "revenue_30d":       float(row[0] or 0),
+                        # organic_share_pct: stored as pct-points → display as-is
+                        "organic_share_pct": float(row[1]) if row[1] else None,
+                        "organic_sales_30d": float(row[2]) if row[2] else None,
+                        "ad_sales_30d":      float(row[3]) if row[3] else None,
+                        "sessions_current":  float(row[4]) if row[4] else None,
+                        "units_current":     float(row[5]) if row[5] else None,
+                    })
+            except Exception:
+                pass
+
+            # ── 3. account_daily — previous window ───────────────────────
+            try:
+                cur.execute("""
+                    SELECT
+                        COALESCE(SUM(total_ordered_revenue), 0),
+                        COALESCE(SUM(total_sessions), 0),
+                        COALESCE(SUM(total_units_ordered), 0)
+                    FROM sc_analytics.account_daily
+                    WHERE account_id = %s AND marketplace_id = %s
+                      AND report_date BETWEEN %s AND %s
+                """, (account_id, marketplace_id, str(prev_s), str(prev_e)))
+                row = cur.fetchone()
+                if row:
+                    result.update({
+                        "revenue_prev_30d": float(row[0] or 0),
+                        "sessions_prev":    float(row[1]) if row[1] else None,
+                        "units_prev":       float(row[2]) if row[2] else None,
+                    })
+            except Exception:
+                pass
+
+            # ── 4. raw_search_term_data — ad spend + last refresh ─────────
+            try:
+                cur.execute("""
+                    SELECT COALESCE(SUM(spend), 0), MAX(report_date)
+                    FROM raw_search_term_data
+                    WHERE client_id = %s AND report_date BETWEEN %s AND %s
+                """, (client_id, str(start_d), str(end_d)))
+                row = cur.fetchone()
+                if row:
+                    result["ad_spend_30d"]      = float(row[0] or 0)
+                    result["last_refresh_date"]  = str(row[1])[:10] if row[1] else None
+            except Exception:
+                pass
+
+            # ── 5. FBA inventory → days-of-cover ─────────────────────────
+            # Use MAX(snapshot_date) filter instead of DISTINCT ON + ORDER BY,
+            # which avoids a full sort when all ASINs share the same daily snapshot date.
+            try:
+                cur.execute("""
+                    SELECT COALESCE(SUM(afn_fulfillable_quantity), 0)
+                    FROM sc_raw.fba_inventory
+                    WHERE client_id = %s
+                      AND snapshot_date = (
+                          SELECT MAX(snapshot_date)
+                          FROM sc_raw.fba_inventory
+                          WHERE client_id = %s
+                      )
+                """, (client_id, client_id))
+                row = cur.fetchone()
+                total_inv = float(row[0] or 0) if row else 0.0
+                units_cur = result.get("units_current") or 0.0
+                if total_inv > 0 and units_cur > 0:
+                    daily_rate = units_cur / window_days
+                    if daily_rate > 0:
+                        result["avg_days_cover"] = round(total_inv / daily_rate, 1)
+            except Exception:
+                pass
+
+    except Exception:
+        pass
+
+    return result
+
+
+@st.cache_data(ttl=300, show_spinner=False)
+def _fetch_optimizer_stats_cached(client_id: str) -> dict:
+    """
+    Fetch optimizer pillar stats from actions_log.
+
+    Returns:
+        total_actions   int   — all-time count for this client
+        last_run_date   str | None  — date of most recent action (YYYY-MM-DD)
+        pending_count   int   — actions within the last 14 days (window not yet mature)
+    """
+    from app_core.db_manager import get_db_manager
+    from datetime import date, timedelta
+
+    empty = {"total_actions": 0, "last_run_date": None, "pending_count": 0}
+
+    db = get_db_manager()
+    if not db or not client_id:
+        return empty
+
+    cutoff = str(date.today() - timedelta(days=14))
+    try:
+        with db._get_connection() as conn:
+            cur = conn.cursor()
+            cur.execute("""
+                SELECT
+                    COUNT(*)                                              AS total_actions,
+                    MAX(action_date)::date                                AS last_run,
+                    SUM(CASE WHEN action_date::date >= %s THEN 1 ELSE 0 END) AS pending
+                FROM actions_log
+                WHERE client_id = %s
+            """, (cutoff, client_id))
+            row = cur.fetchone()
+            if row:
+                return {
+                    "total_actions": int(row[0] or 0),
+                    "last_run_date": str(row[1])[:10] if row[1] else None,
+                    "pending_count": int(row[2] or 0),
+                }
+    except Exception:
+        pass
+
+    return empty
+
+
+# Lazy imports kept inside functions to prevent circular dependencies at module load
 
 def setup_page():
     """Setup page CSS and styling."""
@@ -135,11 +343,14 @@ def render_sidebar(navigate_to):
     
     return st.session_state.get('current_module', 'home')
 
-def render_home():
+def render_home():  # noqa: C901 – intentionally large view function
+    """
+    Phase 3 Homepage — three-section layout:
+      Section 1  Account Pulse   (top bar with name, health score, top driver)
+      Section 2  Three Pillars   (Analytics | Optimizer | Impact cards)
+      Section 3  Intelligence Briefing (deterministic prose + LLM deep-analysis button)
+    """
     import streamlit as st
-
-    from features.impact_dashboard import get_recent_impact_summary
-    from features.report_card import get_account_health_score
     from app_core.account_utils import get_active_account_id
     from ui.components.empty_states import render_empty_state
     
@@ -192,732 +403,856 @@ def render_home():
         render_empty_state('no_data', context={'account_name': account_name})
         return
 
-    # ==========================================
-    # PREMIUM LOADING STATE (Prevents FOUC)
-    # ==========================================
-    # Show professional loader while fetching data
-    # This prevents Flash of Unstyled Content (FOUC)
+    # ══════════════════════════════════════════════════════════════════
+    # DATA FETCH  (all queries go through @st.cache_data helpers above)
+    # ══════════════════════════════════════════════════════════════════
+    from utils.formatters import get_account_currency
+    from features.dashboard.constants import DEFAULT_TARGET_TACOS
+    from features.dashboard.metrics import (
+        compute_account_health_score,
+        score_against_target_lower_better,
+        score_ratio_higher_better,
+        score_trend_delta,
+        calculate_cvr,
+        calculate_delta_pct,
+    )
+    from features.dashboard.insights import (
+        score_to_label,
+        score_to_color,
+        generate_deterministic_briefing,
+        format_llm_context,
+        call_homepage_llm,
+        parse_analysis_sections,
+    )
 
-    from ui.components.loading import render_premium_loader
+    client_id    = str(active_account_id) if active_account_id else ''
+    currency     = get_account_currency()
+    target_tacos = DEFAULT_TARGET_TACOS   # 0.15 (15 %)
+    WINDOW       = 30
 
-    # Create placeholder for loading state
-    loading_placeholder = st.empty()
+    pillar   = _fetch_home_pillar_data(client_id, WINDOW)
+    opt_data = _fetch_optimizer_stats_cached(client_id)
 
-    # Show premium loader immediately
-    with loading_placeholder.container():
-        # Header (shown immediately)
-        st.markdown('<h1 style="font-size: 1.75rem; font-weight: 700; color: #e2e8f0; margin-bottom: 8px;">DECISION COCKPIT</h1>', unsafe_allow_html=True)
-        st.markdown('<p style="color: #94a3b8; margin-bottom: 32px;">Strategic overview of your account performance</p>', unsafe_allow_html=True)
+    # Impact — session-state cache so the heavy LATERAL-join SQL only runs once per session,
+    # not on every re-render. Falls back to None (Impact pillar shows "—") if not yet loaded.
+    from features.impact.exports import get_recent_impact_summary
+    _impact_skey = f"_home_impact_{client_id}"
+    if _impact_skey not in st.session_state:
+        try:
+            st.session_state[_impact_skey] = get_recent_impact_summary()
+        except Exception:
+            st.session_state[_impact_skey] = None
+    impact_summary = st.session_state[_impact_skey]
 
-        # Premium animated loader
-        render_premium_loader(
-            message="Loading dashboard data",
-            show_progress=True
+    # ══════════════════════════════════════════════════════════════════
+    # HEALTH SCORE  — identical component logic to business_overview.py
+    # ══════════════════════════════════════════════════════════════════
+    total_sales   = pillar.get("revenue_30d", 0.0)
+    ad_spend      = pillar.get("ad_spend_30d", 0.0)
+    organic_sales = pillar.get("organic_sales_30d")
+    ad_sales      = pillar.get("ad_sales_30d")
+    avg_cover     = pillar.get("avg_days_cover")
+    sessions_cur  = pillar.get("sessions_current")
+    sessions_prv  = pillar.get("sessions_prev")
+    units_cur     = pillar.get("units_current")
+    units_prv     = pillar.get("units_prev")
+
+    # TACOS: always ad_spend / total_revenue  → decimal (e.g. 0.153 for 15.3 %)
+    tacos_current = (ad_spend / total_sales) if (total_sales and ad_spend) else None
+
+    tacos_score   = score_against_target_lower_better(tacos_current, target_tacos)
+
+    organic_ratio = None
+    if organic_sales and ad_sales:
+        organic_ratio = organic_sales / ad_sales if ad_sales > 0 else None
+    ratio_score  = score_ratio_higher_better(organic_ratio, baseline=1.0)
+    inv_score    = score_ratio_higher_better(avg_cover, baseline=30.0)
+
+    cvr_current  = calculate_cvr(units_cur or 0, sessions_cur or 0) if sessions_cur else None
+    cvr_prev     = calculate_cvr(units_prv or 0, sessions_prv or 0) if sessions_prv else None
+    cvr_delta    = calculate_delta_pct(cvr_current, cvr_prev)
+    cvr_score    = score_trend_delta(cvr_delta, sensitivity=1.5)
+
+    health_result = compute_account_health_score(
+        tacos_vs_target_score      = tacos_score,
+        organic_paid_ratio_score   = ratio_score,
+        inventory_days_cover_score = inv_score,
+        cvr_trend_score            = cvr_score,
+    )
+
+    health_score = round(health_result.score) if health_result.state != "neutral" else None
+    label        = score_to_label(health_score or 0)
+    label_color  = score_to_color(health_score or 0)
+
+    # ── Biggest-gap driver sentence ───────────────────────────────────
+    top_driver = ""
+    if health_result.state != "neutral" and health_result.weighted_components:
+        _base_weights = {
+            "tacos_vs_target":      0.30,
+            "organic_paid_ratio":   0.25,
+            "inventory_days_cover": 0.25,
+            "cvr_trend":            0.20,
+        }
+        worst_key, worst_gap = "", 0.0
+        for key, wt in _base_weights.items():
+            if key in health_result.weighted_components:
+                gap = wt * 100 - health_result.weighted_components[key]
+                if gap > worst_gap:
+                    worst_gap, worst_key = gap, key
+
+        if worst_key == "tacos_vs_target" and tacos_current is not None:
+            top_driver = (
+                f"TACOS at {tacos_current*100:.1f}% vs {target_tacos*100:.0f}% target "
+                f"\u2014 {worst_gap:.0f}-pt gap"
+            )
+        elif worst_key == "organic_paid_ratio" and organic_ratio is not None:
+            top_driver = f"Organic/paid ratio {organic_ratio:.2f}\u00d7 is the main opportunity"
+        elif worst_key == "inventory_days_cover" and avg_cover is not None:
+            top_driver = f"Inventory cover {avg_cover:.0f} days \u2014 {worst_gap:.0f}-pt gap"
+        elif worst_key == "cvr_trend" and cvr_delta is not None:
+            top_driver = (
+                f"CVR trend {'+' if cvr_delta >= 0 else ''}{cvr_delta:.1f}% "
+                f"\u2014 {worst_gap:.0f}-pt gap"
+            )
+
+    # Impact pillar values
+    attributed   = float(impact_summary.get('attributed_impact', 0)) if impact_summary else 0.0
+    win_rate     = float(impact_summary.get('win_rate',           0)) if impact_summary else 0.0
+    mature_count = int(  impact_summary.get('total_actions',      0)) if impact_summary else 0
+
+    # Metrics bundle (shared by briefing + LLM)
+    organic_pct = pillar.get("organic_share_pct")  # already in pct-points (e.g. 60.2)
+    metrics_bundle = {
+        "health_score":            health_score or 0,
+        "tacos_current":           tacos_current,
+        "target_tacos":            target_tacos,
+        "revenue_30d":             total_sales,
+        "revenue_prev_30d":        pillar.get("revenue_prev_30d", 0.0),
+        "organic_share_pct":       organic_pct,
+        "avg_days_cover":          avg_cover,
+        "attributed_impact":       attributed,
+        "optimizer_total_actions": opt_data.get("total_actions", 0),
+        "win_rate":                win_rate,
+        "currency":                currency,
+        "account_name":            account_name,
+        "last_refresh_date":       pillar.get("last_refresh_date"),
+    }
+
+    # ══════════════════════════════════════════════════════════════════
+    # PRE-RENDER CALCULATIONS
+    # ══════════════════════════════════════════════════════════════════
+    if tacos_current is not None:
+        _tr = (tacos_current - target_tacos) / target_tacos * 100
+        tacos_color = "#EF4444" if _tr > 10 else ("#10B981" if _tr < -10 else "#F59E0B")
+        tacos_cls   = "hp2-val-warn" if _tr > 10 else ("hp2-val-good" if _tr < -10 else "hp2-val")
+    else:
+        tacos_color = "#6B7280"
+        tacos_cls   = "hp2-val"
+
+    rev_prev      = pillar.get("revenue_prev_30d", 0.0)
+    rev_trend_html = ""
+    if rev_prev and total_sales:
+        _rd  = (total_sales - rev_prev) / rev_prev * 100
+        _tc  = "hp2-trend-dn" if _rd < 0 else "hp2-trend-up"
+        # SVG arrows (no bitmap emoji)
+        _arr_svg = (
+            '<svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor"'
+            ' stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">'
+            '<path d="m6 9 6 6 6-6"/></svg>'
+            if _rd < 0 else
+            '<svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor"'
+            ' stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">'
+            '<path d="m18 15-6-6-6 6"/></svg>'
+        )
+        rev_trend_html = (
+            f'<div class="hp2-trend-badge {_tc}">'
+            f'{_arr_svg} {abs(_rd):.1f}% vs prior'
+            f'</div>'
         )
 
-    # ==========================================
-    # FETCH DATA (User sees loader during this)
-    # ==========================================
-    # Fetch all data before rendering content
-    # This ensures no layout shift when content appears
+    _spark_path = (
+        "M0 30 Q60 50,120 45 T220 80 T300 110"
+        if (rev_prev and total_sales and total_sales < rev_prev)
+        else "M0 100 Q60 70,120 80 T220 45 T300 30"
+    )
 
-    try:
-        # Fetch health score
-        health_data = None
-        if active_account_id:
-            health_data = get_account_health_score(str(active_account_id))
+    health_pct    = health_score if health_score is not None else 0
+    last_refresh  = pillar.get("last_refresh_date")
+    refresh_str   = f"Last refresh: {last_refresh}" if last_refresh else "No data yet"
+    rev_str       = f"{total_sales:,.0f}"           if total_sales          else "\u2014"
+    tacos_val     = f"{tacos_current*100:.1f}%"     if tacos_current is not None else "\u2014"
+    tacos_tgt_str = f"{target_tacos*100:.0f}%"
+    org_str       = f"{organic_pct:.1f}%"           if organic_pct is not None else "\u2014"
+    total_act_str = f"{opt_data.get('total_actions', 0):,}"
+    last_run_str  = opt_data.get("last_run_date") or "Never"
+    impact_str    = f"{currency}\u00a0{attributed:,.0f}" if attributed else "\u2014"
+    win_str       = f"{win_rate:.0f}%"              if win_rate             else "\u2014"
+    win_cls       = "hp2-val hp2-val-good"          if win_rate >= 60       else "hp2-val"
 
-        # Fetch impact summary
-        impact_data = get_recent_impact_summary()
+    cache_key       = f"{client_id}_homepage_analysis_30d"
+    cached_analysis = st.session_state.get(cache_key)
 
-    except Exception as e:
-        # On error, show error state instead of broken UI
-        loading_placeholder.empty()
-        st.error(f"⚠️ Error loading dashboard: {str(e)}")
-        return
+    # ── HTML helper — strip indentation to prevent Markdown code-blocks ──
+    import re as _re
+    def _hmd(html: str) -> None:
+        compact = _re.sub(r"\n[ \t]+", "\n", html.strip())
+        st.markdown(compact, unsafe_allow_html=True)
 
-    # ==========================================
-    # CLEAR LOADER & RENDER CONTENT
-    # ==========================================
-    # Remove loader and show actual content
-    # All data is ready, so no FOUC
-    # Spinner will show naturally while data loads (no artificial delay)
+    # ── Lucide-style SVG icon constants (no bitmap/emoji anywhere) ──────
+    # Each is a single-line inline SVG string
+    _I_SHIELD  = ('<svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor"'
+                  ' stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">'
+                  '<path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/>'
+                  '<path d="m9 12 2 2 4-4"/></svg>')
+    _I_CHART   = ('<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor"'
+                  ' stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">'
+                  '<path d="M3 3v18h18"/><path d="M13 17V9"/>'
+                  '<path d="M18 17V5"/><path d="M8 17v-3"/></svg>')
+    _I_ZAP     = ('<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor"'
+                  ' stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">'
+                  '<polygon points="13 2 3 14 12 14 11 22 21 10 12 10 13 2"/></svg>')
+    _I_TARGET  = ('<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor"'
+                  ' stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">'
+                  '<circle cx="12" cy="12" r="10"/><circle cx="12" cy="12" r="6"/>'
+                  '<circle cx="12" cy="12" r="2"/></svg>')
+    _I_CHECK   = ('<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor"'
+                  ' stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">'
+                  '<circle cx="12" cy="12" r="10"/><path d="m9 12 2 2 4-4"/></svg>')
+    _I_EYE     = ('<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor"'
+                  ' stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">'
+                  '<path d="M2 12s3-7 10-7 10 7 10 7-3 7-10 7-10-7-10-7Z"/>'
+                  '<circle cx="12" cy="12" r="3"/></svg>')
+    _I_PIN     = ('<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor"'
+                  ' stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">'
+                  '<path d="M20 10c0 6-8 12-8 12s-8-6-8-12a8 8 0 0 1 16 0Z"/>'
+                  '<circle cx="12" cy="10" r="3"/></svg>')
+    _I_REFRESH = ('<svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor"'
+                  ' stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">'
+                  '<path d="M21 12a9 9 0 0 0-9-9 9.75 9.75 0 0 0-6.74 2.74L3 8"/>'
+                  '<path d="M3 3v5h5"/>'
+                  '<path d="M3 12a9 9 0 0 0 9 9 9.75 9.75 0 0 0 6.74-2.74L21 16"/>'
+                  '<path d="M16 16h5v5"/></svg>')
+    _I_SPARK   = ('<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor"'
+                  ' stroke-width="2" stroke-linecap="round" stroke-linejoin="round">'
+                  '<path d="m12 3-1.912 5.813a2 2 0 0 1-1.275 1.275L3 12l5.813 1.912a2 2 0 0 1'
+                  ' 1.275 1.275L12 21l1.912-5.813a2 2 0 0 1 1.275-1.275L21 12l-5.813-1.912a2 2'
+                  ' 0 0 1-1.275-1.275L12 3Z"/></svg>')
+    _I_BAR_UP  = ('<svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor"'
+                  ' stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">'
+                  '<path d="M3 3v18h18"/><path d="m7 16 4-4 4 4 5-5"/>'
+                  '<path d="M18 7h3v3"/></svg>')
 
-    loading_placeholder.empty()
+    # ══════════════════════════════════════════════════════════════════
+    # CSS
+    # ══════════════════════════════════════════════════════════════════
+    st.markdown(f"""<style>
+/* ── Account header ──────────────────────────────────────────── */
+.hp2-ae-badge {{
+    display:inline-flex;align-items:center;justify-content:center;
+    width:32px;height:32px;border-radius:9px;
+    background:linear-gradient(135deg,#6366F1,#9333EA);
+    box-shadow:0 4px 14px rgba(99,102,241,0.35);
+    font-size:0.68rem;font-weight:800;color:#fff;letter-spacing:0.06em;
+    vertical-align:middle;flex-shrink:0;
+}}
+.hp2-acct-name {{
+    font-size:2.2rem;font-weight:900;letter-spacing:-0.05em;
+    background:linear-gradient(to right,#FFFFFF 40%,#6B7280 100%);
+    -webkit-background-clip:text;-webkit-text-fill-color:transparent;
+    background-clip:text;display:inline-block;line-height:1.1;
+}}
+.hp2-refresh-row {{
+    display:flex;align-items:center;gap:6px;
+    font-size:0.7rem;font-weight:600;color:#374151;
+    text-transform:uppercase;letter-spacing:0.12em;margin-top:6px;
+}}
+.hp2-refresh-row svg {{ opacity:0.5; }}
 
-    # Wrap entire content in a container with fade-in animation
-    st.markdown('<div class="cockpit-content">', unsafe_allow_html=True)
+/* ── Glassmorphic icon wrap (used in pillar titles + AI cards) ── */
+.hp2-icon-wrap {{
+    width:34px;height:34px;border-radius:10px;flex-shrink:0;
+    display:flex;align-items:center;justify-content:center;
+    background:rgba(255,255,255,0.06);
+    border:1px solid rgba(255,255,255,0.1);
+    backdrop-filter:blur(6px);-webkit-backdrop-filter:blur(6px);
+}}
+/* pillar-specific icon wrap colours */
+.hp2-pillar-analytics .hp2-icon-wrap {{
+    background:rgba(99,102,241,0.14);border-color:rgba(99,102,241,0.25);
+}}
+.hp2-pillar-optimizer .hp2-icon-wrap {{
+    background:rgba(6,182,212,0.14);border-color:rgba(6,182,212,0.25);
+}}
+.hp2-pillar-impact .hp2-icon-wrap {{
+    background:rgba(244,63,94,0.14);border-color:rgba(244,63,94,0.25);
+}}
+/* AI card-specific icon wrap colours */
+.hp2-ai-achievements .hp2-ai-icon-wrap {{
+    background:rgba(16,185,129,0.14);border-color:rgba(16,185,129,0.25);
+}}
+.hp2-ai-monitor .hp2-ai-icon-wrap {{
+    background:rgba(245,158,11,0.14);border-color:rgba(245,158,11,0.25);
+}}
+.hp2-ai-actions .hp2-ai-icon-wrap {{
+    background:rgba(99,102,241,0.18);border-color:rgba(99,102,241,0.28);
+}}
+/* SVG stroke colours per context */
+.hp2-pillar-analytics .hp2-icon-wrap svg {{ stroke:#818CF8; }}
+.hp2-pillar-optimizer .hp2-icon-wrap svg {{ stroke:#22D3EE; }}
+.hp2-pillar-impact    .hp2-icon-wrap svg {{ stroke:#FB7185; }}
+.hp2-ai-achievements  .hp2-ai-icon-wrap svg {{ stroke:#34D399; }}
+.hp2-ai-monitor       .hp2-ai-icon-wrap svg {{ stroke:#FBBF24; }}
+.hp2-ai-actions       .hp2-ai-icon-wrap svg {{ stroke:#818CF8; }}
 
-    st.markdown("""
-        <style>
-        /* Premium Cards */
-        [data-testid="stColumn"]:has(.cockpit-marker) > div {
-            background: linear-gradient(135deg, rgba(30, 41, 59, 0.95) 0%, rgba(15, 23, 42, 0.95) 100%);
-            backdrop-filter: blur(10px);
-            border: 1px solid rgba(148, 163, 184, 0.15);
-            border-radius: 16px;
-            padding: 24px;
-            box-shadow: 
-                0 4px 16px rgba(0, 0, 0, 0.3),
-                0 0 0 1px rgba(255, 255, 255, 0.05) inset;
-            transition: all 0.3s ease;
-            display: flex;
-            flex-direction: column;
-            min-height: 220px;
-        }
-        
-        [data-testid="stColumn"]:has(.cockpit-marker) > div:hover {
-            transform: translateY(-2px);
-            box-shadow: 
-                0 8px 24px rgba(0, 0, 0, 0.4),
-                0 0 0 1px rgba(255, 255, 255, 0.08) inset;
-            border-color: rgba(6, 182, 212, 0.3);
-        }
-        
-        .cockpit-label {
-            font-size: 0.75rem;
-            color: #94a3b8;
-            font-weight: 700;
-            margin-bottom: 12px;
-            text-transform: uppercase;
-            letter-spacing: 0.1em;
-            display: flex;
-            align-items: center;
-            justify-content: space-between;
-        }
-        
-        .cockpit-subtext {
-            font-size: 0.8rem;
-            color: #94a3b8;
-            margin-top: 4px;
-        }
-        
-        /* Key Insights Cards */
-        .insight-card {
-            background: linear-gradient(135deg, rgba(30, 41, 59, 0.6) 0%, rgba(15, 23, 42, 0.6) 100%);
-            backdrop-filter: blur(8px);
-            border-radius: 12px;
-            padding: 18px 20px !important;
-            transition: all 0.25s ease;
-            box-shadow: 0 2px 8px rgba(0, 0, 0, 0.2);
-            margin-bottom: 10px;
-        }
-        
-        .insight-card:hover {
-            transform: translateX(4px) translateY(-2px);
-            box-shadow: 0 6px 16px rgba(0, 0, 0, 0.3);
-        }
-        
-        /* Key Insights - Type Colors */
-        [data-testid="column"]:has(.insight-positive), [data-testid="stColumn"]:has(.insight-positive) {
-            border-left: 3px solid #10B981 !important;
-        }
+/* ── Health gauge card ────────────────────────────────────────── */
+.hp2-gauge-card {{
+    background:rgba(17,17,22,0.90);
+    border:1px solid {label_color}28;border-radius:24px;
+    padding:28px 20px 24px 20px;
+    display:flex;flex-direction:column;align-items:center;
+    justify-content:center;min-height:298px;
+    position:relative;overflow:hidden;
+    box-shadow:0 0 50px {label_color}0D;
+}}
+.hp2-gauge-card::before {{
+    content:'';position:absolute;inset:0;
+    background:radial-gradient(ellipse at 50% 25%,{label_color}0A 0%,transparent 65%);
+    pointer-events:none;
+}}
+.hp2-gauge-badge {{
+    position:absolute;top:18px;left:20px;
+    display:flex;align-items:center;gap:8px;
+}}
+.hp2-gauge-badge svg {{ stroke:{label_color}; }}
+.hp2-gauge-badge-text {{
+    font-size:0.62rem;font-weight:800;color:#4B5563;
+    text-transform:uppercase;letter-spacing:0.16em;
+}}
+/* CSS conic-gradient ring */
+.hp2-gauge-ring {{
+    width:176px;height:176px;border-radius:50%;
+    position:relative;display:flex;align-items:center;
+    justify-content:center;margin-top:14px;
+}}
+.hp2-gauge-hole {{
+    width:148px;height:148px;border-radius:50%;
+    background:rgba(12,12,18,0.98);
+    position:absolute;
+    display:flex;flex-direction:column;align-items:center;justify-content:center;
+    z-index:1;
+}}
+.hp2-gauge-num   {{ font-size:4.8rem;font-weight:900;color:#fff;letter-spacing:-5px;line-height:1; }}
+.hp2-gauge-denom {{
+    font-size:0.68rem;font-weight:700;color:#374151;
+    text-transform:uppercase;letter-spacing:0.1em;margin-top:3px;
+}}
+.hp2-health-chip {{
+    margin-top:18px;padding:8px 26px;border-radius:999px;
+    background:{label_color}16;border:1px solid {label_color}30;
+    color:{label_color};font-size:0.74rem;font-weight:800;
+    text-transform:uppercase;letter-spacing:0.14em;
+    box-shadow:0 0 18px {label_color}18;
+}}
 
-        [data-testid="column"]:has(.insight-positive):hover, [data-testid="stColumn"]:has(.insight-positive):hover {
-            box-shadow: 
-                0 6px 16px rgba(0, 0, 0, 0.3),
-                -3px 0 12px rgba(16, 185, 129, 0.3) !important;
-        }
+/* ── Revenue card ─────────────────────────────────────────────── */
+.hp2-rev-card {{
+    background:rgba(17,17,22,0.85);
+    border:1px solid rgba(255,255,255,0.06);border-radius:24px;
+    padding:26px 28px;position:relative;overflow:hidden;min-height:138px;
+}}
+.hp2-rev-card::before {{
+    content:'';position:absolute;inset:0;
+    background:linear-gradient(135deg,rgba(99,102,241,0.06) 0%,rgba(168,85,247,0.02) 55%,transparent 100%);
+    pointer-events:none;
+}}
+.hp2-rev-label {{
+    font-size:0.68rem;font-weight:700;color:#4B5563;
+    text-transform:uppercase;letter-spacing:0.16em;
+    display:flex;align-items:center;gap:7px;margin-bottom:10px;
+}}
+.hp2-rev-label svg {{ stroke:#6366F1;opacity:0.7; }}
+.hp2-rev-row {{ display:flex;align-items:baseline;gap:7px;position:relative;z-index:1; }}
+.hp2-rev-cur {{ font-size:1.6rem;font-weight:700;color:#374151;line-height:1; }}
+.hp2-rev-amt {{
+    font-size:4.2rem;font-weight:900;color:#fff;
+    letter-spacing:-4px;line-height:1;font-variant-numeric:tabular-nums;
+}}
+.hp2-trend-badge {{
+    display:inline-flex;align-items:center;gap:5px;
+    padding:4px 12px;border-radius:999px;font-size:0.78rem;font-weight:700;
+    position:absolute;top:22px;right:24px;z-index:1;
+}}
+.hp2-trend-dn {{
+    background:rgba(239,68,68,0.12);border:1px solid rgba(239,68,68,0.25);color:#F87171;
+}}
+.hp2-trend-up {{
+    background:rgba(16,185,129,0.12);border:1px solid rgba(16,185,129,0.25);color:#34D399;
+}}
+.hp2-sparkline {{
+    position:absolute;bottom:0;right:0;opacity:0.10;
+    pointer-events:none;transform:translate(8%,12%);
+}}
 
-        [data-testid="column"]:has(.insight-warning), [data-testid="stColumn"]:has(.insight-warning) {
-            border-left: 3px solid #F59E0B !important;
-        }
+/* ── Driver card ──────────────────────────────────────────────── */
+.hp2-driver-card {{
+    background:rgba(17,17,22,0.82);
+    border:1px solid rgba(255,255,255,0.05);border-radius:24px;
+    padding:20px 22px;display:flex;align-items:center;
+    justify-content:space-between;gap:14px;
+    position:relative;overflow:hidden;
+    background-image:linear-gradient(135deg,{label_color}07 0%,transparent 55%);
+}}
+.hp2-driver-lbl  {{
+    font-size:0.65rem;font-weight:800;color:#374151;
+    text-transform:uppercase;letter-spacing:0.16em;margin-bottom:4px;
+}}
+.hp2-driver-desc {{ color:#4B5563;font-size:0.84rem;font-weight:500; }}
+.hp2-driver-pill {{
+    display:inline-flex;align-items:center;gap:12px;
+    background:{label_color}10;border:1px solid {label_color}22;
+    padding:12px 18px;border-radius:16px;flex-shrink:0;
+    box-shadow:0 0 18px {label_color}0C;
+}}
+.hp2-driver-pill-icon {{
+    width:36px;height:36px;background:{label_color}1A;border-radius:50%;
+    display:flex;align-items:center;justify-content:center;flex-shrink:0;
+}}
+.hp2-driver-pill-icon svg {{ stroke:{label_color}; }}
+.hp2-driver-val {{ color:{label_color};font-size:1rem;font-weight:800;line-height:1.25; }}
+.hp2-driver-sub {{
+    color:{label_color}88;font-size:0.64rem;font-weight:700;
+    text-transform:uppercase;letter-spacing:0.1em;margin-top:2px;
+}}
 
-        [data-testid="column"]:has(.insight-warning):hover, [data-testid="stColumn"]:has(.insight-warning):hover {
-            box-shadow: 
-                0 6px 16px rgba(0, 0, 0, 0.3),
-                -3px 0 12px rgba(245, 158, 11, 0.3) !important;
-        }
+/* ── Section divider ──────────────────────────────────────────── */
+.hp2-section-hdr {{ display:flex;align-items:center;gap:12px;margin:26px 0 14px 0; }}
+.hp2-section-hdr-text {{
+    font-size:0.65rem;font-weight:800;text-transform:uppercase;
+    letter-spacing:0.2em;color:#374151;white-space:nowrap;
+}}
+.hp2-section-hdr-line {{ flex:1;height:1px;background:rgba(55,65,81,0.38); }}
 
-        [data-testid="column"]:has(.insight-info), [data-testid="stColumn"]:has(.insight-info) {
-            border-left: 3px solid #06B6D4 !important;
-        }
+/* ── Pillar cards ─────────────────────────────────────────────── */
+.hp2-pillar {{
+    background:rgba(17,17,22,0.65);
+    border:1px solid rgba(255,255,255,0.05);border-radius:20px;padding:20px;
+    position:relative;overflow:hidden;
+    transition:border-color 0.25s ease,box-shadow 0.25s ease;
+}}
+.hp2-pillar-analytics:hover {{
+    border-color:rgba(99,102,241,0.38);box-shadow:0 0 30px rgba(99,102,241,0.07);
+}}
+.hp2-pillar-optimizer:hover {{
+    border-color:rgba(6,182,212,0.38);box-shadow:0 0 30px rgba(6,182,212,0.07);
+}}
+.hp2-pillar-impact:hover {{
+    border-color:rgba(244,63,94,0.38);box-shadow:0 0 30px rgba(244,63,94,0.07);
+}}
+.hp2-pillar-glow {{
+    position:absolute;top:0;right:0;width:120px;height:120px;
+    border-radius:50%;transform:translate(44%,-44%);pointer-events:none;
+}}
+.hp2-pillar-analytics .hp2-pillar-glow {{
+    background:radial-gradient(circle,rgba(99,102,241,0.16) 0%,transparent 70%);
+}}
+.hp2-pillar-optimizer .hp2-pillar-glow {{
+    background:radial-gradient(circle,rgba(6,182,212,0.16) 0%,transparent 70%);
+}}
+.hp2-pillar-impact .hp2-pillar-glow {{
+    background:radial-gradient(circle,rgba(244,63,94,0.16) 0%,transparent 70%);
+}}
+.hp2-pillar-hdr {{
+    display:flex;justify-content:space-between;align-items:center;
+    margin-bottom:18px;position:relative;
+}}
+.hp2-pillar-title {{
+    font-size:0.88rem;font-weight:800;color:#F1F5F9;
+    display:flex;align-items:center;gap:9px;
+}}
+.hp2-metric-2col {{ display:grid;grid-template-columns:1fr 1fr;gap:14px; }}
+.hp2-metric-lbl {{
+    font-size:0.65rem;font-weight:700;color:#374151;
+    text-transform:uppercase;letter-spacing:0.11em;margin-bottom:6px;
+}}
+.hp2-metric-lbl-note {{ color:#2D3748;font-size:0.6rem; }}
+.hp2-val    {{ font-size:1.8rem;font-weight:800;color:#fff;letter-spacing:-0.5px;line-height:1.1; }}
+.hp2-val-sm {{ font-size:0.9rem;font-weight:600;color:#94A3B8;line-height:1.4;margin-top:4px; }}
+.hp2-val-warn {{ color:{tacos_color} !important; }}
+.hp2-val-good {{ color:#34D399 !important; }}
 
-        /* Icon glow */
-        .insight-icon {
-            width: 40px;
-            height: 40px;
-            border-radius: 10px;
-            display: inline-flex;
-            align-items: center;
-            justify-content: center;
-            font-size: 1.2rem;
-            margin-right: 12px;
-            background: rgba(255,255,255,0.05); /* fallback */
-        }
+/* ── Intel briefing ───────────────────────────────────────────── */
+.hp2-exec-banner {{
+    background:linear-gradient(to right,rgba(99,102,241,0.09),rgba(168,85,247,0.04),transparent);
+    border-left:3px solid rgba(99,102,241,0.65);border-radius:0 16px 16px 0;
+    padding:16px 20px;margin-bottom:18px;color:#CBD5E1;
+    font-size:0.9rem;line-height:1.85;
+}}
 
-        .insight-positive .insight-icon {
-            background: rgba(16, 185, 129, 0.15);
-            color: #10B981;
-            box-shadow: 0 0 12px rgba(16, 185, 129, 0.2);
-        }
+/* ── AI insight cards ─────────────────────────────────────────── */
+.hp2-ai-card {{
+    background:rgba(17,17,22,0.55);
+    border:1px solid rgba(255,255,255,0.05);border-radius:20px;padding:20px;
+    position:relative;overflow:hidden;
+}}
+.hp2-ai-actions {{
+    background:rgba(99,102,241,0.04);border-color:rgba(99,102,241,0.18);
+}}
+.hp2-ai-actions::before {{
+    content:'';position:absolute;top:0;right:0;width:110px;height:110px;
+    background:radial-gradient(circle,rgba(99,102,241,0.12) 0%,transparent 70%);
+    transform:translate(40%,-40%);pointer-events:none;
+}}
+.hp2-ai-hdr {{ display:flex;align-items:center;gap:10px;margin-bottom:18px; }}
+.hp2-ai-icon-wrap {{
+    width:34px;height:34px;border-radius:10px;flex-shrink:0;
+    display:flex;align-items:center;justify-content:center;
+    backdrop-filter:blur(6px);-webkit-backdrop-filter:blur(6px);
+}}
+.hp2-ai-title  {{ font-size:0.9rem;font-weight:800;color:#F1F5F9; }}
+.hp2-ai-items  {{ display:flex;flex-direction:column;gap:13px; }}
+.hp2-ai-item   {{ display:flex;align-items:flex-start;gap:11px; }}
+.hp2-ai-dot    {{ width:7px;height:7px;border-radius:50%;margin-top:7px;flex-shrink:0; }}
+.hp2-ai-achievements .hp2-ai-dot {{
+    background:#10B981;box-shadow:0 0 7px rgba(16,185,129,0.75);
+}}
+.hp2-ai-monitor .hp2-ai-dot {{
+    background:#F59E0B;box-shadow:0 0 7px rgba(245,158,11,0.75);
+}}
+.hp2-ai-actions .hp2-ai-dot {{
+    background:#818CF8;box-shadow:0 0 7px rgba(129,140,248,0.75);
+}}
+.hp2-ai-text   {{ font-size:0.84rem;color:#94A3B8;line-height:1.65; }}
+.hp2-ai-actions .hp2-ai-text {{ color:#CBD5E1;font-weight:500; }}
+.hp2-ai-text strong {{ color:#E2E8F0;font-weight:700; }}
+</style>""", unsafe_allow_html=True)
 
-        .insight-warning .insight-icon {
-            background: rgba(245, 158, 11, 0.15);
-            color: #F59E0B;
-            box-shadow: 0 0 12px rgba(245, 158, 11, 0.2);
-        }
+    # ══════════════════════════════════════════════════════════════════
+    # HEADER ROW
+    # ══════════════════════════════════════════════════════════════════
+    h_left, h_right = st.columns([7, 3])
+    with h_left:
+        _hmd(
+            f'<div style="margin-bottom:4px;">'
+            f'<div style="display:flex;align-items:center;gap:13px;margin-bottom:6px;">'
+            f'<span class="hp2-ae-badge">AE</span>'
+            f'<span class="hp2-acct-name">{account_name}</span>'
+            f'</div>'
+            f'<div class="hp2-refresh-row">{_I_REFRESH}&ensp;{refresh_str}</div>'
+            f'</div>'
+        )
+    with h_right:
+        st.markdown("<div style='height:10px'></div>", unsafe_allow_html=True)
+        if cached_analysis:
+            if st.button(
+                "Regenerate Analysis",
+                key="hp2_regen_top",
+                use_container_width=True,
+            ):
+                del st.session_state[cache_key]
+                st.rerun()
 
-        .insight-info .insight-icon {
-            background: rgba(6, 182, 212, 0.15);
-            color: #06B6D4;
-            box-shadow: 0 0 12px rgba(6, 182, 212, 0.2);
-        }
-        
-        /* Smooth content fade-in after loading */
-        .cockpit-content {
-            animation: fadeInUp 0.6s cubic-bezier(0.16, 1, 0.3, 1);
-        }
+    st.markdown("<div style='height:8px'></div>", unsafe_allow_html=True)
 
-        @keyframes fadeInUp {
-            from {
-                opacity: 0;
-                transform: translateY(20px);
-            }
-            to {
-                opacity: 1;
-                transform: translateY(0);
-            }
-        }
+    # ══════════════════════════════════════════════════════════════════
+    # HERO BENTO — Gauge (4) | Revenue + Driver (8)
+    # ══════════════════════════════════════════════════════════════════
+    hero_L, hero_R = st.columns([4, 8])
 
-        /* Smooth page load for all content */
-        [data-testid="stVerticalBlock"] > div {
-            animation: fadeIn 0.5s ease-out;
-        }
-
-        @keyframes fadeIn {
-            from { opacity: 0; transform: translateY(10px); }
-            to { opacity: 1; transform: translateY(0); }
-        }
-        
-        /* Fix for plotly height adjustment */
-        .js-plotly-plot { margin-top: 10px; }
-        
-        /* Hide the marker itself */
-        .cockpit-marker { display: none; }
-        </style>
-    """, unsafe_allow_html=True)
-
-    st.markdown("""
-    <h1 style="
-        background: linear-gradient(135deg, #F5F5F7 0%, #22D3EE 100%);
-        -webkit-background-clip: text;
-        -webkit-text-fill-color: transparent;
-        font-size: 2rem;
-        font-weight: 700;
-        margin-bottom: 8px;
-    ">
-        DECISION COCKPIT
-    </h1>
-    <p style="color: #94a3b8; font-size: 0.95rem; margin-bottom: 24px;">
-        Strategic overview of your account performance
-    </p>
-    """, unsafe_allow_html=True)
-    st.markdown("<br>", unsafe_allow_html=True)
-
-    t1, t2, t3 = st.columns(3)
-    
-    with t1:
-        st.markdown('<div class="cockpit-marker health-marker"></div>', unsafe_allow_html=True)
-        # Determine source badge
-        source = st.session_state.get('_cockpit_data_source', 'db')
-        sync_badge = '<span style="font-size: 0.55rem; background: rgba(34, 197, 94, 0.15); color: #22c55e; padding: 2px 6px; border-radius: 4px; font-weight: 800;">LIVE SYNC</span>' if source == 'live' else ''
-        
-        # Header - LEFT ALIGNED (Removed justify-content:center)
-        st.markdown(f'<div class="cockpit-label" style="justify-content: space-between;"><span>Health Score</span>{sync_badge}</div>', unsafe_allow_html=True)
-
-        # Use pre-fetched data (no more blocking calls)
-        health = health_data
-
-        # Note: The column container itself is flex-column (from CSS on line 118)
-        # We will render items sequentially.
-
-        if health is not None:
-            health = round(health)
-
-            # Status thresholds
-            if health > 75:
-                status_text = "HEALTHY"
-                status_color = "#22c55e"
-            elif health >= 40:
-                status_text = "STABLE"
-                status_color = "#f59e0b"
-            else:
-                status_text = "ATTENTION"
-                status_color = "#ef4444"
-            
-            # Dashboard-consistent gauge
-            fig = go.Figure(go.Indicator(
-                mode="gauge",  # Removed 'number' to render it with Custom HTML for Glow Effect
-                value=health,
-                gauge={
-                    'axis': {
-                        'range': [0, 100],
-                        'tickwidth': 1,
-                        'tickcolor': '#64748b',
-                        'ticklen': 10,
-                        'tickvals': [0, 25, 50, 75, 100],
-                        'ticktext': ['0', '25', '50', '75', '100'],
-                        'tickfont': {'size': 10, 'color': '#64748b'}
-                    },
-                    'bar': {'color': '#06b6d4', 'thickness': 0.7}, 
-                    'bgcolor': '#374151',
-                    'borderwidth': 0,
-                }
-            ))
-            
-            # Increased height for visual impact
-            fig.update_layout(
-                height=145, 
-                margin=dict(l=30, r=30, t=15, b=0),
-                paper_bgcolor="rgba(0,0,0,0)",
-                font={'family': 'Inter, sans-serif'}
+    with hero_L:
+        if health_score is not None:
+            _grad  = (
+                f"conic-gradient(from -90deg,"
+                f"{label_color} 0% {health_pct}%,"
+                f"rgba(55,65,81,0.5) {health_pct}% 100%)"
             )
-            st.plotly_chart(fig, use_container_width=True, config={'displayModeBar': False})
-            
-            # Score + Status Text (Overlaid on Gauge with negative margin)
-            st.markdown(f'''
-            <div style="text-align: center; margin-top: -70px; margin-bottom: 25px; position: relative; z-index: 10;">
-                <div style="
-                    color: #06B6D4;
-                    font-size: 2.8rem;
-                    font-weight: 800;
-                    text-shadow: 0 0 20px rgba(6, 182, 212, 0.5);
-                    line-height: 1;
-                    margin-bottom: 4px;
-                    font-family: 'Inter', sans-serif;
-                ">{health}%</div>
-                <div style="
-                    color: {status_color}; 
-                    font-weight: 700; 
-                    font-size: 0.85rem; 
-                    text-transform: uppercase; 
-                    letter-spacing: 1px;
-                    text-shadow: 0 0 10px {status_color}40;
-                ">{status_text}</div>
-            </div>
-            ''', unsafe_allow_html=True)
-            
-            # Get actual scores from stored health data
-            db_manager = st.session_state.get('db_manager')
-            selected_client = st.session_state.get('active_account_id') or st.session_state.get('active_account_name')
-            roas_score, efficiency_score, cvr_score = 0, 0, 0
-            if db_manager and selected_client:
-                try:
-                    health_data = db_manager.get_account_health(selected_client)
-                    if health_data:
-                        roas_score = health_data.get('roas_score', 0)
-                        efficiency_score = health_data.get('waste_score', 0)  # DB column is waste_score
-                        cvr_score = health_data.get('cvr_score', 0)
-                except:
-                    pass
-            
-            # BOTTOM ROW: Display actual scores
-            # Using margin-top: 15px to ensure separation, textual alignment centered
-            st.markdown(f'''<div style="display: flex; justify-content: space-around; text-align: center; width: 100%;">
-                <div><div style="font-size: 0.95rem; font-weight: 700; color: #94a3b8;">{roas_score:.0f}</div><div style="font-size: 0.6rem; color: #64748b;">ROAS</div></div>
-                <div><div style="font-size: 0.95rem; font-weight: 700; color: #94a3b8;">{efficiency_score:.0f}</div><div style="font-size: 0.6rem; color: #64748b;">Efficiency</div></div>
-                <div><div style="font-size: 0.95rem; font-weight: 700; color: #94a3b8;">{cvr_score:.0f}</div><div style="font-size: 0.6rem; color: #64748b;">CVR</div></div>
-            </div>''', unsafe_allow_html=True)
-            
+            _glow  = f"0 0 28px {label_color}35, 0 0 48px {label_color}15"
+            gauge_inner = (
+                f'<div class="hp2-gauge-ring" '
+                f'style="background:{_grad};box-shadow:{_glow};">'
+                f'<div class="hp2-gauge-hole">'
+                f'<span class="hp2-gauge-num">{health_score}</span>'
+                f'<span class="hp2-gauge-denom">/ 100</span>'
+                f'</div></div>'
+                f'<div class="hp2-health-chip">{label}</div>'
+            )
         else:
-            st.markdown('<div class="cockpit-value" style="text-align:center; padding: 40px 0; color: #64748b;">—</div>', unsafe_allow_html=True)
-            st.markdown('<div class="cockpit-subtext" style="text-align:center;">Run optimizer to calculate</div>', unsafe_allow_html=True)
+            gauge_inner = (
+                '<div style="color:#374151;font-size:4rem;font-weight:900;'
+                'letter-spacing:-4px;margin-top:20px;line-height:1;">&mdash;</div>'
+                '<div style="color:#374151;font-size:0.7rem;font-weight:700;'
+                'text-transform:uppercase;letter-spacing:0.12em;margin-top:10px;">'
+                'Awaiting data</div>'
+            )
 
-    with t2:
-        st.markdown('<div class="cockpit-marker"></div>', unsafe_allow_html=True)
-        st.markdown('<div class="cockpit-label" style="text-align:center;">14-Day Decision Impact</div>', unsafe_allow_html=True)
-        # Use pre-fetched data (no more blocking calls)
-        st.markdown('<div style="flex-grow:1; display:flex; flex-direction:column; justify-content:space-between; text-align:center;">', unsafe_allow_html=True)
-        if impact_data is not None:
-            impact = impact_data.get('sales', 0)
-            win_rate = impact_data.get('win_rate', 0)
-            top_action = impact_data.get('top_action_type', None)
-            
-            # Center main content
-            from utils.formatters import get_account_currency
-            home_currency = get_account_currency()
-            st.markdown('<div style="flex-grow:1; display:flex; flex-direction:column; justify-content:center;">', unsafe_allow_html=True)
-            st.markdown(f"""
-            <div style="text-align: center; padding: 32px 0;">
-                <div style="
-                    color: #06B6D4;
-                    font-size: 3.2rem;
-                    font-weight: 800;
-                    text-shadow: 0 0 24px rgba(6, 182, 212, 0.4);
-                    margin-bottom: 8px;
-                    letter-spacing: -1px;
-                ">
-                    {f"+{home_currency}{impact:,.0f}" if impact >= 0 else f"-{home_currency}{abs(impact):,.0f}"}
-                </div>
-                <div style="color: #94a3b8; font-size: 0.85rem; text-transform: uppercase; letter-spacing: 1px;">
-                    Net Change Last 14 Days
-                </div>
-            </div>
-            """, unsafe_allow_html=True)
-            
-            # Bottom row callouts - at absolute bottom
-            action_display = ""
-            if top_action:
-                action_display = {"HARVEST": "Harvests", "NEGATIVE": "Keyword Defense", "BID_UPDATE": "Bid Changes", "BID_CHANGE": "Bid Changes"}.get(top_action, top_action.title())
-            
-            # Trend indicator with clearer labels and tooltip
-            # Positive: Sales increased after optimizer actions - good!
-            # Attention: Sales decreased - may need to review actions or wait for more data
-            # Stable: No net change - actions had neutral effect
-            if impact > 0:
-                arrow_svg = '<svg xmlns="http://www.w3.org/2000/svg" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="#22c55e" stroke-width="2.5" style="vertical-align:middle"><polyline points="22 7 13.5 15.5 8.5 10.5 2 17"></polyline><polyline points="16 7 22 7 22 13"></polyline></svg>'
-                trend_text = "Growing"
-                trend_color = "#22c55e"
-                trend_tooltip = "Decision Impact is positive over the last 14 days. Your optimization actions are driving value!"
-            elif impact < 0:
-                arrow_svg = '<svg xmlns="http://www.w3.org/2000/svg" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="#f59e0b" stroke-width="2.5" style="vertical-align:middle"><polyline points="6 9 12 15 18 9"></polyline></svg>'
-                trend_text = "Review Needed"
-                trend_color = "#f59e0b"
-                trend_tooltip = "Decision Impact is negative. This requires review to ensure actions are having the desired effect."
-            else:
-                arrow_svg = ''
-                trend_text = "Stable"
-                trend_color = "#64748b"
-                trend_tooltip = "Decision Impact is neutral. Actions have stabilized performance."
-            
-            trend_html = f'{arrow_svg} <span style="color:{trend_color}">{trend_text}</span>'
-            
-            # CSS tooltip that works in Streamlit (title attribute doesn't work reliably)
-            tooltip_css = '''
-            <style>
-            .tooltip-container { position: relative; display: inline-block; cursor: help; }
-            .tooltip-container .tooltip-text {
-                visibility: hidden;
-                width: 220px;
-                background-color: #1e293b;
-                color: #e2e8f0;
-                text-align: left;
-                border-radius: 6px;
-                padding: 8px 10px;
-                position: absolute;
-                z-index: 1000;
-                bottom: 125%;
-                left: 50%;
-                margin-left: -110px;
-                opacity: 0;
-                transition: opacity 0.2s;
-                font-size: 0.75rem;
-                line-height: 1.4;
-                box-shadow: 0 4px 12px rgba(0,0,0,0.3);
-            }
-            .tooltip-container:hover .tooltip-text { visibility: visible; opacity: 1; }
-            .info-icon { font-size: 0.7rem; color: #64748b; margin-left: 3px; }
-            </style>
-            '''
-            
-            st.markdown(f'''{tooltip_css}
-            <div style="display: flex; justify-content: space-around; text-align: center; margin-top: auto;">
-                <div>
-                    <div style="font-size: 0.95rem; font-weight: 700; color: #94a3b8;">{action_display or "—"}</div>
-                    <div style="font-size: 0.6rem; color: #64748b;">
-                        Top Driver
-                        <span class="tooltip-container"><span class="info-icon">ⓘ</span><span class="tooltip-text">The action type that contributed most to your recent decision impact.</span></span>
-                    </div>
-                </div>
-                <div>
-                    <div style="font-size: 0.95rem; font-weight: 700;">{trend_html}</div>
-                    <div style="font-size: 0.6rem; color: #64748b;">
-                        14-Day Trend
-                        <span class="tooltip-container"><span class="info-icon">ⓘ</span><span class="tooltip-text">{trend_tooltip}</span></span>
-                    </div>
-                </div>
-            </div>''', unsafe_allow_html=True)
+        _hmd(
+            f'<div class="hp2-gauge-card">'
+            f'<div class="hp2-gauge-badge">'
+            f'<div class="hp2-icon-wrap" style="background:rgba(255,255,255,0.05);'
+            f'border-color:{label_color}25;width:28px;height:28px;border-radius:8px;">'
+            f'<svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="{label_color}"'
+            f' stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">'
+            f'<path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/>'
+            f'<path d="m9 12 2 2 4-4"/></svg>'
+            f'</div>'
+            f'<span class="hp2-gauge-badge-text">Account Health</span>'
+            f'</div>'
+            f'{gauge_inner}'
+            f'</div>'
+        )
+
+    with hero_R:
+        _hmd(
+            f'<div class="hp2-rev-card">'
+            f'{rev_trend_html}'
+            f'<div class="hp2-rev-label">'
+            f'{_I_BAR_UP} Revenue 30D'
+            f'</div>'
+            f'<div class="hp2-rev-row">'
+            f'<span class="hp2-rev-cur">{currency}</span>'
+            f'<span class="hp2-rev-amt">{rev_str}</span>'
+            f'</div>'
+            f'<svg class="hp2-sparkline" width="260" height="110" viewBox="0 0 300 120" fill="none">'
+            f'<path d="{_spark_path}" stroke="#818CF8" stroke-width="7"'
+            f' stroke-linecap="round" fill="none"/>'
+            f'</svg>'
+            f'</div>'
+        )
+
+        st.markdown("<div style='height:14px'></div>", unsafe_allow_html=True)
+
+        if top_driver:
+            _parts = top_driver.split(" \u2014 ", 1)
+            _main  = _parts[0]
+            _sub   = _parts[1] if len(_parts) > 1 else ""
+            _sub_html = f'<div class="hp2-driver-sub">{_sub}</div>' if _sub else ""
+            driver_pill = (
+                f'<div class="hp2-driver-pill">'
+                f'<div class="hp2-driver-pill-icon">'
+                f'<svg width="14" height="14" viewBox="0 0 24 24" fill="none"'
+                f' stroke="{label_color}" stroke-width="2.5"'
+                f' stroke-linecap="round" stroke-linejoin="round">'
+                f'<path d="M20 10c0 6-8 12-8 12s-8-6-8-12a8 8 0 0 1 16 0Z"/>'
+                f'<circle cx="12" cy="10" r="3"/>'
+                f'</svg>'
+                f'</div>'
+                f'<div>'
+                f'<div class="hp2-driver-val">{_main}</div>'
+                f'{_sub_html}'
+                f'</div>'
+                f'</div>'
+            )
         else:
-            st.markdown('<div class="cockpit-value" style="text-align:center;">—</div>', unsafe_allow_html=True)
-            st.markdown('<div class="cockpit-subtext" style="text-align:center;">Run optimizer to track impact</div>', unsafe_allow_html=True)
-        st.markdown('</div>', unsafe_allow_html=True)
+            driver_pill = (
+                '<div style="color:#374151;font-size:0.85rem;">'
+                'Score components still loading\u2026</div>'
+            )
 
-    with t3:
-        st.markdown('<div class="cockpit-marker"></div>', unsafe_allow_html=True)
-        st.markdown('<div class="cockpit-label">Next Step</div>', unsafe_allow_html=True)
-        st.markdown('<div style="font-weight: 700; font-size: 1rem; margin-bottom: 4px;">Optimization Ready</div>', unsafe_allow_html=True)
-        st.markdown('<div class="cockpit-subtext" style="margin-bottom: 20px;">Review your optimization recommendations.</div>', unsafe_allow_html=True)
-        if st.button("Review Optimization Recommendations", use_container_width=True, type="primary"):
-            st.session_state['current_module'] = 'optimizer'
-            st.rerun()
-            
-        # Secondary CTA
-        if st.button("Executive Summary", use_container_width=True):
-            st.session_state['current_module'] = 'performance'
-            st.session_state['active_perf_tab'] = 'Executive Dashboard'
+        _hmd(
+            f'<div class="hp2-driver-card">'
+            f'<div>'
+            f'<div class="hp2-driver-lbl">Top Score Driver</div>'
+            f'<div class="hp2-driver-desc">'
+            f'Primary factor influencing the current health score'
+            f'</div>'
+            f'</div>'
+            f'{driver_pill}'
+            f'</div>'
+        )
+
+    # ══════════════════════════════════════════════════════════════════
+    # SECTION 2 — PERFORMANCE PILLARS
+    # ══════════════════════════════════════════════════════════════════
+    _hmd(
+        '<div class="hp2-section-hdr">'
+        '<span class="hp2-section-hdr-text">Performance Pillars</span>'
+        '<span class="hp2-section-hdr-line"></span>'
+        '</div>'
+    )
+
+    p1, p2, p3 = st.columns(3)
+
+    with p1:
+        _hmd(
+            f'<div class="hp2-pillar hp2-pillar-analytics">'
+            f'<div class="hp2-pillar-glow"></div>'
+            f'<div class="hp2-pillar-hdr">'
+            f'<span class="hp2-pillar-title">'
+            f'<div class="hp2-icon-wrap">{_I_CHART}</div>'
+            f'Analytics'
+            f'</span>'
+            f'</div>'
+            f'<div class="hp2-metric-2col">'
+            f'<div>'
+            f'<div class="hp2-metric-lbl">TACOS '
+            f'<span class="hp2-metric-lbl-note">vs {tacos_tgt_str}</span></div>'
+            f'<div class="{tacos_cls}">{tacos_val}</div>'
+            f'</div>'
+            f'<div>'
+            f'<div class="hp2-metric-lbl">Organic Share</div>'
+            f'<div class="hp2-val">{org_str}</div>'
+            f'</div>'
+            f'</div>'
+            f'</div>'
+        )
+        st.markdown("<div style='height:8px'></div>", unsafe_allow_html=True)
+        if st.button(
+            "\u2192  Account Overview",
+            key="hp2_nav_analytics",
+            use_container_width=True,
+        ):
+            st.session_state["current_module"] = "performance"
             st.rerun()
 
+    with p2:
+        _hmd(
+            f'<div class="hp2-pillar hp2-pillar-optimizer">'
+            f'<div class="hp2-pillar-glow"></div>'
+            f'<div class="hp2-pillar-hdr">'
+            f'<span class="hp2-pillar-title">'
+            f'<div class="hp2-icon-wrap">{_I_ZAP}</div>'
+            f'Optimizer'
+            f'</span>'
+            f'</div>'
+            f'<div class="hp2-metric-2col">'
+            f'<div>'
+            f'<div class="hp2-metric-lbl">Total Actions</div>'
+            f'<div class="hp2-val">{total_act_str}</div>'
+            f'</div>'
+            f'<div>'
+            f'<div class="hp2-metric-lbl">Last Run</div>'
+            f'<div class="hp2-val-sm">{last_run_str}</div>'
+            f'</div>'
+            f'</div>'
+            f'</div>'
+        )
+        st.markdown("<div style='height:8px'></div>", unsafe_allow_html=True)
+        if st.button(
+            "\u2192  Optimizer",
+            key="hp2_nav_optimizer",
+            use_container_width=True,
+        ):
+            st.session_state["current_module"] = "optimizer"
+            st.rerun()
 
-    # ========================================
-    # COMPUTE 6 KEY INSIGHTS
-    # ========================================
-    from datetime import date, timedelta
-    from utils.formatters import get_account_currency
-    from app_core.account_utils import get_active_account_id
-    from features.impact_dashboard import get_recent_impact_summary
-    import numpy as np
-    import pandas as pd
-    
-    currency = get_account_currency()
-    insights = []
-    
-    # Get DB manager and client
-    db_manager = st.session_state.get('db_manager')
-    client_id = get_active_account_id()
-    
-    # ========================================
-    # ROW 1: PERFORMANCE METRICS (14d delta)
-    # ========================================
-    roas_delta = 0
-    efficiency_delta = 0
-    efficiency_current = 0
-    top_campaign = "—"
-    top_campaign_delta = 0
-    
-    if db_manager and client_id:
-        try:
-            # Fetch all data and filter locally (CACHED to avoid repeated large queries)
-            df_all = _fetch_home_insights_cached(client_id, st.session_state.get('test_mode', False))
-            
+    with p3:
+        _hmd(
+            f'<div class="hp2-pillar hp2-pillar-impact">'
+            f'<div class="hp2-pillar-glow"></div>'
+            f'<div class="hp2-pillar-hdr">'
+            f'<span class="hp2-pillar-title">'
+            f'<div class="hp2-icon-wrap">{_I_TARGET}</div>'
+            f'Impact &amp; Results'
+            f'</span>'
+            f'</div>'
+            f'<div class="hp2-metric-2col">'
+            f'<div>'
+            f'<div class="hp2-metric-lbl">Attributed 30D</div>'
+            f'<div class="hp2-val" style="font-size:1.35rem;">{impact_str}</div>'
+            f'</div>'
+            f'<div>'
+            f'<div class="hp2-metric-lbl">Win Rate</div>'
+            f'<div class="{win_cls}">{win_str}</div>'
+            f'</div>'
+            f'</div>'
+            f'</div>'
+        )
+        st.markdown("<div style='height:8px'></div>", unsafe_allow_html=True)
+        if st.button(
+            "\u2192  Impact & Results",
+            key="hp2_nav_impact",
+            use_container_width=True,
+        ):
+            st.session_state["current_module"] = "impact_v2"
+            st.rerun()
 
+    # ══════════════════════════════════════════════════════════════════
+    # SECTION 3 — INTELLIGENCE BRIEFING
+    # ══════════════════════════════════════════════════════════════════
+    _hmd(
+        '<div class="hp2-section-hdr">'
+        '<span class="hp2-section-hdr-text">Intelligence Briefing</span>'
+        '<span class="hp2-section-hdr-line"></span>'
+        '</div>'
+    )
 
-            if df_all is not None and not df_all.empty:
-                # Column normalization (Case-insensitive check)
-                if 'Date' not in df_all.columns:
-                    # Try lowercase 'date'
-                    col_map = {c.lower(): c for c in df_all.columns}
-                    if 'date' in col_map:
-                        df_all['Date'] = df_all[col_map['date']]
-                
-                if 'Date' in df_all.columns:
-                    df_all['Date'] = pd.to_datetime(df_all['Date'], errors='coerce')
-                    df_all = df_all.dropna(subset=['Date'])
-                    
-                    if not df_all.empty:
-                        max_date = df_all['Date'].max().date()
-                        
-                        # Define windows (inclusive)
-                        end_curr_date = max_date
-                        start_curr_date = max_date - timedelta(days=14)
-                        end_prev_date = start_curr_date - timedelta(days=1)
-                        start_prev_date = end_prev_date - timedelta(days=13)
-                        
-                        # Convert to Timestamps for robust filtering
-                        ts_start_curr = pd.Timestamp(start_curr_date)
-                        ts_end_curr = pd.Timestamp(end_curr_date) + pd.Timedelta(days=1) - pd.Timedelta(seconds=1)
-                        
-                        ts_start_prev = pd.Timestamp(start_prev_date)
-                        ts_end_prev = pd.Timestamp(end_prev_date) + pd.Timedelta(days=1) - pd.Timedelta(seconds=1)
-                        
-                        # Filter using Timestamps (more reliable than .dt.date comparison)
-                        df_curr = df_all[(df_all['Date'] >= ts_start_curr) & (df_all['Date'] <= ts_end_curr)]
-                        df_prev = df_all[(df_all['Date'] >= ts_start_prev) & (df_all['Date'] <= ts_end_prev)]
-                        
+    briefing = generate_deterministic_briefing(metrics_bundle)
+    _hmd(f'<div class="hp2-exec-banner">{briefing}</div>')
 
-                        
-                    if not df_curr.empty:
-                        # ROAS Trend
-                        curr_spend = df_curr['Spend'].sum() if 'Spend' in df_curr.columns else 0
-                        curr_sales = df_curr['Sales'].sum() if 'Sales' in df_curr.columns else 0
-                        roas_curr = curr_sales / curr_spend if curr_spend > 0 else 0
-                        
-                        if not df_prev.empty:
-                            prev_spend = df_prev['Spend'].sum() if 'Spend' in df_prev.columns else 0
-                            prev_sales = df_prev['Sales'].sum() if 'Sales' in df_prev.columns else 0
-                            roas_prev = prev_sales / prev_spend if prev_spend > 0 else 0
-                            roas_delta = ((roas_curr - roas_prev) / roas_prev * 100) if roas_prev > 0 else 0
-                    
-                    # Spend Efficiency (Ad Group aggregation)
-                    def calc_efficiency(df):
-                        if 'Ad Group Name' in df.columns:
-                            agg = df.groupby('Ad Group Name').agg({'Spend': 'sum', 'Sales': 'sum'}).reset_index()
-                            agg['ROAS'] = (agg['Sales'] / agg['Spend']).replace([np.inf, -np.inf], 0).fillna(0)
-                            eff_spend = agg[agg['ROAS'] >= 2.5]['Spend'].sum()
-                            total = agg['Spend'].sum()
-                            return (eff_spend / total * 100) if total > 0 else 0
-                        return 0
-                    
-                    efficiency_current = calc_efficiency(df_curr)
-                    if not df_prev.empty:
-                        eff_prev = calc_efficiency(df_prev)
-                        efficiency_delta = efficiency_current - eff_prev
-                    
+    if cached_analysis:
+        sections = parse_analysis_sections(cached_analysis)
+        if sections:
+            achievements = sections.get("key_achievements", [])
+            monitor_list = sections.get("areas_to_monitor", [])
+            actions_list = sections.get("recommended_actions", [])
 
-                    
-                    # Top Growing Campaign
-                    if not df_prev.empty and 'Campaign Name' in df_curr.columns:
-                        camp_curr = df_curr.groupby('Campaign Name')['Sales'].sum()
-                        camp_prev = df_prev.groupby('Campaign Name')['Sales'].sum()
-                        camp_delta = camp_curr.subtract(camp_prev, fill_value=0)
-                        if not camp_delta.empty and camp_delta.max() > 0:
-                            top_campaign = camp_delta.idxmax()
-                            top_campaign_delta = camp_delta.max()
-        except Exception as e:
-            import logging
-            logging.warning(f"Home insight calculation error: {e}")
-            st.error(f"Insight Error: {e}")
-    
-    # Build Row 1 insights
-    arrow_up = "↑"
-    arrow_down = "↓"
-    
-    # 1. ROAS Trend
-    if roas_delta >= 0:
-        insights.append({
-            "title": f"ROAS {arrow_up} {abs(roas_delta):.1f}%",
-            "subtitle": "vs prior 14 days",
-            "icon_type": "success" if roas_delta > 3 else "info",
-            "tooltip": f"ROAS (Return on Ad Spend) changed by {roas_delta:+.1f}% compared to the previous 14-day period. Higher is better."
-        })
-    else:
-        insights.append({
-            "title": f"ROAS {arrow_down} {abs(roas_delta):.1f}%",
-            "subtitle": "vs prior 14 days",
-            "icon_type": "warning",
-            "tooltip": f"ROAS (Return on Ad Spend) changed by {roas_delta:.1f}% compared to the previous 14-day period. Consider reviewing campaigns."
-        })
-    
-    # 2. Spend Efficiency Trend
-    if efficiency_delta >= 0:
-        insights.append({
-            "title": f"Efficiency {arrow_up} {abs(efficiency_delta):.1f}%",
-            "subtitle": f"Now {efficiency_current:.0f}% efficient",
-            "icon_type": "success" if efficiency_delta > 3 else "info",
-            "tooltip": f"Spend Efficiency measures % of spend going to ad groups with ROAS >= 2.5x. Currently {efficiency_current:.0f}% of spend is efficient."
-        })
-    else:
-        insights.append({
-            "title": f"Efficiency {arrow_down} {abs(efficiency_delta):.1f}%",
-            "subtitle": f"Now {efficiency_current:.0f}% efficient",
-            "icon_type": "warning",
-            "tooltip": f"Spend Efficiency measures % of spend going to ad groups with ROAS >= 2.5x. Currently {efficiency_current:.0f}% of spend is efficient, down from prior period."
-        })
-    
-    # 3. Top Growing Campaign
-    if top_campaign != "—" and top_campaign_delta > 0:
-        display_name = top_campaign[:18] + "..." if len(top_campaign) > 18 else top_campaign
-        insights.append({
-            "title": display_name,
-            "subtitle": f"{arrow_up} {currency} {top_campaign_delta:,.0f} sales",
-            "icon_type": "success",
-            "tooltip": f"Campaign '{top_campaign}' showed the largest sales increase (+{currency}{top_campaign_delta:,.0f}) compared to the prior 14-day period."
-        })
-    else:
-        insights.append({
-            "title": "No Growth Leader",
-            "subtitle": "All campaigns stable",
-            "icon_type": "info",
-            "tooltip": "No single campaign showed significant growth compared to the prior period. Performance is stable across campaigns."
-        })
-    
-    # ========================================
-    # ROW 2: DECISION METRICS (from get_recent_impact_summary)
-    # ========================================
-    impact_data = get_recent_impact_summary()
-    decision_impact = impact_data.get('sales', 0) if impact_data else 0
-    win_rate = impact_data.get('win_rate', 0) if impact_data else 0
-    
-    # 4. Win Rate (win_rate is a ratio 0-1, convert to percentage)
-    win_rate_pct = win_rate * 100
-    if win_rate_pct > 0:
-        insights.append({
-            "title": f"{win_rate_pct:.0f}% Win Rate",
-            "subtitle": "actions beating baseline",
-            "icon_type": "success" if win_rate_pct > 50 else "info",
-            "tooltip": f"Win Rate measures the percentage of optimizer actions that resulted in positive impact. {win_rate_pct:.0f}% of your actions improved performance."
-        })
-    else:
-        insights.append({
-            "title": "0% Win Rate",
-            "subtitle": "run optimizer to track",
-            "icon_type": "note",
-            "tooltip": "Win Rate measures the percentage of optimizer actions with positive impact. Run the optimizer to start tracking."
-        })
-    
-    # 5. Quality Score (Decision Impact is already shown in hero tile, not duplicating)
-    quality = impact_data.get('quality_score', 0) if impact_data else 0
-    if quality > 0:
-        insights.append({
-            "title": f"+{quality:.0f} Quality",
-            "subtitle": "net positive actions",
-            "icon_type": "success",
-            "tooltip": f"Quality Score = % of good actions minus % of bad actions. A score of +{quality:.0f} means your action mix is net positive."
-        })
-    elif quality < 0:
-        insights.append({
-            "title": f"{quality:.0f} Quality",
-            "subtitle": "review action mix",
-            "icon_type": "warning",
-            "tooltip": f"Quality Score = % of good actions minus % of bad actions. A score of {quality:.0f} indicates more underperforming actions in the mix."
-        })
-    else:
-        insights.append({
-            "title": "Neutral Quality", 
-            "subtitle": "balanced action mix",
-            "icon_type": "info",
-            "tooltip": "Quality Score = % of good actions minus % of bad actions. A neutral score means your action mix is balanced."
-        })
-    
-    # ========================================
-    # ========================================
-    # RENDER KEY INSIGHTS CONTAINER
-    # ========================================
-    # Construct HTML for all insights
-    cards_html = ""
-    
-    # Map icon type to class
-    cls_map = {"success": "insight-positive", "warning": "insight-warning", "info": "insight-info", "note": "insight-info"}
-    
-    for i in range(6): # Ensure 6 slots even if empty
-        if i < len(insights):
-            insight = insights[i]
-            cls_ = cls_map.get(insight.get("icon_type", "info"), "insight-info")
-            # Icon symbol
-            icon_char = "✓" if cls_ == "insight-positive" else "!" if cls_ == "insight-warning" else "i"
-            tooltip = insight.get("tooltip", "")
-            
-            # Construct card HTML on single lines to prevent Markdown code block interpretation from indentation
-            cards_html += f'<div class="{cls_} insight-card" title="{tooltip}" style="margin-bottom: 0;">'
-            cards_html += f'<div style="display:flex; align-items:center;">'
-            cards_html += f'<div class="insight-icon">{icon_char}</div>'
-            cards_html += f'<div>'
-            cards_html += f'<div style="font-weight:700; font-size:1.05rem; color:#f1f5f9;">{insight["title"]}</div>'
-            cards_html += f'<div style="font-size:0.85rem; color:#94a3b8;">{insight["subtitle"]}</div>'
-            cards_html += f'</div></div></div>'
+            def _ai_items(items: list) -> str:
+                return "".join(
+                    f'<div class="hp2-ai-item">'
+                    f'<div class="hp2-ai-dot"></div>'
+                    f'<p class="hp2-ai-text">{item}</p>'
+                    f'</div>'
+                    for item in items
+                )
+
+            ai1, ai2, ai3 = st.columns(3)
+
+            with ai1:
+                _hmd(
+                    f'<div class="hp2-ai-card hp2-ai-achievements">'
+                    f'<div class="hp2-ai-hdr">'
+                    f'<div class="hp2-ai-icon-wrap">{_I_CHECK}</div>'
+                    f'<span class="hp2-ai-title">Key Achievements</span>'
+                    f'</div>'
+                    f'<div class="hp2-ai-items">{_ai_items(achievements)}</div>'
+                    f'</div>'
+                )
+
+            with ai2:
+                _hmd(
+                    f'<div class="hp2-ai-card hp2-ai-monitor">'
+                    f'<div class="hp2-ai-hdr">'
+                    f'<div class="hp2-ai-icon-wrap">{_I_EYE}</div>'
+                    f'<span class="hp2-ai-title">Areas to Monitor</span>'
+                    f'</div>'
+                    f'<div class="hp2-ai-items">{_ai_items(monitor_list)}</div>'
+                    f'</div>'
+                )
+
+            with ai3:
+                _hmd(
+                    f'<div class="hp2-ai-card hp2-ai-actions">'
+                    f'<div class="hp2-ai-hdr">'
+                    f'<div class="hp2-ai-icon-wrap">{_I_TARGET}</div>'
+                    f'<span class="hp2-ai-title">Recommended Actions</span>'
+                    f'</div>'
+                    f'<div class="hp2-ai-items">{_ai_items(actions_list)}</div>'
+                    f'</div>'
+                )
+
         else:
-            # Empty slot placeholder
-            cards_html += '<div style="height: 1px;"></div>'
+            _hmd(
+                f'<div class="hp2-exec-banner"'
+                f' style="border-left-color:rgba(16,185,129,0.55);">'
+                f'{_I_SPARK}&ensp;{cached_analysis}'
+                f'</div>'
+            )
 
-    # Render Container with Header and Grid
-    st.markdown(f"""
-    <div style="
-        border: 1px solid rgba(148, 163, 184, 0.15); 
-        border-radius: 12px; 
-        overflow: hidden; 
-        background: rgba(15, 23, 42, 0.4); 
-        margin-top: 10px;
-        box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.1);
-    ">
-        <div style="
-            background: linear-gradient(90deg, rgba(30, 41, 59, 0.4) 0%, rgba(30, 41, 59, 0.2) 100%);
-            padding: 14px 24px;
-            border-bottom: 1px solid rgba(148, 163, 184, 0.15);
-            display: flex;
-            align-items: center;
-        ">
-            <span style="color: #F8FAFC; font-weight: 700; font-size: 1.1rem; letter-spacing: 0.02em;">KEY INSIGHTS</span>
-        </div>
-        <div style="
-            padding: 24px; 
-            display: grid; 
-            grid-template-columns: repeat(3, 1fr); 
-            gap: 20px;
-        ">
-            {cards_html}
-        </div>
-    </div>
-    """, unsafe_allow_html=True)
+        st.markdown("<div style='height:8px'></div>", unsafe_allow_html=True)
+        if st.button("Regenerate Analysis", key="hp2_regen_llm"):
+            del st.session_state[cache_key]
+            st.rerun()
 
-    # Close cockpit-content wrapper for fade-in animation
-    st.markdown('</div>', unsafe_allow_html=True)
+    else:
+        st.markdown("<div style='height:6px'></div>", unsafe_allow_html=True)
+        if st.button(
+            "Generate Deep Analysis",
+            key="hp2_gen_llm",
+            type="primary",
+            help="Produces Key Achievements, Areas to Monitor, and Recommended Actions using AI.",
+        ):
+            with st.spinner("Generating strategic analysis\u2026"):
+                ctx  = format_llm_context(metrics_bundle)
+                text = call_homepage_llm(ctx, account_name=account_name)
+                st.session_state[cache_key] = text
+            st.rerun()
+

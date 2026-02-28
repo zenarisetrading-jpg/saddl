@@ -6,8 +6,100 @@ Upload all files in one place, use everywhere.
 
 import streamlit as st
 from app_core.data_hub import DataHub
-from datetime import datetime, timedelta
+from datetime import datetime
 from ui.onboarding import render_connect_amazon_account_button
+
+# ============================================================
+# PHASE 2 — BACKFILL HELPERS
+# Backfill is now handled entirely by worker.py.
+# The UI only reads onboarding_status from the DB and
+# shows the appropriate status panel — no threads here.
+# ============================================================
+
+@st.cache_data(ttl=60, show_spinner=False)
+def _has_sp_api_data(client_id: str) -> bool:
+    """Return True if sc_raw.fba_inventory already has rows for this client."""
+    if not client_id:
+        return False
+    try:
+        from app_core.db_manager import get_db_manager
+        db = get_db_manager()
+        if not db:
+            return False
+        with db._get_connection() as conn:
+            cursor = conn.cursor()
+            cursor.execute(
+                "SELECT 1 FROM sc_raw.fba_inventory WHERE client_id = %s LIMIT 1",
+                (client_id,),
+            )
+            return cursor.fetchone() is not None
+    except Exception:
+        return False
+
+
+@st.cache_data(ttl=60, show_spinner=False)
+def _fetch_client_settings_row_cached(client_id: str):
+    """Cached fetch of client SP-API settings — runs at most once per minute."""
+    if not client_id:
+        return None
+    try:
+        from app_core.db_manager import get_db_manager
+        db = get_db_manager()
+        if not db:
+            return None
+        placeholder = getattr(db, "placeholder", "%s")
+        queries = [
+            f"SELECT lwa_refresh_token, onboarding_status, connected_at, updated_at FROM client_settings WHERE client_id = {placeholder} LIMIT 1",
+            f"SELECT lwa_refresh_token, onboarding_status, updated_at FROM client_settings WHERE client_id = {placeholder} LIMIT 1",
+        ]
+        # Each query gets its own connection so a failed attempt (e.g. missing
+        # column) doesn't leave the shared connection in an ABORTED state,
+        # which would cause the fallback query to also fail silently.
+        for query in queries:
+            try:
+                with db._get_connection() as conn:
+                    cursor = conn.cursor()
+                    cursor.execute(query, (client_id,))
+                    row = cursor.fetchone()
+                    if row is None:
+                        return None
+                    if hasattr(row, "keys"):
+                        return {k: row[k] for k in row.keys()}
+                    columns = [desc[0] for desc in cursor.description]
+                    return dict(zip(columns, row))
+            except Exception:
+                continue
+    except Exception:
+        pass
+    return None
+
+
+@st.cache_data(ttl=120, show_spinner=False)
+def _fetch_ghost_account_ids_cached(registered_ids_key: str) -> set:
+    """
+    Return set of client_ids present in target_stats or actions_log
+    that are NOT in the registered accounts list.
+    registered_ids_key is a sorted-comma-joined string of known account IDs
+    so the cache key changes when accounts are added/removed.
+    """
+    try:
+        from app_core.db_manager import get_db_manager
+        db = get_db_manager()
+        if not db:
+            return set()
+        known = set(registered_ids_key.split(",")) if registered_ids_key else set()
+        with db._get_connection() as conn:
+            cursor = conn.cursor()
+            cursor.execute("SELECT DISTINCT client_id FROM target_stats")
+            stats_ids = {row[0] for row in cursor.fetchall()}
+            cursor.execute("SELECT DISTINCT client_id FROM actions_log")
+            log_ids = {row[0] for row in cursor.fetchall()}
+        return (stats_ids | log_ids) - known
+    except Exception:
+        return set()
+
+
+# ============================================================
 
 def render_data_hub():
     """Render the data hub upload interface."""
@@ -52,44 +144,6 @@ def render_data_hub():
     </div>
     """, unsafe_allow_html=True)
 
-    def _to_dict_row(cursor, row):
-        if row is None:
-            return None
-        if isinstance(row, dict):
-            return row
-        if hasattr(row, "keys"):
-            return {k: row[k] for k in row.keys()}
-        columns = [desc[0] for desc in cursor.description] if cursor.description else []
-        return dict(zip(columns, row))
-
-    def _fetch_client_settings_row(db, client_id: str):
-        if not db or not client_id:
-            return None
-        placeholder = getattr(db, "placeholder", "?")
-        queries = [
-            f"""
-            SELECT lwa_refresh_token, onboarding_status, connected_at, updated_at
-            FROM client_settings
-            WHERE client_id = {placeholder}
-            LIMIT 1
-            """,
-            f"""
-            SELECT lwa_refresh_token, onboarding_status, updated_at
-            FROM client_settings
-            WHERE client_id = {placeholder}
-            LIMIT 1
-            """,
-        ]
-        for query in queries:
-            try:
-                with db._get_connection() as conn:
-                    cursor = conn.cursor()
-                    cursor.execute(query, (client_id,))
-                    return _to_dict_row(cursor, cursor.fetchone())
-            except Exception:
-                continue
-        return None
-
     def _format_timestamp(value):
         if not value:
             return None
@@ -103,12 +157,11 @@ def render_data_hub():
                 return str(value)
         return ts.strftime("%Y-%m-%d %H:%M:%S")
 
-    db_manager = st.session_state.get("db_manager")
-    settings_row = _fetch_client_settings_row(db_manager, active_account_id)
+    settings_row = _fetch_client_settings_row_cached(active_account_id)
     refresh_token = settings_row.get("lwa_refresh_token") if settings_row else None
     onboarding_status = (settings_row.get("onboarding_status") if settings_row else None) or "not_connected"
     onboarding_status_norm = str(onboarding_status).strip().lower()
-    is_connected = bool(refresh_token) and onboarding_status_norm in {"connected", "active"}
+    is_connected = bool(refresh_token) and onboarding_status_norm in {"connected", "active", "backfilling"}
 
     if not is_connected:
         st.markdown("""
@@ -169,7 +222,75 @@ def render_data_hub():
         )
 
     st.markdown("<br>", unsafe_allow_html=True)
-    
+
+    # ===========================================
+    # PHASE 2 — SP-API BACKFILL STATUS PANEL
+    # Purely informational — the worker.py process
+    # handles backfill automatically after OAuth.
+    # No buttons or user action needed.
+    # ===========================================
+    if onboarding_status_norm == "backfilling":
+        # Worker is actively running — show live status
+        st.markdown(
+            """
+            <div style="
+                background: rgba(99,102,241,0.08);
+                border: 1px solid rgba(99,102,241,0.30);
+                border-left: 4px solid #6366f1;
+                border-radius: 12px;
+                padding: 20px 24px;
+                margin: 0 0 20px 0;
+            ">
+                <div style="display:flex;align-items:center;gap:10px;margin-bottom:8px;">
+                    <span style="font-size:1.2rem;">⏳</span>
+                    <span style="font-size:1rem;font-weight:700;color:#e2e8f0;">
+                        Importing Historical Data…
+                    </span>
+                </div>
+                <p style="color:#94a3b8;margin:0;font-size:0.85rem;">
+                    Your 90-day sales, inventory, and traffic history is being pulled from Amazon.
+                    This typically takes 5 – 20 minutes. The page will update automatically when complete.
+                </p>
+            </div>
+            """,
+            unsafe_allow_html=True,
+        )
+        if st.button("🔄 Refresh Status", key="backfill_refresh_btn"):
+            st.rerun()
+        return  # Hide data sources until backfill completes
+
+    if is_connected and onboarding_status_norm == "connected":
+        # Worker hasn't picked this up yet (will within 30s) or data already exists
+        has_data = _has_sp_api_data(active_account_id)
+        if not has_data:
+            st.markdown(
+                """
+                <div style="
+                    background: rgba(245,158,11,0.07);
+                    border: 1px solid rgba(245,158,11,0.25);
+                    border-left: 4px solid #f59e0b;
+                    border-radius: 12px;
+                    padding: 16px 20px;
+                    margin: 0 0 20px 0;
+                ">
+                    <div style="display:flex;align-items:center;gap:8px;">
+                        <span>🕐</span>
+                        <span style="font-weight:600;color:#fde68a;">Historical data import queued</span>
+                    </div>
+                    <p style="color:#94a3b8;margin:6px 0 0 0;font-size:0.85rem;">
+                        Your account is connected. Historical data import will start automatically within 30 seconds.
+                    </p>
+                </div>
+                """,
+                unsafe_allow_html=True,
+            )
+            if st.button("🔄 Refresh Status", key="backfill_queued_refresh_btn"):
+                st.rerun()
+            # Fall through — still show manual upload section below
+
+    st.markdown("---")
+
+    # ===========================================
     # Initialize data hub
     hub = DataHub()
     
@@ -187,12 +308,7 @@ def render_data_hub():
     # ===========================================
     # DATA SOURCES SECTION
     # ===========================================
-    st.markdown("""
-    <div style="display: flex; align-items: center; gap: 8px; margin-bottom: 16px;">
-        <svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="#94a3b8" stroke-width="2"><path d="M21 16V8a2 2 0 0 0-1-1.73l-7-4a2 2 0 0 0-2 0l-7 4A2 2 0 0 0 3 8v8a2 2 0 0 0 1 1.73l7 4a2 2 0 0 0 2 0l7-4A2 2 0 0 0 21 16z"></path></svg>
-        <span style="font-size: 1rem; font-weight: 700; color: #e2e8f0; letter-spacing: 0.02em;">Data Sources</span>
-    </div>
-    """, unsafe_allow_html=True)
+    st.markdown("**Data Sources**")
     
     def _get_staleness_indicator(upload_time):
         """Return staleness badge HTML."""
@@ -206,25 +322,24 @@ def render_data_hub():
     def _render_data_source_row(name, is_loaded, metric, is_required=False, expander_key=None, upload_time=None):
         """Render a data source row with checkbox, name, and metric."""
         check_color = "#22c55e" if is_loaded else "#475569"
+        check_bg = "rgba(34,197,94,0.15)" if is_loaded else "transparent"
         check_icon = "✓" if is_loaded else ""
         req_label = " — Required" if is_required else ""
         staleness = _get_staleness_indicator(upload_time)
-        
-        st.markdown(f"""
-        <div style="display: flex; justify-content: space-between; align-items: center; padding: 12px 16px; 
-                    border-bottom: 1px solid rgba(148, 163, 184, 0.1);">
-            <div style="display: flex; align-items: center; gap: 12px;">
-                <div style="width: 20px; height: 20px; border: 2px solid {check_color}; border-radius: 4px; 
-                            display: flex; align-items: center; justify-content: center; 
-                            background: {'rgba(34, 197, 94, 0.15)' if is_loaded else 'transparent'};
-                            color: {check_color}; font-size: 12px; font-weight: bold;">{check_icon}</div>
-                <span style="font-weight: 600; color: #e2e8f0;">{name}</span>
-                <span style="color: #64748b; font-size: 0.8rem;">{req_label}</span>
-                {staleness}
-            </div>
-            <span style="color: #94a3b8; font-size: 0.85rem;">{metric}</span>
-        </div>
-        """, unsafe_allow_html=True)
+        # Flat structure (no nested divs) — avoids Streamlit markdown sanitizer leaking tags
+        st.markdown(
+            f'<div style="padding:10px 16px;border-bottom:1px solid rgba(148,163,184,0.1);overflow:hidden;">'
+            f'<span style="float:right;color:#94a3b8;font-size:0.85rem;">{metric}</span>'
+            f'<span style="display:inline-block;width:18px;height:18px;border:2px solid {check_color};'
+            f'border-radius:3px;background:{check_bg};color:{check_color};font-size:11px;'
+            f'font-weight:bold;text-align:center;line-height:16px;vertical-align:middle;'
+            f'margin-right:8px;">{check_icon}</span>'
+            f'<span style="font-weight:600;color:#e2e8f0;vertical-align:middle;">{name}</span>'
+            f'<span style="color:#64748b;font-size:0.8rem;vertical-align:middle;">{req_label}</span>'
+            f'{"&nbsp;&nbsp;" + staleness if staleness else ""}'
+            f'</div>',
+            unsafe_allow_html=True,
+        )
     
     
     # ===========================================
@@ -254,10 +369,7 @@ def render_data_hub():
                             # Store result in session state so it persists across rerun
                             st.session_state['last_upload_result'] = {'success': success, 'message': message, 'time': datetime.now()}
                             if success:
-                                st.success(f"✅ {message}")
-                                # Add small delay so user sees the message before rerun
-                                import time
-                                time.sleep(1.5)
+                                st.toast(message, icon="✅")
                                 st.rerun()
                             else:
                                 st.error(f"❌ {message}")
@@ -385,19 +497,11 @@ def render_data_hub():
             registered_accounts = _fetch_accounts_cached(org_id) if org_id else []
             account_options = {name: acc_id for acc_id, name, _ in registered_accounts}
             
-            # Historical/Ghost Accounts
-            try:
-                with db._get_connection() as conn:
-                    cursor = conn.cursor()
-                    cursor.execute("SELECT DISTINCT client_id FROM target_stats")
-                    stats_ids = {row[0] for row in cursor.fetchall()}
-                    cursor.execute("SELECT DISTINCT client_id FROM actions_log")
-                    log_ids = {row[0] for row in cursor.fetchall()}
-                    ghost_ids = (stats_ids | log_ids) - set(account_options.values())
-                    for gid in ghost_ids:
-                        account_options[f"{gid} (Legacy)"] = gid
-            except:
-                pass
+            # Historical/Ghost Accounts (cached 2 min to avoid full-table scans on every render)
+            registered_ids_key = ",".join(sorted(account_options.values()))
+            ghost_ids = _fetch_ghost_account_ids_cached(registered_ids_key)
+            for gid in ghost_ids:
+                account_options[f"{gid} (Legacy)"] = gid
             
             col1, col2 = st.columns(2)
             with col1:

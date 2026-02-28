@@ -266,51 +266,54 @@ class PostgresManager:
     
     @contextmanager
     def _get_connection(self):
-        """Context manager for safe database connections with robust health check."""
-        # Capture specific pool instance to avoid 'unkeyed connection' errors if pool is reset mid-request
+        """Context manager for safe database connections.
+
+        PERFORMANCE NOTE: The previous implementation ran `SELECT 1` on every
+        connection acquisition (one extra Supabase round-trip per query = 50-150ms
+        per page render). That overhead has been removed.
+
+        `rollback()` is kept as it clears any aborted-transaction state locally
+        (psycopg2 does NOT send ROLLBACK to the server when the connection is
+        already idle, so it's effectively free for healthy connections).
+        If a connection is truly broken, the actual query will raise and the
+        except block closes it and surfaces the error normally.
+        """
         pool = PostgresManager._pool
         if pool is None:
-             self._init_pool()
-             pool = PostgresManager._pool
+            self._init_pool()
+            pool = PostgresManager._pool
 
         conn = None
         try:
             conn = pool.getconn()
-            
-            # Health check: test if connection is alive and not in aborted state
-            try:
-                # First, rollback any aborted transaction state from previous usage
-                # This ensures we start fresh even if a previous query failed
-                conn.rollback()
-                
-                with conn.cursor() as cur:
-                    cur.execute("SELECT 1")
-            except Exception as health_err:
-                # Connection is stale or broken, get a fresh one
-                print(f"Connection health check failed: {health_err}. Getting fresh connection.")
-                try:
-                    pool.putconn(conn, close=True)
-                except:
-                    pass  # Ignore errors when closing bad connection
-                conn = pool.getconn()
-            
+            conn.rollback()   # Clear any leftover aborted-transaction state (local op)
+            # Cap any single query at 45 s so a slow analytical query can't block the UI forever.
+            with conn.cursor() as _cur:
+                _cur.execute("SET statement_timeout = 45000")
             yield conn
             conn.commit()
         except Exception as e:
             if conn:
                 try:
                     conn.rollback()
-                except:
-                    pass  # Ignore rollback errors on broken connections
+                except Exception:
+                    pass
+                # If the connection is broken, close it so the pool doesn't reuse it
+                try:
+                    pool.putconn(conn, close=True)
+                    conn = None
+                except Exception:
+                    pass
             raise e
         finally:
             if conn:
                 try:
                     pool.putconn(conn)
                 except Exception:
-                    # If pool is closed or mismatched, ensure connection is closed
-                    try: conn.close() 
-                    except: pass
+                    try:
+                        conn.close()
+                    except Exception:
+                        pass
     
     def _init_schema(self):
         """Create tables if they don't exist."""
@@ -628,7 +631,82 @@ class PostgresManager:
                     )
                 """)
                 
-                # Commerce Metrics View (V2.1 Intelligence Layer)
+                # ── sc_raw.bsr_history ───────────────────────────────────
+                # Not in the original schema — create it here.
+                cursor.execute("""
+                    CREATE TABLE IF NOT EXISTS sc_raw.bsr_history (
+                        id BIGSERIAL PRIMARY KEY,
+                        report_date DATE NOT NULL,
+                        marketplace_id VARCHAR(20),
+                        account_id TEXT,
+                        asin VARCHAR(20) NOT NULL,
+                        category_name TEXT,
+                        category_id BIGINT,
+                        rank INTEGER,
+                        pulled_at TIMESTAMPTZ DEFAULT NOW()
+                    )
+                """)
+
+                # ── IDEMPOTENT COLUMN MIGRATIONS ──────────────────────────
+                # Old pipeline created sc_raw.sales_traffic with account_id NOT NULL.
+                # New pipeline (pipelines/spapi_pipeline.py) does not write account_id.
+                # Drop the NOT NULL constraint so inserts succeed on both old and new tables.
+                cursor.execute("""
+                    DO $$
+                    BEGIN
+                        ALTER TABLE sc_raw.sales_traffic ALTER COLUMN account_id DROP NOT NULL;
+                    EXCEPTION WHEN OTHERS THEN NULL;
+                    END $$;
+                """)
+
+                # ── IDEMPOTENT CONSTRAINT MIGRATIONS ─────────────────────
+                # CREATE TABLE IF NOT EXISTS does NOT alter pre-existing tables,
+                # so tables created by older pipelines may have wrong/missing
+                # unique constraints.  CREATE UNIQUE INDEX IF NOT EXISTS adds
+                # the constraint without touching data.
+                #
+                # Each block is wrapped in PL/pgSQL EXCEPTION so a single
+                # failure (e.g. duplicate rows blocking the index) does NOT
+                # abort the rest of the transaction.
+                #
+                # sc_raw.sales_traffic — new pipeline: (report_date, marketplace_id, child_asin)
+                cursor.execute("""
+                    DO $$
+                    BEGIN
+                        CREATE UNIQUE INDEX IF NOT EXISTS uq_sc_sales_traffic_rpt_mkt_asin
+                        ON sc_raw.sales_traffic (report_date, marketplace_id, child_asin);
+                    EXCEPTION WHEN OTHERS THEN NULL;
+                    END $$;
+                """)
+                # sc_raw.account_totals — (report_date, marketplace_id)
+                cursor.execute("""
+                    DO $$
+                    BEGIN
+                        CREATE UNIQUE INDEX IF NOT EXISTS uq_sc_account_totals_rpt_mkt
+                        ON sc_raw.account_totals (report_date, marketplace_id);
+                    EXCEPTION WHEN OTHERS THEN NULL;
+                    END $$;
+                """)
+                # sc_raw.fba_inventory — (client_id, asin, snapshot_date)
+                cursor.execute("""
+                    DO $$
+                    BEGIN
+                        CREATE UNIQUE INDEX IF NOT EXISTS uq_sc_fba_inventory_clt_asin_date
+                        ON sc_raw.fba_inventory (client_id, asin, snapshot_date);
+                    EXCEPTION WHEN OTHERS THEN NULL;
+                    END $$;
+                """)
+                # sc_raw.bsr_history — (report_date, marketplace_id, account_id, asin, category_id)
+                cursor.execute("""
+                    DO $$
+                    BEGIN
+                        CREATE UNIQUE INDEX IF NOT EXISTS uq_sc_bsr_history_rpt_mkt_acct_asin_cat
+                        ON sc_raw.bsr_history (report_date, marketplace_id, account_id, asin, category_id);
+                    EXCEPTION WHEN OTHERS THEN NULL;
+                    END $$;
+                """)
+
+                # ── Commerce Metrics View (V2.1 Intelligence Layer) ───────
                 # Calculates organic CVR and days of supply per ASIN by joining SP-API data
                 cursor.execute("""
                     CREATE OR REPLACE VIEW commerce_metrics AS

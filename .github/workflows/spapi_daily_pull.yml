@@ -8,7 +8,7 @@ on:
 jobs:
   daily-pull:
     runs-on: ubuntu-latest
-    timeout-minutes: 60     # Safety cap — all accounts should finish well under this
+    timeout-minutes: 180     # Safety cap — 3 accounts x 45 min max wait + processing = ~145 mins. 180 is safe.
 
     steps:
       - name: Checkout code
