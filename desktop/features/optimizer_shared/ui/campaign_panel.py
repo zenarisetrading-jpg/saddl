@@ -209,6 +209,45 @@ def render_tier1_campaign_panel(campaign_recs: pd.DataFrame) -> list[str]:
                 if is_high else ""
             )
 
+            # Concrete action suggestion chip for non-PAUSE types
+            if rec_type == "REDUCE_BUDGET":
+                # Impact = spend * 0.3 → 30% cut recommended
+                suggestion_html = (
+                    f"<span style='background:rgba(245,158,11,0.08);color:#fbbf24;"
+                    f"font-size:0.6rem;font-weight:700;padding:1px 7px;border-radius:3px;"
+                    f"letter-spacing:0.03em;border:1px solid rgba(245,158,11,0.2);"
+                    f"white-space:nowrap;flex-shrink:0;'>cut −30%</span>"
+                )
+            elif rec_type == "INCREASE_BUDGET":
+                # Reason text: "test 20-30% budget increase"
+                budget_add = impact_v / roas if roas > 0 else 0
+                suggestion_html = (
+                    f"<span style='background:rgba(34,197,94,0.08);color:#86efac;"
+                    f"font-size:0.6rem;font-weight:700;padding:1px 7px;border-radius:3px;"
+                    f"letter-spacing:0.03em;border:1px solid rgba(34,197,94,0.18);"
+                    f"white-space:nowrap;flex-shrink:0;'>"
+                    f"+{_CURRENCY}{budget_add:,.0f} budget</span>"
+                )
+            elif rec_type == "SCALE":
+                # High conviction — impact = sales * 0.15; budget needed ≈ impact / roas
+                budget_add = impact_v / roas if roas > 0 else 0
+                suggestion_html = (
+                    f"<span style='background:rgba(34,197,94,0.1);color:#4ade80;"
+                    f"font-size:0.6rem;font-weight:700;padding:1px 7px;border-radius:3px;"
+                    f"letter-spacing:0.03em;border:1px solid rgba(34,197,94,0.25);"
+                    f"white-space:nowrap;flex-shrink:0;'>"
+                    f"+{_CURRENCY}{budget_add:,.0f} budget</span>"
+                )
+            elif rec_type == "RESTRUCTURE":
+                suggestion_html = (
+                    f"<span style='background:rgba(6,182,212,0.08);color:#67e8f9;"
+                    f"font-size:0.6rem;font-weight:700;padding:1px 7px;border-radius:3px;"
+                    f"letter-spacing:0.03em;border:1px solid rgba(6,182,212,0.2);"
+                    f"white-space:nowrap;flex-shrink:0;'>split campaign</span>"
+                )
+            else:
+                suggestion_html = ""
+
             display_name = camp_name if len(camp_name) <= 42 else camp_name[:39] + "…"
 
             cb_col, row_col = st.columns([0.035, 0.965], gap="small")
@@ -234,6 +273,7 @@ def render_tier1_campaign_panel(campaign_recs: pd.DataFrame) -> list[str]:
                     f"letter-spacing:0.04em;text-transform:uppercase;flex-shrink:0;'>"
                     f"{meta['label']}</span>"
                     f"{conf_html}"
+                    f"{suggestion_html}"
                     # Campaign name
                     f"<span style='color:#e2e8f0;font-size:0.82rem;font-weight:600;"
                     f"flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;"
