@@ -549,6 +549,124 @@ def _process_bucket(segment_df: pd.DataFrame, config: dict, bucket_name: str, un
             if "BSR_DECLINING" in intelligence_flags:
                 return base_bid, "Bid decrease blocked — protecting overall Best Seller Rank momentum.", "Hold (Intelligence: BSR)", intelligence_flags
 
+        # ---------------------------------------------------------
+        # PHASE 4: PPC INTELLIGENCE CASCADE FLAGS
+        # Volume-weighted: ratio alone never sufficient. Must confirm
+        # with order/spend/click volume before acting.
+        # ---------------------------------------------------------
+        if config.get("cascade_enabled", True):
+            cascade_flags = []
+
+            camp_eff_ratio  = r.get("campaign_efficiency_ratio")
+            camp_orders     = int(r.get("campaign_total_orders") or 0)
+            ppc_diagnostic  = r.get("ppc_diagnostic")
+            ppc_quadrant    = r.get("ppc_quadrant")
+            account_health  = r.get("account_health_signal")
+            target_spend    = float(r.get("Spend", 0) or 0)
+            target_clicks   = int(r.get("Clicks", 0) or 0)
+
+            # ── Campaign Efficiency ────────────────────────────────────────
+            if camp_eff_ratio is not None and action == "promote":
+                drag_ratio      = config.get("cascade_campaign_drag_ratio", 0.5)
+                drag_max_orders = config.get("cascade_campaign_drag_min_orders", 20)
+                amp_ratio       = config.get("cascade_campaign_amplifier_ratio", 1.2)
+                amp_min_orders  = config.get("cascade_campaign_amplifier_min_orders", 50)
+
+                if camp_eff_ratio < drag_ratio:
+                    if camp_orders < drag_max_orders:
+                        # Low efficiency + low volume = confirmed drag
+                        new_bid = round(base_bid + (new_bid - base_bid) * 0.5, 2)
+                        reason = (
+                            reason.rstrip(".")
+                            + f" Bid increase dampened 50% — campaign efficiency "
+                            f"{camp_eff_ratio:.2f}× with {camp_orders} orders."
+                        )
+                        cascade_flags.append("CAMPAIGN_DRAG")
+                    else:
+                        # Low efficiency + HIGH volume = underoptimized workhorse, not a drag
+                        reason = (
+                            reason.rstrip(".")
+                            + f" [Campaign efficiency {camp_eff_ratio:.2f}× but "
+                            f"{camp_orders} orders — underoptimized, not drag.]"
+                        )
+                        cascade_flags.append("CAMPAIGN_UNDEROPTIMIZED")
+
+                elif camp_eff_ratio >= amp_ratio and camp_orders >= amp_min_orders:
+                    # Amplifier: high efficiency + high volume = trusted signal
+                    new_bid = round(base_bid + (new_bid - base_bid) * 1.15, 2)
+                    reason = (
+                        reason.rstrip(".")
+                        + f" Throttle loosened 15% — campaign amplifier "
+                        f"({camp_eff_ratio:.2f}×, {camp_orders} orders)."
+                    )
+                    cascade_flags.append("CAMPAIGN_AMPLIFIER")
+
+            # ── Zero-Conversion Target ─────────────────────────────────────
+            if ppc_diagnostic == "zero_conversion" and action == "promote":
+                min_spend  = config.get("cascade_zero_conv_min_spend", 30)
+                min_clicks = config.get("cascade_zero_conv_min_clicks", 10)
+
+                if target_spend >= min_spend and target_clicks >= min_clicks:
+                    # Confirmed bleeder — block promote
+                    return base_bid, (
+                        f"Bid increase blocked — ${target_spend:.0f} spend, "
+                        f"{target_clicks} clicks, zero conversions."
+                    ), "Hold (Intelligence: Zero-Conv)", intelligence_flags + cascade_flags + ["ZERO_CONV_BLOCK"]
+                else:
+                    # Thin data — informational only, do not block
+                    reason = (
+                        reason.rstrip(".")
+                        + f" [Zero conversions detected — thin data "
+                        f"(${target_spend:.0f}/{target_clicks} clicks), monitoring.]"
+                    )
+                    cascade_flags.append("ZERO_CONV_WATCH")
+
+            # ── Cut Quadrant ───────────────────────────────────────────────
+            if ppc_quadrant == "cut" and action == "promote":
+                min_spend  = config.get("cascade_cut_min_spend", 50)
+                min_clicks = config.get("cascade_cut_min_clicks", 15)
+
+                if target_spend >= min_spend and target_clicks >= min_clicks:
+                    # Confirmed Cut with conviction — dampen hard
+                    new_bid = round(base_bid + (new_bid - base_bid) * 0.3, 2)
+                    reason = (
+                        reason.rstrip(".")
+                        + f" Bid increase dampened 70% — Cut quadrant "
+                        f"(${target_spend:.0f} spend, {target_clicks} clicks)."
+                    )
+                    cascade_flags.append("CUT_QUADRANT")
+
+            # ── Account Health ─────────────────────────────────────────────
+            if account_health == "declining" and action == "promote":
+                dampen = config.get("cascade_account_declining_dampen", 0.8)
+                bid_increase = new_bid - base_bid
+                new_bid = round(base_bid + bid_increase * dampen, 2)
+                reason = (
+                    reason.rstrip(".")
+                    + f" Account ROAS declining — bid increase dampened "
+                    f"{int((1 - dampen) * 100)}% account-wide."
+                )
+                cascade_flags.append("ACCOUNT_DECLINING")
+
+            # ── High-Conviction Promote (Stars + Amplifier + Healthy) ─────
+            if (
+                ppc_quadrant == "stars"
+                and camp_eff_ratio is not None
+                and camp_eff_ratio >= 1.0
+                and account_health in ("improving", "stable", None)
+                and action == "promote"
+            ):
+                new_bid = round(base_bid + (new_bid - base_bid) * 1.1, 2)
+                reason = (
+                    reason.rstrip(".")
+                    + " Throttle loosened 10% — Star target in efficient campaign."
+                )
+                cascade_flags.append("HIGH_CONVICTION_PROMOTE")
+
+            # Merge cascade flags into intelligence_flags for output column
+            if cascade_flags:
+                intelligence_flags = intelligence_flags + cascade_flags
+
         return new_bid, reason, action, intelligence_flags
     
     opt_results = grouped.apply(apply_optimization, axis=1)

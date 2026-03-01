@@ -17,6 +17,9 @@ from features.optimizer_shared.ui.tabs.bids import render_bids_tab
 from features.optimizer_shared.ui.tabs.negatives import render_negatives_tab
 from features.optimizer_shared.ui.tabs.harvest import render_harvest_tab
 from features.optimizer_shared.ui.tabs.downloads import render_downloads_tab
+from features.optimizer_shared.ppc_cascade import compute_ppc_cascade
+from features.optimizer_shared.campaign_recommendations import generate_campaign_recommendations
+from features.optimizer_shared.ui.campaign_panel import render_tier1_campaign_panel
 
 
 def run_pipeline_and_render_results():
@@ -77,6 +80,29 @@ def _execute_v2_engine():
         benchmarks = calculate_account_benchmarks(df, config)
         universal_median = benchmarks.get("universal_median_roas", config.get("TARGET_ROAS", 2.5))
 
+        # ── Phase 4: PPC Intelligence Cascade ────────────────────────────
+        # Enrich df with account/campaign/target context BEFORE bid engine runs.
+        # account_metrics_prior=None — no multi-period data available yet (Phase 4b).
+        target_roas_val = config.get("TARGET_ROAS", 2.5)
+        total_spend_curr = df["Spend"].sum() if "Spend" in df.columns else 0
+        total_sales_curr = df["Sales"].sum() if "Sales" in df.columns else 0
+        account_metrics_current = {
+            "roas": total_sales_curr / total_spend_curr if total_spend_curr > 0 else 0,
+            "acos": (total_spend_curr / total_sales_curr * 100) if total_sales_curr > 0 else 100,
+        }
+        df = compute_ppc_cascade(
+            df=df,
+            target_roas=target_roas_val,
+            account_metrics_current=account_metrics_current,
+            account_metrics_prior=None,
+        )
+
+        # Tier 1: campaign-level recommendations (displayed BEFORE bid table)
+        campaign_recs = generate_campaign_recommendations(df, target_roas_val, config)
+
+        # Clear Tier 1 selections from any previous run
+        st.session_state["tier1_accepted_campaigns"] = []
+
         matcher = ExactMatcher(df)
         harvest = identify_harvest_candidates(df, config, matcher, benchmarks)
         neg_kw, neg_pt, your_products = identify_negative_candidates(df, config, harvest, benchmarks)
@@ -106,6 +132,7 @@ def _execute_v2_engine():
             "harvest": harvest,
             "date_info": date_info,
             "your_products": your_products,
+            "campaign_recs": campaign_recs,
         }
         return True
 
@@ -280,9 +307,33 @@ def _render_v2_results_view():
     t1, t2, t3 = st.tabs(["⚡ Decisions", "🧠 Intelligence", "⬇️ Downloads"])
 
     with t1:
-        bid_inc = int((all_bids.get("direction") == "increase").sum()) if not all_bids.empty else 0
-        bid_dec = int((all_bids.get("direction") == "decrease").sum()) if not all_bids.empty else 0
-        bid_hold = int((all_bids.get("direction") == "hold").sum()) if not all_bids.empty else 0
+        # ── Tier 1: Campaign-level recommendations (ABOVE everything else) ──
+        campaign_recs = res.get("campaign_recs", pd.DataFrame())
+        accepted_campaigns = render_tier1_campaign_panel(campaign_recs)
+
+        # ── Filter all_bids to Tier 2 (exclude accepted Tier 1 campaigns) ──
+        if accepted_campaigns and not all_bids.empty and "Campaign Name" in all_bids.columns:
+            tier2_bids = all_bids[~all_bids["Campaign Name"].isin(accepted_campaigns)].copy()
+            tier1_bids = all_bids[all_bids["Campaign Name"].isin(accepted_campaigns)].copy()
+        else:
+            tier2_bids = all_bids
+            tier1_bids = pd.DataFrame()
+
+        # Filter bucket-level DFs for render_bids_tab (View All) and downloads
+        def _filter_camps(df_bid):
+            if accepted_campaigns and not df_bid.empty and "Campaign Name" in df_bid.columns:
+                return df_bid[~df_bid["Campaign Name"].isin(accepted_campaigns)]
+            return df_bid
+
+        bids_ex_t2   = _filter_camps(bids_ex)
+        bids_pt_t2   = _filter_camps(bids_pt)
+        bids_agg_t2  = _filter_camps(bids_agg)
+        bids_auto_t2 = _filter_camps(bids_auto)
+
+        # ── KPI cards — counts reflect Tier 2 only ──────────────────────
+        bid_inc  = int((tier2_bids.get("direction") == "increase").sum()) if not tier2_bids.empty else 0
+        bid_dec  = int((tier2_bids.get("direction") == "decrease").sum()) if not tier2_bids.empty else 0
+        bid_hold = int((tier2_bids.get("direction") == "hold").sum()) if not tier2_bids.empty else 0
         total_negative_actions = (len(neg_kw) if not neg_kw.empty else 0) + (len(neg_pt) if not neg_pt.empty else 0)
         harvest_count = len(harvest) if not harvest.empty else 0
 
@@ -318,9 +369,16 @@ def _render_v2_results_view():
                 unsafe_allow_html=True,
             )
 
+        # ── Excluded targets note ────────────────────────────────────────
+        if not tier1_bids.empty:
+            st.caption(
+                f"ℹ️ {len(tier1_bids)} targets from {len(accepted_campaigns)} campaign(s) "
+                f"excluded from bid adjustments below (handled at campaign level above)."
+            )
+
         with st.expander(f"[Bid Changes]   {bid_inc} increases · {bid_dec} decreases · {bid_hold} holds", expanded=True):
-            if not all_bids.empty:
-                bid_preview = all_bids.sort_values("adjustment_pct", ascending=False).head(5)
+            if not tier2_bids.empty:
+                bid_preview = tier2_bids.sort_values("adjustment_pct", ascending=False).head(5)
                 _render_preview_table(
                     bid_preview,
                     ["Targeting", "Reason", "Campaign Name", "Match Type", "Current_Bid_Calc", "New Bid", "direction"],
@@ -329,7 +387,14 @@ def _render_v2_results_view():
                 st.info("No bid actions generated.")
 
             if st.toggle("View All", key="v2_view_all_bids"):
-                render_bids_tab(bids_ex, bids_pt, bids_agg, bids_auto)
+                render_bids_tab(bids_ex_t2, bids_pt_t2, bids_agg_t2, bids_auto_t2)
+
+            if not tier1_bids.empty:
+                with st.expander(f"View {len(tier1_bids)} targets excluded by Tier 1 actions", expanded=False):
+                    _render_preview_table(
+                        tier1_bids,
+                        ["Targeting", "Campaign Name", "Match Type", "Current_Bid_Calc", "New Bid", "Reason"],
+                    )
 
         neg_kw_count = len(neg_kw) if not neg_kw.empty else 0
         neg_asin_count = 0
@@ -414,9 +479,19 @@ def _render_v2_results_view():
                 all_flags.extend([x.strip() for x in str(raw).split(",") if x.strip()])
 
         flag_counts = pd.Series(all_flags).value_counts() if all_flags else pd.Series(dtype=int)
-        inventory_count = int(flag_counts.get("INVENTORY_RISK", 0))
-        halo_count = int(flag_counts.get("HALO_ACTIVE", 0))
-        organic_dom_count = int(flag_counts.get("CANNIBALIZE_RISK", 0))
+        inventory_count    = int(flag_counts.get("INVENTORY_RISK", 0))
+        halo_count         = int(flag_counts.get("HALO_ACTIVE", 0))
+        organic_dom_count  = int(flag_counts.get("CANNIBALIZE_RISK", 0))
+
+        # Phase 4 cascade flag counts
+        camp_drag_count    = int(flag_counts.get("CAMPAIGN_DRAG", 0))
+        camp_underopt_count= int(flag_counts.get("CAMPAIGN_UNDEROPTIMIZED", 0))
+        camp_amp_count     = int(flag_counts.get("CAMPAIGN_AMPLIFIER", 0))
+        zero_conv_block    = int(flag_counts.get("ZERO_CONV_BLOCK", 0))
+        zero_conv_watch    = int(flag_counts.get("ZERO_CONV_WATCH", 0))
+        cut_quad_count     = int(flag_counts.get("CUT_QUADRANT", 0))
+        acct_declining     = int(flag_counts.get("ACCOUNT_DECLINING", 0))
+        high_conv_count    = int(flag_counts.get("HIGH_CONVICTION_PROMOTE", 0))
 
         has_commerce = bool(st.session_state.get("v21_commerce_fetch_ok", False))
 
@@ -425,8 +500,8 @@ def _render_v2_results_view():
             pending_note = "<div class='v2-pending'>SP-API not connected - inventory and organic signals unavailable</div>"
 
         inventory_line = f"{inventory_count}" if has_commerce else "not available"
-        halo_line = f"{halo_count}" if has_commerce else "not available"
-        organic_line = f"{organic_dom_count}" if has_commerce else "not available"
+        halo_line      = f"{halo_count}" if has_commerce else "not available"
+        organic_line   = f"{organic_dom_count}" if has_commerce else "not available"
 
         st.markdown(
             f"""
@@ -438,18 +513,41 @@ def _render_v2_results_view():
                 <div class="v2-flag-line">└── Actions held — Organic CVR Dominant: <span class="v2-pending">{organic_line}</span></div>
                 {pending_note}
             </div>
+            <div class="v2-flag-panel" style="margin-top:14px;">
+                <div class="v2-flag-title">Phase 4 PPC Cascade</div>
+                <div class="v2-flag-line">├── Campaign drag dampened (50%): <strong>{camp_drag_count}</strong></div>
+                <div class="v2-flag-line">├── Campaign underoptimized (flagged, not dampened): <strong>{camp_underopt_count}</strong></div>
+                <div class="v2-flag-line">├── Campaign amplifier (throttle loosened 15%): <strong>{camp_amp_count}</strong></div>
+                <div class="v2-flag-line">├── Zero-conv blocked (confirmed bleed): <strong>{zero_conv_block}</strong></div>
+                <div class="v2-flag-line">├── Zero-conv watch (thin data, monitoring): <strong>{zero_conv_watch}</strong></div>
+                <div class="v2-flag-line">├── Cut quadrant dampened (70%): <strong>{cut_quad_count}</strong></div>
+                <div class="v2-flag-line">├── Account declining (20% dampen): <strong>{acct_declining}</strong></div>
+                <div class="v2-flag-line">└── High-conviction promote (throttle loosened 10%): <strong>{high_conv_count}</strong></div>
+            </div>
             """,
             unsafe_allow_html=True,
         )
 
     with t3:
+        # Apply Tier 1 filter to downloads — accepted campaigns excluded from bulk file
+        _accepted = st.session_state.get("tier1_accepted_campaigns", [])
+        def _dl_filter(df_bid):
+            if _accepted and not df_bid.empty and "Campaign Name" in df_bid.columns:
+                return df_bid[~df_bid["Campaign Name"].isin(_accepted)]
+            return df_bid
+
         results_for_downloads = {
             "neg_kw": neg_kw,
             "neg_pt": neg_pt,
             "harvest": harvest,
-            "direct_bids": direct_bids,
-            "agg_bids": agg_bids,
+            "direct_bids": _dl_filter(direct_bids),
+            "agg_bids": _dl_filter(agg_bids),
         }
+        if _accepted:
+            st.caption(
+                f"ℹ️ {len(_accepted)} Tier 1 campaign(s) excluded from this bulk file. "
+                f"Handle those at the campaign level (pause/budget change) separately."
+            )
         render_downloads_tab(results_for_downloads)
 
     # ── SAVE RUN ─────────────────────────────────────────────────────────────
