@@ -87,37 +87,19 @@ def _render_recent_wins_list(impact_df: pd.DataFrame, currency: str):
         else:
             type_icon = '<svg xmlns="http://www.w3.org/2000/svg" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="#94A3B8" stroke-width="2"><path d="M6 9H4.5a2.5 2.5 0 0 1 0-5H6"></path><path d="M18 9h1.5a2.5 2.5 0 0 0 0-5H18"></path><path d="M4 22h16"></path></svg>'
 
-        st.markdown(f"""
-<div style="
-    background: rgba(30, 41, 59, 0.4); 
-    border: 1px solid rgba(148, 163, 184, 0.1); 
-    border-left: 3px solid #10B981;
-    border-radius: 8px; 
-    padding: 12px 16px; 
-    margin-bottom: 12px;
-    display: flex; 
-    align-items: center; 
-    justify-content: space-between;
-    transition: transform 0.2s;
-" onmouseover="this.style.transform='translateY(-2px)'" onmouseout="this.style.transform='translateY(0)'">
-    <div style="flex: 1;">
-        <div style="color: #E2E8F0; font-weight: 600; font-size: 0.95rem; margin-bottom: 4px;">
-            {action_desc}
-        </div>
-        <div style="display: flex; align-items: center; gap: 6px; color: #94A3B8; font-size: 0.8rem;">
-            {type_icon} {date_str} • {action_type}
-        </div>
-    </div>
-    <div style="text-align: right;">
-        <div style="color: #10B981; font-weight: 700; font-size: 1.1rem; margin-bottom: 2px;">
-            +{formatted_impact}
-        </div>
-        <div style="color: #64748B; font-size: 0.75rem;">
-            (14-day measured)
-        </div>
-    </div>
-</div>
-""", unsafe_allow_html=True)
+        st.markdown(
+            f'<div style="background: rgba(30, 41, 59, 0.4); border: 1px solid rgba(148, 163, 184, 0.1); border-left: 3px solid #10B981; border-radius: 8px; padding: 12px 16px; margin-bottom: 12px; display: flex; align-items: center; justify-content: space-between;">'
+            f'<div style="flex: 1;">'
+            f'<div style="color: #E2E8F0; font-weight: 600; font-size: 0.95rem; margin-bottom: 4px;">{action_desc}</div>'
+            f'<div style="display: flex; align-items: center; gap: 6px; color: #94A3B8; font-size: 0.8rem;">{type_icon} {date_str} &bull; {action_type}</div>'
+            f'</div>'
+            f'<div style="text-align: right;">'
+            f'<div style="color: #10B981; font-weight: 700; font-size: 1.1rem; margin-bottom: 2px;">+{formatted_impact}</div>'
+            f'<div style="color: #64748B; font-size: 0.75rem;">(14-day measured)</div>'
+            f'</div>'
+            f'</div>',
+            unsafe_allow_html=True,
+        )
 
 
 def _render_measurement_confidence(validation_df: pd.DataFrame):

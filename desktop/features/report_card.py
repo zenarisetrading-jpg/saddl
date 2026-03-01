@@ -1782,6 +1782,7 @@ def get_account_health_score() -> Optional[float]:
     return None
 
 
+@st.cache_data(ttl=300, show_spinner=False)
 def get_account_health_score(client_id: str) -> Optional[float]:
     """
     Public helper to get the latest health score for an account.
