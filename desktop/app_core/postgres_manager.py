@@ -62,6 +62,7 @@ import pandas as pd
 import uuid
 import time
 import functools
+import logging
 
 # ==========================================
 # BID VALIDATION CONFIGURATION
@@ -236,7 +237,7 @@ class PostgresManager:
             dsn += '&'
         
         # Performance & Reliability defaults
-        options = 'connect_timeout=10&keepalives=1&keepalives_idle=30&keepalives_interval=5&keepalives_count=3'
+        options = 'connect_timeout=10&keepalives=1&keepalives_idle=30&keepalives_interval=5&keepalives_count=3&options=-c%20statement_timeout%3D45000'
         
         # Supabase/Cloud requires SSL
         if 'sslmode' not in dsn:
@@ -288,9 +289,6 @@ class PostgresManager:
         try:
             conn = pool.getconn()
             conn.rollback()   # Clear any leftover aborted-transaction state (local op)
-            # Cap any single query at 45 s so a slow analytical query can't block the UI forever.
-            with conn.cursor() as _cur:
-                _cur.execute("SET statement_timeout = 45000")
             yield conn
             conn.commit()
         except Exception as e:
@@ -1215,11 +1213,21 @@ class PostgresManager:
         """
         Get the actual latest date from raw_search_term_data.
         This is the TRUE latest date of uploaded data, NOT the week start_date.
-        
+
         Use this for maturity calculations to avoid the week-aggregation offset.
         E.g., if data covers Jan 12-17, this returns Jan 17
               (not Jan 12 which is the week start_date in target_stats)
         """
+        import time as _time
+        if not hasattr(PostgresManager, '_lrd_cache'):
+            PostgresManager._lrd_cache = {}
+        cached = PostgresManager._lrd_cache.get(client_id)
+        if cached:
+            ts, val = cached
+            if _time.time() - ts < 300:
+                return val
+
+        result = None
         with self._get_connection() as conn:
             with conn.cursor(cursor_factory=RealDictCursor) as cursor:
                 cursor.execute("""
@@ -1229,8 +1237,10 @@ class PostgresManager:
                 """, (client_id,))
                 row = cursor.fetchone()
                 if row and row['latest_date']:
-                    return row['latest_date']
-        return None
+                    result = row['latest_date']
+
+        PostgresManager._lrd_cache[client_id] = (_time.time(), result)
+        return result
 
     def get_target_stats_by_account(self, account_id: str, limit: int = 50000) -> pd.DataFrame:
         with self._get_connection() as conn:
@@ -2043,7 +2053,7 @@ class PostgresManager:
                     ))
             return True
         except Exception as e:
-            print(f"Failed to save account health: {e}")
+            logging.error(f"Failed to save account health: {e}")
             return False
     
     def get_account_health(self, client_id: str) -> Optional[Dict[str, Any]]:

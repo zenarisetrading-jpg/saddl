@@ -81,8 +81,6 @@ def render_account_selector():
             # REMOVED: Eager data loading - now happens on-demand per feature
         
         
-        st.session_state['single_account_mode'] = True
-        
         # Show current account with option to add more
         st.sidebar.markdown(f"**Account:** {account_name}")
         if st.sidebar.button("➕ Add Account", use_container_width=True, key="add_account_single"):
@@ -96,8 +94,6 @@ def render_account_selector():
         return
     
     # Multi-account mode - full selector
-    st.session_state['single_account_mode'] = False
-    
     # Phase 3.5: Decorate with Effective Role
     from app_core.auth.permissions import get_effective_role  # AuthService already imported above
     

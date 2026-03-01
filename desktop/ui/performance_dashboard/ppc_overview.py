@@ -11,7 +11,7 @@ from __future__ import annotations
 import pandas as pd
 import numpy as np
 import streamlit as st
-from datetime import datetime, timedelta
+from datetime import date, datetime, timedelta
 from typing import Optional, Dict, Any
 
 
@@ -552,11 +552,12 @@ def _build_keyword_df(
 # ===========================================================================
 
 @st.cache_data(ttl=300, show_spinner=False)
-def _fetch_target_stats(client_id: str, test_mode: bool):
+def _fetch_target_stats(client_id: str, test_mode: bool, start_date=None):
     from features.optimizer_shared.data_access import fetch_target_stats_cached
-    return fetch_target_stats_cached(client_id, test_mode)
+    return fetch_target_stats_cached(client_id, test_mode, start_date=start_date)
 
 
+@st.cache_data(ttl=300, show_spinner=False)
 def _fetch_actions(client_id: str, test_mode: bool, limit: int = 200):
     try:
         from app_core.db_manager import get_db_manager
@@ -831,7 +832,6 @@ def render_ppc_overview() -> None:
         )
         if window_choice != st.session_state["ppc_window_days"]:
             st.session_state["ppc_window_days"] = window_choice
-            st.cache_data.clear()
             st.rerun()
         st.markdown("</div>", unsafe_allow_html=True)
 
@@ -849,7 +849,8 @@ def render_ppc_overview() -> None:
         st.warning("Please select an account first.")
         return
 
-    raw_df = _fetch_target_stats(client_id, test_mode)
+    _start_date = date.today() - timedelta(days=90)
+    raw_df = _fetch_target_stats(client_id, test_mode, start_date=_start_date)
 
     if raw_df is None or raw_df.empty:
         st.markdown("<br>", unsafe_allow_html=True)

@@ -1,0 +1,44 @@
+name: SP-API Daily Pull
+
+on:
+  schedule:
+    - cron: '0 6 * * *' # Run at 06:00 UTC every day
+  workflow_dispatch: # Allow manual trigger from the GitHub Actions UI
+
+jobs:
+  run-pipeline:
+    runs-on: ubuntu-latest
+    
+    steps:
+    - name: Checkout repository
+      uses: actions/checkout@v3
+      
+    - name: Set up Python
+      uses: actions/setup-python@v4
+      with:
+        python-version: '3.11' 
+        
+    - name: Install dependencies
+      working-directory: ./desktop
+      run: |
+        python -m pip install --upgrade pip
+        pip install -r requirements.txt
+        
+    - name: Run SP-API Daily Pull
+      working-directory: ./desktop
+      env:
+        # These secrets must be configured in your GitHub repository settings:
+        # Settings -> Secrets and variables -> Actions -> Repository secrets
+        DATABASE_URL: ${{ secrets.DATABASE_URL }}
+        SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+        SUPABASE_SERVICE_KEY: ${{ secrets.SUPABASE_SERVICE_KEY }}
+        LWA_CLIENT_ID: ${{ secrets.LWA_CLIENT_ID }}
+        LWA_CLIENT_SECRET: ${{ secrets.LWA_CLIENT_SECRET }}
+        AWS_ACCESS_KEY_ID: ${{ secrets.AWS_ACCESS_KEY_ID }}
+        AWS_SECRET_ACCESS_KEY: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+        AWS_REGION: ${{ secrets.AWS_REGION }}
+        MARKETPLACE_ID_UAE: ${{ secrets.MARKETPLACE_ID_UAE }}
+      run: |
+        export PYTHONPATH=.
+        chmod +x scripts/run_pipeline_once.sh
+        bash scripts/run_pipeline_once.sh

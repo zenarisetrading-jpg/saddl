@@ -9,7 +9,7 @@ import numpy as np
 import plotly.graph_objects as go
 import plotly.express as px
 from plotly.subplots import make_subplots
-from datetime import datetime, timedelta
+from datetime import date, datetime, timedelta
 from typing import Dict, Any, Optional
 from utils.formatters import get_account_currency
 from features.impact_metrics import ImpactMetrics
@@ -21,7 +21,7 @@ from features.impact_dashboard import get_maturity_status, _fetch_impact_data
 from app_core.db_manager import get_db_manager
 
 @st.cache_data(ttl=3600, show_spinner=False)
-def _fetch_and_process_stats(client_id: str, cache_version: str) -> Optional[pd.DataFrame]:
+def _fetch_and_process_stats(client_id: str, cache_version: str, start_date=None) -> Optional[pd.DataFrame]:
     """
     Cached fetcher for target stats.
     Includes expensive pre-processing:
@@ -31,7 +31,7 @@ def _fetch_and_process_stats(client_id: str, cache_version: str) -> Optional[pd.
     """
     try:
         db = get_db_manager()
-        df = db.get_target_stats_df(client_id)
+        df = db.get_target_stats_df(client_id, start_date=start_date)
         
         if df.empty:
             return None
@@ -519,8 +519,20 @@ class ExecutiveDashboard:
             # Version key ensures cache invalidation on new data upload
             stats_cache_version = "v1_" + str(st.session_state.get('data_upload_timestamp', 'init'))
 
+            # Compute minimal fetch window: cover current + previous period so we
+            # don't full-scan all history.  custom_start/end come from ppc_overview
+            # (_min_date, _max_date).  For the default case, buffer 2× selected_days.
+            if custom_start and custom_end:
+                _cs = pd.to_datetime(custom_start)
+                _ce = pd.to_datetime(custom_end)
+                _dur = (_ce - _cs).days + 1
+                _fetch_start = (_cs - timedelta(days=_dur)).date()
+            else:
+                _selected = getattr(self, '_selected_days', 60)
+                _fetch_start = date.today() - timedelta(days=_selected * 2 + 10)
+
             print(f"[EXEC_DASH] Fetching data for client_id: {self.client_id}")
-            df = _fetch_and_process_stats(self.client_id, stats_cache_version)
+            df = _fetch_and_process_stats(self.client_id, stats_cache_version, start_date=_fetch_start)
             print(f"[EXEC_DASH] Data fetched: {len(df) if df is not None else 0} rows")
 
             if df is None or df.empty:

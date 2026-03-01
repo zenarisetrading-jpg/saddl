@@ -2,9 +2,12 @@
 
 from __future__ import annotations
 
+import streamlit as st
+
 from app_core.db_manager import get_db_manager
 
 
+@st.cache_data(ttl=600, show_spinner=False)
 def check_spapi_available(client_id: str) -> bool:
     """
     Return True if SP-API is connected/active for this client.

@@ -62,7 +62,7 @@ def _save_onboarding_preference(completed: bool):
     """Save onboarding completion status to user preferences."""
     # This could be extended to save to database
     # For now, just use session state
-    st.session_state['onboarding_completed'] = completed
+
 
 
 def render_connect_amazon_account_button(

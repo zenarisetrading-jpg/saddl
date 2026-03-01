@@ -6,6 +6,7 @@ Uses pathlib for cross-platform path handling.
 """
 
 import sqlite3
+import logging
 from pathlib import Path
 from typing import Optional, List, Dict, Any, Union
 from datetime import date, datetime, timedelta
@@ -13,6 +14,8 @@ from contextlib import contextmanager
 import pandas as pd
 import uuid
 import os
+
+logger = logging.getLogger(__name__)
 
 # Load environment variables from .env file
 try:
@@ -1188,7 +1191,8 @@ class DatabaseManager:
             try:
                 cursor.execute("SELECT DISTINCT client_id FROM target_stats ORDER BY client_id")
                 return [row[0] for row in cursor.fetchall()]
-            except:
+            except Exception as e:
+                logger.error(f"get_client_ids failed: {e}")
                 return []
     
     # ==========================================
