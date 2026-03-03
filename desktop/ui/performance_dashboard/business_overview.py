@@ -1647,10 +1647,6 @@ def _render_insight_panel(title: str, color: str, items: List[str]) -> None:
 
 
 def render_business_overview() -> None:
-    if not FeatureFlags.is_enabled("ENABLE_PERFORMANCE_DASHBOARD_BUSINESS_OVERVIEW"):
-        st.info("Business Overview is currently disabled by feature flag.")
-        return
-
     client_id = st.session_state.get("active_account_id")
     if not client_id:
         st.warning("Please select an account first.")
