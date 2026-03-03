@@ -470,6 +470,7 @@ def _render_account_setup_form(invitation: Invitation, token: str):
                     st.balloons()
 
                     # Rerun to redirect to main app
+                    st.session_state['_nav_loading'] = True
                     st.rerun()
                 else:
                     st.error(f"Failed to create account: {error_msg}")

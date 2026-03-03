@@ -7,7 +7,7 @@ class ThemeManager:
     def init_theme():
         """Initialize theme state if not present."""
         if 'theme_mode' not in st.session_state:
-            st.session_state.theme_mode = 'dark' # Default
+            st.session_state["theme_mode"] = 'dark' # Default
 
     @staticmethod
     def render_toggle():
@@ -15,12 +15,12 @@ class ThemeManager:
         ThemeManager.init_theme()
         
         # Toggle Switch
-        is_dark = st.sidebar.toggle('🌙 Dark Mode', value=(st.session_state.theme_mode == 'dark'))
-        
+        is_dark = st.sidebar.toggle('🌙 Dark Mode', value=(st.session_state.get("theme_mode", "light") == 'dark'))
+
         # Update State
         new_mode = 'dark' if is_dark else 'light'
-        if new_mode != st.session_state.theme_mode:
-            st.session_state.theme_mode = new_mode
+        if new_mode != st.session_state.get("theme_mode", "light"):
+            st.session_state["theme_mode"] = new_mode
             st.rerun() # Rerun to apply changes instantly
             
         # Apply CSS
@@ -30,7 +30,7 @@ class ThemeManager:
     def apply_css():
         """Inject CSS based on current mode - Saddle AdPulse Theme."""
         ThemeManager.init_theme() # Ensure state exists
-        mode = st.session_state.theme_mode
+        mode = st.session_state.get("theme_mode", "light")
         
         # Saddle AdPulse Color Palette (from logo)
         # Primary: Dark navy/slate blues

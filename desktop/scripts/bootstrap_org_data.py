@@ -56,46 +56,7 @@ def main():
             print("❌ Could not determine Organization ID. Aborting.")
             return
 
-        # 2. Update SQLite Accounts
-        print("\nUpdating SQLite accounts...")
-        # Update both live and test DBs to be safe
-        for mode in [False, True]:
-            try:
-                db = get_db_manager(test_mode=mode)
-                db_name = "ppc_test.db" if mode else "ppc_live.db"
-                
-                # Check if it's actually SQLite (get_db_manager might return PostgresManager if configured)
-                if hasattr(db, '_get_connection'): 
-                    # Both have _get_connection, but let's check class name to be sure we are hitting SQLite files
-                    # if we want to force SQLite file updates specifically.
-                    # Actually get_db_manager logic:
-                    # if test_mode -> SQLite
-                    # if not test_mode and DATABASE_URL -> PostgresManager
-                    
-                    # If we specifically want to fix the local SQLite files regardless of env vars:
-                    base_path = Path(__file__).parent.parent / "data"
-                    sqlite_path = base_path / db_name
-                    
-                    if sqlite_path.exists():
-                        import sqlite3
-                        ctx = sqlite3.connect(str(sqlite_path))
-                        sc = ctx.cursor()
-                        # Check if column exists first (it should from my previous edit, but for safety)
-                        try:
-                            sc.execute("UPDATE accounts SET organization_id = ? WHERE organization_id IS NULL OR organization_id = ''", (org_id,))
-                            count = sc.rowcount
-                            ctx.commit()
-                            print(f"   Updated {count} accounts in {db_name}")
-                        except Exception as ex:
-                             print(f"   Error updating {db_name}: {ex}")
-                        ctx.close()
-                    else:
-                        print(f"   {db_name} not found, skipping.")
-                        
-            except Exception as e:
-                print(f"   Error processing SQLite {mode}: {e}")
-                
-        # 3. Update Postgres Data (if used via PostgresManager for APP DATA)
+        # 2. Update Postgres Data (if used via PostgresManager for APP DATA)
         # Accounts might exist in Postgres "accounts" table too
         db_url = os.environ.get("DATABASE_URL")
         if db_url:

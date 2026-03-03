@@ -16,7 +16,7 @@ from ui.theme import ThemeManager
 
 
 @st.cache_data(ttl=300, show_spinner=False)
-def _fetch_home_insights_cached(client_id: str, test_mode: bool):
+def _fetch_home_insights_cached(client_id: str, test_mode: bool, start_date=None):
     """Cache home page insights calculation - prevents repeated large DB queries."""
     from app_core.db_manager import get_db_manager
     db_manager = get_db_manager(test_mode)
@@ -24,7 +24,7 @@ def _fetch_home_insights_cached(client_id: str, test_mode: bool):
     if not db_manager or not client_id:
         return None
 
-    return db_manager.get_target_stats_df(client_id)
+    return db_manager.get_target_stats_df(client_id, start_date=start_date)
 
 
 @st.cache_data(ttl=600, show_spinner=False)
@@ -83,100 +83,94 @@ def _fetch_home_pillar_data(client_id: str, window_days: int = 30) -> dict:
     prev_s  = prev_e  - timedelta(days=window_days - 1)
 
     result = dict(empty)
+
+    # ── Step 1: Resolve SPAPI scope (needed by analytics query) ──────────────
+    account_id     = client_id
+    marketplace_id = _MKTPLACE
     try:
         with db._get_connection() as conn:
             cur = conn.cursor()
+            cur.execute("""
+                SELECT account_id, marketplace_id
+                FROM sc_raw.spapi_account_links
+                WHERE public_client_id = %s AND is_active = TRUE
+                ORDER BY updated_at DESC, id DESC LIMIT 1
+            """, (client_id,))
+            row = cur.fetchone()
+            if row:
+                account_id     = str(row[0] or client_id)
+                marketplace_id = str(row[1] or _MKTPLACE)
+                result["spapi_available"] = True
+    except Exception:
+        pass
 
-            # ── 1. Resolve SPAPI scope ────────────────────────────────────
-            account_id     = client_id
-            marketplace_id = _MKTPLACE
-            try:
-                cur.execute("""
-                    SELECT account_id, marketplace_id
-                    FROM sc_raw.spapi_account_links
-                    WHERE public_client_id = %s AND is_active = TRUE
-                    ORDER BY updated_at DESC, id DESC LIMIT 1
-                """, (client_id,))
-                row = cur.fetchone()
-                if row:
-                    account_id     = str(row[0] or client_id)
-                    marketplace_id = str(row[1] or _MKTPLACE)
-                    result["spapi_available"] = True
-            except Exception:
-                pass
-
-            # ── 2. account_daily — current window ────────────────────────
-            # NOTE: tacos column intentionally excluded — it's stored in percentage
-            # points (e.g. 12.5), NOT decimal. TACOS is recomputed in render_home
-            # as ad_spend_30d / revenue_30d to keep it consistent with BO page.
-            # organic_share_pct is also in percentage points (e.g. 60.2 = 60.2 %).
-            try:
-                cur.execute("""
+    # ── Steps 2-5: Run remaining queries in parallel ──────────────────────────
+    # Queries 2+3 are merged into one round-trip (conditional aggregation).
+    # Each sub-function opens its own connection so they can run concurrently.
+    # NOTE: tacos excluded from account_daily — stored as percentage points (e.g.
+    # 12.5 = 12.5 %); TACOS is recomputed in render_home for consistency.
+    def _fetch_analytics():
+        try:
+            with db._get_connection() as _conn:
+                _cur = _conn.cursor()
+                _cur.execute("""
                     SELECT
-                        COALESCE(SUM(total_ordered_revenue), 0),
-                        AVG(NULLIF(organic_share_pct, 0)),
-                        COALESCE(SUM(organic_revenue), 0),
-                        COALESCE(SUM(ad_attributed_revenue), 0),
-                        COALESCE(SUM(total_sessions), 0),
-                        COALESCE(SUM(total_units_ordered), 0)
+                        SUM(CASE WHEN report_date BETWEEN %s AND %s
+                            THEN COALESCE(total_ordered_revenue, 0) ELSE 0 END),
+                        AVG(CASE WHEN report_date BETWEEN %s AND %s
+                            THEN NULLIF(organic_share_pct, 0) END),
+                        SUM(CASE WHEN report_date BETWEEN %s AND %s
+                            THEN COALESCE(organic_revenue, 0) ELSE 0 END),
+                        SUM(CASE WHEN report_date BETWEEN %s AND %s
+                            THEN COALESCE(ad_attributed_revenue, 0) ELSE 0 END),
+                        SUM(CASE WHEN report_date BETWEEN %s AND %s
+                            THEN COALESCE(total_sessions, 0) ELSE 0 END),
+                        SUM(CASE WHEN report_date BETWEEN %s AND %s
+                            THEN COALESCE(total_units_ordered, 0) ELSE 0 END),
+                        SUM(CASE WHEN report_date BETWEEN %s AND %s
+                            THEN COALESCE(total_ordered_revenue, 0) ELSE 0 END),
+                        SUM(CASE WHEN report_date BETWEEN %s AND %s
+                            THEN COALESCE(total_sessions, 0) ELSE 0 END),
+                        SUM(CASE WHEN report_date BETWEEN %s AND %s
+                            THEN COALESCE(total_units_ordered, 0) ELSE 0 END)
                     FROM sc_analytics.account_daily
                     WHERE account_id = %s AND marketplace_id = %s
                       AND report_date BETWEEN %s AND %s
-                """, (account_id, marketplace_id, str(start_d), str(end_d)))
-                row = cur.fetchone()
-                if row:
-                    result.update({
-                        "revenue_30d":       float(row[0] or 0),
-                        # organic_share_pct: stored as pct-points → display as-is
-                        "organic_share_pct": float(row[1]) if row[1] else None,
-                        "organic_sales_30d": float(row[2]) if row[2] else None,
-                        "ad_sales_30d":      float(row[3]) if row[3] else None,
-                        "sessions_current":  float(row[4]) if row[4] else None,
-                        "units_current":     float(row[5]) if row[5] else None,
-                    })
-            except Exception:
-                pass
+                """, (
+                    str(start_d), str(end_d),
+                    str(start_d), str(end_d),
+                    str(start_d), str(end_d),
+                    str(start_d), str(end_d),
+                    str(start_d), str(end_d),
+                    str(start_d), str(end_d),
+                    str(prev_s),  str(prev_e),
+                    str(prev_s),  str(prev_e),
+                    str(prev_s),  str(prev_e),
+                    account_id, marketplace_id,
+                    str(prev_s), str(end_d),
+                ))
+                return _cur.fetchone()
+        except Exception:
+            return None
 
-            # ── 3. account_daily — previous window ───────────────────────
-            try:
-                cur.execute("""
-                    SELECT
-                        COALESCE(SUM(total_ordered_revenue), 0),
-                        COALESCE(SUM(total_sessions), 0),
-                        COALESCE(SUM(total_units_ordered), 0)
-                    FROM sc_analytics.account_daily
-                    WHERE account_id = %s AND marketplace_id = %s
-                      AND report_date BETWEEN %s AND %s
-                """, (account_id, marketplace_id, str(prev_s), str(prev_e)))
-                row = cur.fetchone()
-                if row:
-                    result.update({
-                        "revenue_prev_30d": float(row[0] or 0),
-                        "sessions_prev":    float(row[1]) if row[1] else None,
-                        "units_prev":       float(row[2]) if row[2] else None,
-                    })
-            except Exception:
-                pass
-
-            # ── 4. raw_search_term_data — ad spend + last refresh ─────────
-            try:
-                cur.execute("""
+    def _fetch_ad_spend():
+        try:
+            with db._get_connection() as _conn:
+                _cur = _conn.cursor()
+                _cur.execute("""
                     SELECT COALESCE(SUM(spend), 0), MAX(report_date)
                     FROM raw_search_term_data
                     WHERE client_id = %s AND report_date BETWEEN %s AND %s
                 """, (client_id, str(start_d), str(end_d)))
-                row = cur.fetchone()
-                if row:
-                    result["ad_spend_30d"]      = float(row[0] or 0)
-                    result["last_refresh_date"]  = str(row[1])[:10] if row[1] else None
-            except Exception:
-                pass
+                return _cur.fetchone()
+        except Exception:
+            return None
 
-            # ── 5. FBA inventory → days-of-cover ─────────────────────────
-            # Use MAX(snapshot_date) filter instead of DISTINCT ON + ORDER BY,
-            # which avoids a full sort when all ASINs share the same daily snapshot date.
-            try:
-                cur.execute("""
+    def _fetch_inventory():
+        try:
+            with db._get_connection() as _conn:
+                _cur = _conn.cursor()
+                _cur.execute("""
                     SELECT COALESCE(SUM(afn_fulfillable_quantity), 0)
                     FROM sc_raw.fba_inventory
                     WHERE client_id = %s
@@ -186,18 +180,44 @@ def _fetch_home_pillar_data(client_id: str, window_days: int = 30) -> dict:
                           WHERE client_id = %s
                       )
                 """, (client_id, client_id))
-                row = cur.fetchone()
-                total_inv = float(row[0] or 0) if row else 0.0
-                units_cur = result.get("units_current") or 0.0
-                if total_inv > 0 and units_cur > 0:
-                    daily_rate = units_cur / window_days
-                    if daily_rate > 0:
-                        result["avg_days_cover"] = round(total_inv / daily_rate, 1)
-            except Exception:
-                pass
+                return _cur.fetchone()
+        except Exception:
+            return None
 
-    except Exception:
-        pass
+    from concurrent.futures import ThreadPoolExecutor
+    with ThreadPoolExecutor(max_workers=3) as _pool:
+        _f_analytics = _pool.submit(_fetch_analytics)
+        _f_spend     = _pool.submit(_fetch_ad_spend)
+        _f_inv       = _pool.submit(_fetch_inventory)
+        row_analytics = _f_analytics.result()
+        row_spend     = _f_spend.result()
+        row_inv       = _f_inv.result()
+
+    # ── Merge results ─────────────────────────────────────────────────────────
+    if row_analytics:
+        result.update({
+            "revenue_30d":       float(row_analytics[0] or 0),
+            "organic_share_pct": float(row_analytics[1]) if row_analytics[1] else None,
+            "organic_sales_30d": float(row_analytics[2]) if row_analytics[2] else None,
+            "ad_sales_30d":      float(row_analytics[3]) if row_analytics[3] else None,
+            "sessions_current":  float(row_analytics[4]) if row_analytics[4] else None,
+            "units_current":     float(row_analytics[5]) if row_analytics[5] else None,
+            "revenue_prev_30d":  float(row_analytics[6] or 0),
+            "sessions_prev":     float(row_analytics[7]) if row_analytics[7] else None,
+            "units_prev":        float(row_analytics[8]) if row_analytics[8] else None,
+        })
+
+    if row_spend:
+        result["ad_spend_30d"]     = float(row_spend[0] or 0)
+        result["last_refresh_date"] = str(row_spend[1])[:10] if row_spend[1] else None
+
+    if row_inv:
+        total_inv = float(row_inv[0] or 0)
+        units_cur = result.get("units_current") or 0.0
+        if total_inv > 0 and units_cur > 0:
+            daily_rate = units_cur / window_days
+            if daily_rate > 0:
+                result["avg_days_cover"] = round(total_inv / daily_rate, 1)
 
     return result
 
@@ -1100,6 +1120,7 @@ def render_home():  # noqa: C901 – intentionally large view function
             key="hp2_nav_analytics",
             use_container_width=True,
         ):
+            st.session_state["_nav_loading"] = True
             st.session_state["current_module"] = "performance"
             st.rerun()
 
@@ -1131,6 +1152,7 @@ def render_home():  # noqa: C901 – intentionally large view function
             key="hp2_nav_optimizer",
             use_container_width=True,
         ):
+            st.session_state["_nav_loading"] = True
             st.session_state["current_module"] = "optimizer"
             st.rerun()
 
@@ -1162,6 +1184,7 @@ def render_home():  # noqa: C901 – intentionally large view function
             key="hp2_nav_impact",
             use_container_width=True,
         ):
+            st.session_state["_nav_loading"] = True
             st.session_state["current_module"] = "impact_v2"
             st.rerun()
 
@@ -1255,4 +1278,3 @@ def render_home():  # noqa: C901 – intentionally large view function
                 text = call_homepage_llm(ctx, account_name=account_name)
                 st.session_state[cache_key] = text
             st.rerun()
-

@@ -367,7 +367,6 @@ def render_data_hub():
                         with st.spinner("Processing..."):
                             success, message = hub.upload_search_term_report(str_file)
                             # Store result in session state so it persists across rerun
-                            st.session_state['last_upload_result'] = {'success': success, 'message': message, 'time': datetime.now()}
                             if success:
                                 st.toast(message, icon="✅")
                                 st.rerun()

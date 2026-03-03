@@ -11,7 +11,7 @@ from __future__ import annotations
 import pandas as pd
 import numpy as np
 import streamlit as st
-from datetime import datetime, timedelta
+from datetime import date, datetime, timedelta
 from typing import Optional, Dict, Any
 
 
@@ -99,15 +99,26 @@ def _fmt_number(v) -> str:
     return f"{int(v):,}"
 
 
+from features.optimizer_shared.ppc_classifications import classify_keyword_diagnostic as _classify_keyword_shared
+
+
 def _classify_keyword(row: pd.Series, target_roas: float) -> str:
-    """Flag keywords by diagnostic category."""
-    if row["sales"] == 0 and row["spend"] > 50:
-        return "Zero-Conversion"
-    if row["roas"] > 0 and row["roas"] > target_roas * 1.5:
-        return "Under-Bidding"
-    if row["roas"] < target_roas:
-        return "Over-Spending"
-    return "Optimized"
+    """Flag keywords by diagnostic category. Logic lives in ppc_classifications.py."""
+    _LABEL_MAP = {
+        "zero_conversion": "Zero-Conversion",
+        "under_bid":       "Under-Bidding",
+        "over_spend":      "Over-Spending",
+        "optimized":       "Optimized",
+    }
+    key = _classify_keyword_shared(
+        spend=row["spend"],
+        sales=row["sales"],
+        roas=row["roas"],
+        target_roas=target_roas,
+        clicks=int(row.get("clicks", 0) or 0),
+        impressions=int(row.get("impressions", 0) or 0),
+    )
+    return _LABEL_MAP.get(key, "Optimized")
 
 
 # ===========================================================================
@@ -552,11 +563,12 @@ def _build_keyword_df(
 # ===========================================================================
 
 @st.cache_data(ttl=300, show_spinner=False)
-def _fetch_target_stats(client_id: str, test_mode: bool):
+def _fetch_target_stats(client_id: str, test_mode: bool, start_date=None):
     from features.optimizer_shared.data_access import fetch_target_stats_cached
-    return fetch_target_stats_cached(client_id, test_mode)
+    return fetch_target_stats_cached(client_id, test_mode, start_date=start_date)
 
 
+@st.cache_data(ttl=300, show_spinner=False)
 def _fetch_actions(client_id: str, test_mode: bool, limit: int = 200):
     try:
         from app_core.db_manager import get_db_manager
@@ -831,7 +843,6 @@ def render_ppc_overview() -> None:
         )
         if window_choice != st.session_state["ppc_window_days"]:
             st.session_state["ppc_window_days"] = window_choice
-            st.cache_data.clear()
             st.rerun()
         st.markdown("</div>", unsafe_allow_html=True)
 
@@ -849,7 +860,8 @@ def render_ppc_overview() -> None:
         st.warning("Please select an account first.")
         return
 
-    raw_df = _fetch_target_stats(client_id, test_mode)
+    _start_date = date.today() - timedelta(days=90)
+    raw_df = _fetch_target_stats(client_id, test_mode, start_date=_start_date)
 
     if raw_df is None or raw_df.empty:
         st.markdown("<br>", unsafe_allow_html=True)

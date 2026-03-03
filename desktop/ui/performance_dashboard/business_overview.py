@@ -314,20 +314,6 @@ def fetch_business_overview_data(
 
     account_id, marketplace_id = _resolve_spapi_scope(db, client_id)
 
-    target_df = db.get_target_stats_df(client_id, start_date=prev_start)
-    if target_df is None:
-        target_df = pd.DataFrame()
-    if not target_df.empty and "Date" in target_df.columns:
-        target_df = target_df.copy()
-        target_df["Date"] = pd.to_datetime(target_df["Date"], errors="coerce").dt.date
-
-    target_current = target_df[
-        (target_df["Date"] >= start_date) & (target_df["Date"] <= end_date)
-    ].copy() if not target_df.empty else pd.DataFrame()
-    target_previous = target_df[
-        (target_df["Date"] >= prev_start) & (target_df["Date"] <= prev_end)
-    ].copy() if not target_df.empty else pd.DataFrame()
-
     traffic_daily = pd.DataFrame()
     traffic_by_asin = pd.DataFrame()
     account_daily = pd.DataFrame()
@@ -349,10 +335,6 @@ def fetch_business_overview_data(
         GROUP BY report_date
         ORDER BY report_date
     """
-    try:
-        traffic_daily = _to_df_query(db, traffic_q, (account_id, marketplace_id, prev_start, end_date))
-    except Exception:
-        traffic_daily = pd.DataFrame(columns=["report_date", "sessions", "page_views", "units", "revenue"])
 
     account_daily_q = """
         SELECT
@@ -371,22 +353,6 @@ def fetch_business_overview_data(
           AND report_date BETWEEN %s AND %s
         ORDER BY report_date
     """
-    try:
-        account_daily = _to_df_query(db, account_daily_q, (account_id, marketplace_id, prev_start, end_date))
-    except Exception:
-        account_daily = pd.DataFrame(
-            columns=[
-                "report_date",
-                "total_ordered_revenue",
-                "total_units_ordered",
-                "total_page_views",
-                "total_sessions",
-                "ad_attributed_revenue",
-                "organic_revenue",
-                "organic_share_pct",
-                "tacos",
-                ]
-        )
 
     ad_spend_q = """
         SELECT
@@ -399,10 +365,59 @@ def fetch_business_overview_data(
         GROUP BY report_date
         ORDER BY report_date
     """
-    try:
-        ad_spend_daily = _to_df_query(db, ad_spend_q, (client_id, prev_start, end_date))
-    except Exception:
-        ad_spend_daily = pd.DataFrame(columns=["report_date", "ad_spend", "ad_sales"])
+
+    # ── Parallel fetch: target_stats, traffic, account_daily, ad_spend ────────
+    from concurrent.futures import ThreadPoolExecutor
+
+    def _run_target():
+        try:
+            df = db.get_target_stats_df(client_id, start_date=prev_start)
+            return df if df is not None else pd.DataFrame()
+        except Exception:
+            return pd.DataFrame()
+
+    def _run_traffic():
+        try:
+            return _to_df_query(db, traffic_q, (account_id, marketplace_id, prev_start, end_date))
+        except Exception:
+            return pd.DataFrame(columns=["report_date", "sessions", "page_views", "units", "revenue"])
+
+    def _run_account_daily():
+        try:
+            return _to_df_query(db, account_daily_q, (account_id, marketplace_id, prev_start, end_date))
+        except Exception:
+            return pd.DataFrame(columns=[
+                "report_date", "total_ordered_revenue", "total_units_ordered",
+                "total_page_views", "total_sessions", "ad_attributed_revenue",
+                "organic_revenue", "organic_share_pct", "tacos",
+            ])
+
+    def _run_ad_spend():
+        try:
+            return _to_df_query(db, ad_spend_q, (client_id, prev_start, end_date))
+        except Exception:
+            return pd.DataFrame(columns=["report_date", "ad_spend", "ad_sales"])
+
+    with ThreadPoolExecutor(max_workers=4) as _pool:
+        _f_target  = _pool.submit(_run_target)
+        _f_traffic = _pool.submit(_run_traffic)
+        _f_acct    = _pool.submit(_run_account_daily)
+        _f_spend   = _pool.submit(_run_ad_spend)
+        target_df    = _f_target.result()
+        traffic_daily = _f_traffic.result()
+        account_daily = _f_acct.result()
+        ad_spend_daily = _f_spend.result()
+
+    if not target_df.empty and "Date" in target_df.columns:
+        target_df = target_df.copy()
+        target_df["Date"] = pd.to_datetime(target_df["Date"], errors="coerce").dt.date
+
+    target_current = target_df[
+        (target_df["Date"] >= start_date) & (target_df["Date"] <= end_date)
+    ].copy() if not target_df.empty else pd.DataFrame()
+    target_previous = target_df[
+        (target_df["Date"] >= prev_start) & (target_df["Date"] <= prev_end)
+    ].copy() if not target_df.empty else pd.DataFrame()
 
     if not traffic_daily.empty:
         traffic_daily["report_date"] = pd.to_datetime(traffic_daily["report_date"], errors="coerce")
@@ -1669,8 +1684,6 @@ def render_business_overview() -> None:
     window_days = int(str(st.session_state.get("biz_overview_window", "30D")).replace("D", ""))
     test_mode = bool(st.session_state.get("test_mode", False))
     spapi_available = check_spapi_available(client_id)
-    st.session_state["perf_dash_spapi_available"] = spapi_available
-
     data = fetch_business_overview_data(
         client_id=client_id,
         window_days=window_days,
