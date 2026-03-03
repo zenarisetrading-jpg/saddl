@@ -11,7 +11,6 @@ import pandas as pd
 import numpy as np
 import plotly.graph_objects as go
 import html
-from features.assistant import AssistantModule
 from features.executive_dashboard import ExecutiveDashboard
 from features.report_card import ReportCardModule
 from app_core.data_hub import DataHub
@@ -1168,8 +1167,16 @@ def run():
     # =========================================================================
     
     inject_premium_styles()
-    
-    assistant = AssistantModule()
+
+    assistant = None
+    try:
+        from features.assistant import AssistantModule
+        assistant = AssistantModule()
+    except Exception:
+        # In some deployments Assistant dependencies may be unavailable.
+        # The existing fallback narrative path below will handle this.
+        assistant = None
+
     exec_dash = ExecutiveDashboard()
     report_card = ReportCardModule()
     
@@ -1188,6 +1195,8 @@ def run():
 
         with st.spinner("🤖 Generating AI insights..."):
             try:
+                if assistant is None:
+                    raise RuntimeError("Assistant module unavailable in this deployment")
                 # Pass explicit date range to Assistant
                 start_date = report_config.get('start_date')
                 end_date = report_config.get('end_date')
