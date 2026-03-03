@@ -6,6 +6,7 @@ Uses pathlib for cross-platform path handling.
 """
 
 import sqlite3
+import logging
 from pathlib import Path
 from typing import Optional, List, Dict, Any, Union
 from datetime import date, datetime, timedelta
@@ -13,6 +14,8 @@ from contextlib import contextmanager
 import pandas as pd
 import uuid
 import os
+
+logger = logging.getLogger(__name__)
 
 # Load environment variables from .env file
 try:
@@ -155,6 +158,8 @@ class DatabaseManager:
                     match_type TEXT,
                     new_campaign_name TEXT,
                     winner_source_campaign TEXT,
+                    before_match_type TEXT,
+                    after_match_type TEXT,
                     UNIQUE(client_id, action_date, target_text, action_type, campaign_name)
                 )
             """)
@@ -179,6 +184,17 @@ class DatabaseManager:
                 cursor.execute("SELECT winner_source_campaign FROM actions_log LIMIT 1")
             except sqlite3.OperationalError:
                 cursor.execute("ALTER TABLE actions_log ADD COLUMN winner_source_campaign TEXT")
+
+            # MIGRATION: Ensure harvest lineage columns exist
+            try:
+                cursor.execute("SELECT before_match_type FROM actions_log LIMIT 1")
+            except sqlite3.OperationalError:
+                cursor.execute("ALTER TABLE actions_log ADD COLUMN before_match_type TEXT")
+
+            try:
+                cursor.execute("SELECT after_match_type FROM actions_log LIMIT 1")
+            except sqlite3.OperationalError:
+                cursor.execute("ALTER TABLE actions_log ADD COLUMN after_match_type TEXT")
             
             # ==========================================
             # MAPPING TABLES (Persistence)
@@ -1188,7 +1204,8 @@ class DatabaseManager:
             try:
                 cursor.execute("SELECT DISTINCT client_id FROM target_stats ORDER BY client_id")
                 return [row[0] for row in cursor.fetchall()]
-            except:
+            except Exception as e:
+                logger.error(f"get_client_ids failed: {e}")
                 return []
     
     # ==========================================
@@ -2002,4 +2019,3 @@ def get_db_manager(test_mode: bool = False):
         return DatabaseManager(Path("data/ppc_test.db"))
     
     return DatabaseManager(DEFAULT_DB_PATH)
-
