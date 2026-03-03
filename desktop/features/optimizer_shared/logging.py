@@ -125,6 +125,7 @@ def log_optimization_events(results: dict, client_id: str, report_date: str):
         'batch_id': batch_id,
         'report_date': report_date
     }
+    st.session_state['last_queued_batch_id'] = batch_id
 
     return len(actions_to_log)
 
@@ -151,6 +152,8 @@ def flush_pending_actions_to_db(test_mode: bool = False) -> int:
         raise RuntimeError("Database manager unavailable")
 
     written = db.log_action_batch(actions, client_id, batch_id, report_date)
+    st.session_state['last_saved_batch_id'] = batch_id
+    st.session_state['last_saved_count'] = int(written)
 
     # Clear the queue so double-saves don't happen
     st.session_state.pop('pending_actions', None)

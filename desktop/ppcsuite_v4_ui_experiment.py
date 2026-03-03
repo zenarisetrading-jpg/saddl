@@ -234,6 +234,7 @@ def run_performance_hub():
                 use_container_width=True,
                 type="primary" if st.session_state["active_perf_tab"] == "Business Overview" else "secondary",
             ):
+                st.session_state["_nav_loading"] = True
                 st.session_state["active_perf_tab"] = "Business Overview"
                 st.rerun()
         _col_idx += 1
@@ -245,6 +246,7 @@ def run_performance_hub():
                     use_container_width=True,
                     type="primary" if st.session_state["active_perf_tab"] == "Client Report" else "secondary",
                 ):
+                    st.session_state["_nav_loading"] = True
                     st.session_state["active_perf_tab"] = "Client Report"
                     st.rerun()
             _col_idx += 1
@@ -256,6 +258,7 @@ def run_performance_hub():
                     use_container_width=True,
                     type="primary" if st.session_state["active_perf_tab"] == "PPC Overview" else "secondary",
                 ):
+                    st.session_state["_nav_loading"] = True
                     st.session_state["active_perf_tab"] = "PPC Overview"
                     st.rerun()
 
@@ -701,6 +704,7 @@ def main():
     if user.must_reset_password:
         # If user must reset, lock them to 'profile' module
         if st.session_state.get('current_module') != 'profile':
+            st.session_state['_nav_loading'] = True
             st.session_state['current_module'] = 'profile'
             st.warning("⚠️ You must change your password to proceed.")
             st.rerun()
@@ -751,6 +755,7 @@ def main():
     # Helper: Safe navigation (checks for pending actions when leaving optimizer)
     # Helper: Navigation
     def safe_navigate(target_module):
+        st.session_state['_nav_loading'] = True
         st.session_state['current_module'] = target_module
         st.rerun()
     
@@ -795,7 +800,6 @@ def main():
         impact_icon = f'<svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="{nav_icon_color}" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="vertical-align: middle;"><line x1="18" y1="20" x2="18" y2="10"></line><line x1="12" y1="20" x2="12" y2="4"></line><line x1="6" y1="20" x2="6" y2="14"></line></svg>'
         diagnostics_icon = f'<svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="{nav_icon_color}" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="vertical-align: middle;"><path d="M3 3h7v7H3z"></path><path d="M14 3h7v7h-7z"></path><path d="M14 14h7v7h-7z"></path><path d="M3 14h7v7H3z"></path></svg>'
         check_icon = f'<svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="{nav_icon_color}" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="vertical-align: middle;"><path d="m9 11 3 3L22 4"></path><path d="M21 12v7a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11"></path></svg>'
-        sim_icon = f'<svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="{nav_icon_color}" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="vertical-align: middle;"><polyline points="23 6 13.5 15.5 8.5 10.5 1 18"></polyline><polyline points="17 6 23 6 23 12"></polyline></svg>'
         rocket_icon = f'<svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="{nav_icon_color}" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="vertical-align: middle;"><path d="M4.5 16.5c-1.5 1.26-2 5-2 5s3.74-.5 5-2c.71-.84.7-2.13-.09-2.91a2.18 2.18 0 0 0-2.91-.09z"></path><path d="m12 15-3-3a22 22 0 0 1 2-3.95A12.88 12.88 0 0 1 22 2c0 2.72-.78 7.5-6 11a22.35 22.35 0 0 1-4 2z"></path><path d="m9 12 2.5 2.5"></path></svg>'
         storage_icon = f'<svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="{nav_icon_color}" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="vertical-align: middle;"><path d="M21 20V4a2 2 0 0 0-2-2H5a2 2 0 0 0-2 2v16"></path><rect x="3" y="4" width="18" height="4" rx="2"></rect><rect x="3" y="12" width="18" height="4" rx="2"></rect></svg>'
         help_icon = f'<svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="{nav_icon_color}" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="vertical-align: middle;"><circle cx="12" cy="12" r="10"></circle><path d="M9.09 9a3 3 0 0 1 5.83 1c0 2-3 3-3 3"></path><line x1="12" y1="17" x2="12.01" y2="17"></line></svg>'
@@ -846,6 +850,7 @@ def main():
                     st.rerun()
                 else:
                     # Navigate directly
+                    st.session_state['_nav_loading'] = True
                     st.session_state['current_module'] = module_key
                     st.rerun()
 
@@ -919,7 +924,6 @@ def main():
             st.markdown('</div>', unsafe_allow_html=True)
 
         nav_button_chiclet("Home", home_icon, "home")
-        nav_button_chiclet("Account Overview", performance_icon, "performance")
         
         st.divider()
         st.markdown("##### ANALYZE")
@@ -927,15 +931,16 @@ def main():
         # PERMISSION GATING (V2)
         from app_core.auth.permissions import has_permission
         
+        nav_button_chiclet("Account Overview", performance_icon, "performance")
+        
         # Optimizer - Requires 'run_optimizer'
         # Phase 3.5: Operator cannot run optimizer if overridden to VIEWER on this account
         if has_permission_for_account(user, 'run_optimizer', st.session_state.get('permission_account_context')):
             nav_button_chiclet("Optimizer", check_icon, "optimizer")
             
-        nav_button_chiclet("What If (Forecast)", sim_icon, "simulator")
         if FeatureFlags.is_enabled("ENABLE_DIAGNOSTICS_LEGACY"):
             nav_button_chiclet("Diagnostics", diagnostics_icon, "diagnostics")
-        nav_button_chiclet("Impact & Results", impact_icon, "impact_v2")
+        nav_button_chiclet("Impact", impact_icon, "impact_v2")
 
 
         # Client Report feature removed
@@ -957,12 +962,8 @@ def main():
              # Billing is placeholder for now (Phase 3)
              # nav_button_chiclet("Billing", billing_icon, "billing")
 
-        st.divider()
-
         # PROFILE SECTION (Everyone)
         nav_button_chiclet("Profile", settings_icon, "profile")
-
-        st.divider()
 
         # =========================
         # SECONDARY / SYSTEM
@@ -985,46 +986,111 @@ def main():
         from ui.action_confirmation import show_undo_toast
         show_undo_toast()
         
-        # Theme Toggle (logout moved to top header)
-        st.divider()
-        from ui.theme import ThemeManager
-        ThemeManager.render_toggle()
-        
-        # Database Mode Toggle (below Help)
-        st.divider()
-        test_mode = st.toggle("Test Mode", value=st.session_state.get('test_mode', False))
-        if test_mode != st.session_state.get('test_mode', False):
-            st.session_state['test_mode'] = test_mode
-            st.session_state['db_manager'] = get_db_manager(test_mode)
-            st.rerun()
-        if st.session_state['db_manager'] is None:
-            st.session_state['db_manager'] = get_db_manager(st.session_state['test_mode'])
-        if st.session_state['test_mode']:
-            st.caption("Using: `ppc_test.db`")
-        else:
-            # Show actual database type
-            db = st.session_state.get('db_manager')
-            if db and type(db).__name__ == 'PostgresManager':
-                st.caption("Using: `Supabase (Postgres)`")
-            else:
-                st.caption("Using: `ppc_live.db`")
-            
     # Routing
     current = st.session_state.get('current_module', 'home')
-    
-    # CSS hack to fix the Streamlit "Ghosting" issue during page navigation
-    # This briefly sets the main container to opacity 0 on load via a short animation
-    st.markdown("""
-        <style>
-            @keyframes fadeIn {
-                0% { opacity: 0; }
-                100% { opacity: 1; }
-            }
-            .main .block-container {
-                animation: fadeIn 0.4s ease-in-out;
-            }
-        </style>
-    """, unsafe_allow_html=True)
+
+    # Full-page loading layer to mask stale UI while the next page is rendering.
+    nav_loading = bool(st.session_state.get('_nav_loading', False))
+    loading_overlay = st.empty()
+    if nav_loading:
+        loading_overlay.markdown(
+            """
+            <style>
+                @keyframes page-loader-shimmer {
+                    0% { background-position: -220% 0; }
+                    100% { background-position: 220% 0; }
+                }
+                @keyframes page-loader-pulse {
+                    0%, 100% { box-shadow: 0 0 0 0 rgba(56, 189, 248, 0.22); transform: scale(1); }
+                    50% { box-shadow: 0 0 0 10px rgba(56, 189, 248, 0.04); transform: scale(1.02); }
+                }
+                .page-loader-overlay {
+                    position: fixed;
+                    inset: 0;
+                    z-index: 999998;
+                    background:
+                        radial-gradient(circle at 18% 12%, rgba(56, 189, 248, 0.08), transparent 36%),
+                        radial-gradient(circle at 82% 88%, rgba(94, 234, 212, 0.04), transparent 42%),
+                        #0a0f1e;
+                    display: flex;
+                    align-items: center;
+                    justify-content: center;
+                }
+                [data-testid="stSidebar"] {
+                    z-index: 1000000 !important;
+                    position: relative !important;
+                }
+                .page-loader-card {
+                    width: min(680px, 82vw);
+                    border-radius: 16px;
+                    border: 1px solid rgba(148, 163, 184, 0.16);
+                    background: linear-gradient(140deg, rgba(15, 23, 42, 0.7), rgba(15, 23, 42, 0.52));
+                    backdrop-filter: blur(10px);
+                    box-shadow:
+                        0 24px 64px rgba(2, 6, 23, 0.52),
+                        inset 0 1px 0 rgba(255, 255, 255, 0.04),
+                        0 0 0 1px rgba(56, 189, 248, 0.06);
+                    padding: 20px 20px 18px 20px;
+                }
+                .page-loader-head {
+                    display: flex;
+                    align-items: center;
+                    gap: 12px;
+                    margin-bottom: 14px;
+                }
+                .page-loader-spinner {
+                    width: 20px;
+                    height: 20px;
+                    border-radius: 50%;
+                    border: 2px solid rgba(100, 116, 139, 0.28);
+                    border-top-color: rgba(56, 189, 248, 0.92);
+                    border-right-color: rgba(56, 189, 248, 0.55);
+                    animation: page-loader-spin 0.9s linear infinite;
+                    box-shadow: 0 0 14px rgba(56, 189, 248, 0.14);
+                }
+                .page-loader-text {
+                    color: rgba(203, 213, 225, 0.82);
+                    font-size: 0.95rem;
+                    font-weight: 400;
+                    letter-spacing: 0.01em;
+                }
+                @keyframes page-loader-spin {
+                    to { transform: rotate(360deg); }
+                }
+                .page-loader-line {
+                    height: 10px;
+                    border-radius: 8px;
+                    margin: 8px 0;
+                    background:
+                        linear-gradient(
+                            90deg,
+                            rgba(30, 41, 59, 0.55) 0%,
+                            rgba(100, 116, 139, 0.14) 40%,
+                            rgba(148, 163, 184, 0.26) 50%,
+                            rgba(100, 116, 139, 0.14) 60%,
+                            rgba(30, 41, 59, 0.55) 100%
+                        );
+                    background-size: 220% 100%;
+                    animation: page-loader-shimmer 1.5s ease-in-out infinite;
+                }
+                .page-loader-line.w-100 { width: 100%; }
+                .page-loader-line.w-82 { width: 82%; }
+                .page-loader-line.w-64 { width: 64%; }
+            </style>
+            <div class="page-loader-overlay">
+                <div class="page-loader-card">
+                    <div class="page-loader-head">
+                        <span class="page-loader-spinner"></span>
+                        <span class="page-loader-text">Preparing your data...</span>
+                    </div>
+                    <div class="page-loader-line w-100"></div>
+                    <div class="page-loader-line w-82"></div>
+                    <div class="page-loader-line w-64"></div>
+                </div>
+            </div>
+            """,
+            unsafe_allow_html=True,
+        )
 
     # Check for pending actions confirmation dialog - REMOVED per user request
     # Actions are now saved explicitly via "Save Run" button in optimizer
@@ -1060,6 +1126,7 @@ def main():
                 render_platform_admin()
             else:
                 # Unauthorized access attempt or sticky session state - reset to home
+                st.session_state['_nav_loading'] = True
                 st.session_state['current_module'] = 'home'
                 st.rerun()
 
@@ -1135,6 +1202,10 @@ def main():
         assistant = AssistantModule()
         assistant.render_floating_interface()
         assistant.render_interface()
+
+    if nav_loading:
+        st.session_state['_nav_loading'] = False
+        loading_overlay.empty()
 
 if __name__ == "__main__":
     main()

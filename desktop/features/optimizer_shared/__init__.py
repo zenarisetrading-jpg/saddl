@@ -98,7 +98,7 @@ class OptimizerModule(BaseFeature):
 
         # 4. Handle Optimization Run Logic (using separate key to avoid conflicts with legacy UI)
         if st.session_state.get("run_optimizer_refactored"):
-            with st.spinner("Running AI Optimization Analysis..."):
+            with st.container():
                 # Load Data from DATABASE (not CSV) and apply date filtering
                 from app_core.db_manager import get_db_manager
                 import pandas as pd
