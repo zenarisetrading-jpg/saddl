@@ -25,6 +25,7 @@ from features.optimizer_shared.ui.campaign_panel import render_tier1_campaign_pa
 def run_pipeline_and_render_results():
     if st.session_state.get("v2_opt_state") == "running":
         success = _execute_v2_engine()
+        st.session_state["_nav_loading"] = True
         st.session_state["v2_opt_state"] = "completed" if success else "entry"
         st.rerun()
 
@@ -33,7 +34,7 @@ def run_pipeline_and_render_results():
 
 
 def _execute_v2_engine():
-    with st.spinner("Executing optimizer pipeline..."):
+    with st.container():
         config = DEFAULT_CONFIG.copy()
         profile_name = st.session_state.get("opt_risk_profile", "Balanced").lower()
         profile_params = OPTIMIZATION_PROFILES.get(profile_name, OPTIMIZATION_PROFILES["balanced"])["params"]
@@ -296,6 +297,7 @@ def _render_v2_results_view():
     st.markdown("<h2 class='v2-h2'>Optimizer v2 results</h2>", unsafe_allow_html=True)
 
     if st.button("Back to pre-run brief"):
+        st.session_state["_nav_loading"] = True
         st.session_state["v2_opt_state"] = "entry"
         st.rerun()
 
@@ -592,7 +594,19 @@ def _render_v2_results_view():
                 queued = log_optimization_events(loggable, client_id, report_date)
                 if queued > 0:
                     saved = flush_pending_actions_to_db(test_mode=test_mode)
-                    st.success(f"✅ {saved} optimization actions saved to history!")
+                    batch_id = st.session_state.get("last_saved_batch_id") or st.session_state.get("last_queued_batch_id", "n/a")
+                    st.session_state["last_save_confirmation"] = {
+                        "saved": int(saved),
+                        "queued": int(queued),
+                        "batch_id": batch_id,
+                        "saved_at": datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
+                    }
+                    if saved <= 0:
+                        st.error("❌ Save failed: 0 rows were written to actions_log.")
+                    elif saved != queued:
+                        st.warning(f"⚠️ Saved {saved} of {queued} actions (batch {batch_id}).")
+                    else:
+                        st.success(f"✅ Saved {saved} actions to history (batch {batch_id}).")
                 else:
                     st.info("No actions to save from this run.")
             except Exception as e:

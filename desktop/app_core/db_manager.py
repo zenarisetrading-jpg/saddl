@@ -158,6 +158,8 @@ class DatabaseManager:
                     match_type TEXT,
                     new_campaign_name TEXT,
                     winner_source_campaign TEXT,
+                    before_match_type TEXT,
+                    after_match_type TEXT,
                     UNIQUE(client_id, action_date, target_text, action_type, campaign_name)
                 )
             """)
@@ -182,6 +184,17 @@ class DatabaseManager:
                 cursor.execute("SELECT winner_source_campaign FROM actions_log LIMIT 1")
             except sqlite3.OperationalError:
                 cursor.execute("ALTER TABLE actions_log ADD COLUMN winner_source_campaign TEXT")
+
+            # MIGRATION: Ensure harvest lineage columns exist
+            try:
+                cursor.execute("SELECT before_match_type FROM actions_log LIMIT 1")
+            except sqlite3.OperationalError:
+                cursor.execute("ALTER TABLE actions_log ADD COLUMN before_match_type TEXT")
+
+            try:
+                cursor.execute("SELECT after_match_type FROM actions_log LIMIT 1")
+            except sqlite3.OperationalError:
+                cursor.execute("ALTER TABLE actions_log ADD COLUMN after_match_type TEXT")
             
             # ==========================================
             # MAPPING TABLES (Persistence)
@@ -2006,4 +2019,3 @@ def get_db_manager(test_mode: bool = False):
         return DatabaseManager(Path("data/ppc_test.db"))
     
     return DatabaseManager(DEFAULT_DB_PATH)
-

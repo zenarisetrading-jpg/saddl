@@ -169,6 +169,7 @@ def render_login():
                 if result["success"]:
                     st.success(f"Welcome back!")
                     # Reset navigation to avoid sticky state from previous sessions
+                    st.session_state['_nav_loading'] = True
                     st.session_state['current_module'] = 'home'
                     st.rerun()
                 else:
@@ -182,5 +183,4 @@ def render_login():
     if st.button("Forgot Password?", type="secondary", use_container_width=True):
         st.session_state['auth_view'] = 'forgot_password'
         st.rerun()
-
 

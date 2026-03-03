@@ -1,9 +1,66 @@
 import streamlit as st
 import pandas as pd
+from datetime import datetime, date
 from .components import render_metric_card
 from .charts import render_spend_reallocation_chart, render_action_distribution_chart
 from utils.formatters import get_account_currency, format_currency, dataframe_to_excel
 from features.optimizer_shared.ui.campaign_panel import render_tier1_campaign_panel
+
+
+def _save_run_to_history(results: dict) -> tuple[str, str]:
+    """
+    Save current optimizer results to actions_log.
+    Returns (level, message) where level in {"success", "warning", "info", "error"}.
+    """
+    from features.optimizer_shared.logging import log_optimization_events, flush_pending_actions_to_db
+    from app_core.db_manager import get_db_manager
+
+    test_mode = bool(st.session_state.get("test_mode", False))
+    client_id = st.session_state.get("active_account_id", "")
+    report_date = date.today().isoformat()
+
+    if not client_id:
+        return "error", "Cannot save: no active account selected."
+
+    loggable = {
+        "neg_kw": results.get("neg_kw", pd.DataFrame()),
+        "neg_pt": results.get("neg_pt", pd.DataFrame()),
+        "harvest": results.get("harvest", pd.DataFrame()),
+        "bids_exact": results.get("bids_exact", pd.DataFrame()),
+        "bids_pt": results.get("bids_pt", pd.DataFrame()),
+        "bids_agg": results.get("bids_agg", pd.DataFrame()),
+        "bids_auto": results.get("bids_auto", pd.DataFrame()),
+    }
+
+    queued = log_optimization_events(loggable, client_id, report_date)
+    if queued <= 0:
+        return "info", "No actions to save from this run."
+
+    saved = flush_pending_actions_to_db(test_mode=test_mode)
+    batch_id = st.session_state.get("last_saved_batch_id") or st.session_state.get("last_queued_batch_id", "n/a")
+
+    # Optional verification when DB manager exposes batch read API (SQLite path).
+    verified_rows = None
+    try:
+        db = get_db_manager(test_mode)
+        if hasattr(db, "get_actions_by_batch"):
+            verified_rows = len(db.get_actions_by_batch(batch_id))
+    except Exception:
+        verified_rows = None
+
+    st.session_state["last_save_confirmation"] = {
+        "saved": int(saved),
+        "queued": int(queued),
+        "batch_id": batch_id,
+        "saved_at": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
+        "verified_rows": verified_rows,
+    }
+
+    if saved <= 0:
+        return "error", "Save failed: 0 rows were written to actions_log."
+    if saved != queued:
+        return "warning", f"Saved {saved} of {queued} queued actions (batch {batch_id})."
+    return "success", f"Saved {saved} actions to history (batch {batch_id})."
 
 
 def _to_numeric_series(df: pd.DataFrame, col: str) -> pd.Series:
@@ -255,18 +312,17 @@ def render_results_dashboard(results: dict):
     Args:
         results (dict): Dictionary containing optimization results (df, harvest, neg_kw, etc.)
     """
-    # === HANDLE SAVE TRIGGER (must run before any rendering) ===
+    # Backward compatibility for any older trigger path.
     if st.session_state.pop("trigger_save", False):
-        try:
-            from features.optimizer_shared.logging import flush_pending_actions_to_db
-            test_mode = bool(st.session_state.get("test_mode", False))
-            saved = flush_pending_actions_to_db(test_mode=test_mode)
-            if saved > 0:
-                st.success(f"✅ {saved} optimization actions saved to history successfully!")
-            else:
-                st.info("No pending actions to save. Run the optimizer first.")
-        except Exception as e:
-            st.error(f"❌ Failed to save run: {e}")
+        level, message = _save_run_to_history(results)
+        if level == "success":
+            st.success(f"✅ {message}")
+        elif level == "warning":
+            st.warning(f"⚠️ {message}")
+        elif level == "info":
+            st.info(message)
+        else:
+            st.error(f"❌ {message}")
 
     # 1. Extract Data
     # === PREMIUM STYLES ===
@@ -774,13 +830,32 @@ def render_results_dashboard(results: dict):
                 </div>
             </div>
             """, unsafe_allow_html=True)
+            save_meta = st.session_state.get("last_save_confirmation")
+            if save_meta:
+                if isinstance(save_meta.get("verified_rows"), int) and save_meta.get("verified_rows", 0) > 0:
+                    st.caption(
+                        f"Saved {save_meta['saved']} actions at {save_meta['saved_at']} "
+                        f"(batch {save_meta['batch_id']}, verified rows: {save_meta['verified_rows']})."
+                    )
+                else:
+                    st.caption(
+                        f"Saved {save_meta['saved']} actions at {save_meta['saved_at']} "
+                        f"(batch {save_meta['batch_id']})."
+                    )
 
         with c_btns:
             # Buttons are now natively in the same container/row
             st.markdown('<div style="height: 4px"></div>', unsafe_allow_html=True) # Visual alignment tweak
             if st.button("💾 Save to History", type="primary", use_container_width=True, key="btn_save_run_hero"):
-                st.session_state["trigger_save"] = True
-                st.toast("Saving run...", icon="💾")
+                level, message = _save_run_to_history(results)
+                if level == "success":
+                    st.success(f"✅ {message}")
+                elif level == "warning":
+                    st.warning(f"⚠️ {message}")
+                elif level == "info":
+                    st.info(message)
+                else:
+                    st.error(f"❌ {message}")
             
             st.markdown('<div style="height: 6px"></div>', unsafe_allow_html=True)
             
@@ -871,7 +946,7 @@ def render_results_dashboard(results: dict):
     st.divider()
 
     # 7. Tab Navigation
-    tabs = ["Overview", "Negatives", "Bids", "Harvest", "Audit", "Downloads"]
+    tabs = ["Overview", "Negatives", "Bids", "Harvest", "Audit", "Forecast", "Downloads"]
 
     # Active tab state handling
     if "active_opt_tab" not in st.session_state:
@@ -990,6 +1065,10 @@ def render_results_dashboard(results: dict):
             render_audit_tab(results["heatmap"])
         else:
             st.info("Audit data not available in this optimization run.")
+
+    elif active == "Forecast":
+        from features.simulator import SimulatorModule
+        SimulatorModule().run()
 
     elif active == "Downloads":
         st.markdown("### Export Results")

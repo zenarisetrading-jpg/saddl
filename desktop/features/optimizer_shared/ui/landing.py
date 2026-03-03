@@ -738,6 +738,7 @@ def render_landing_page(config: dict):
 
         with col_button:
             def start_optimization():
+                st.session_state["_nav_loading"] = True
                 st.session_state["run_optimizer_refactored"] = True
                 
             st.button(

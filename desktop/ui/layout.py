@@ -1120,6 +1120,7 @@ def render_home():  # noqa: C901 – intentionally large view function
             key="hp2_nav_analytics",
             use_container_width=True,
         ):
+            st.session_state["_nav_loading"] = True
             st.session_state["current_module"] = "performance"
             st.rerun()
 
@@ -1151,6 +1152,7 @@ def render_home():  # noqa: C901 – intentionally large view function
             key="hp2_nav_optimizer",
             use_container_width=True,
         ):
+            st.session_state["_nav_loading"] = True
             st.session_state["current_module"] = "optimizer"
             st.rerun()
 
@@ -1182,6 +1184,7 @@ def render_home():  # noqa: C901 – intentionally large view function
             key="hp2_nav_impact",
             use_container_width=True,
         ):
+            st.session_state["_nav_loading"] = True
             st.session_state["current_module"] = "impact_v2"
             st.rerun()
 
@@ -1275,4 +1278,3 @@ def render_home():  # noqa: C901 – intentionally large view function
                 text = call_homepage_llm(ctx, account_name=account_name)
                 st.session_state[cache_key] = text
             st.rerun()
-
