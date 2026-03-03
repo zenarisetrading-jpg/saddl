@@ -74,13 +74,24 @@ def render_connect_amazon_account_button(
     """
     Shared OAuth CTA used by onboarding and existing-account SP-API connection surfaces.
     """
-    auth_url = generate_amazon_oauth_url(client_id=client_id, force_new_state=force_new_state)
-    st.link_button(
-        label,
-        auth_url,
-        type="primary",
-        use_container_width=True,
-    )
+    try:
+        auth_url = generate_amazon_oauth_url(client_id=client_id, force_new_state=force_new_state)
+        st.link_button(
+            label,
+            auth_url,
+            type="primary",
+            use_container_width=True,
+        )
+    except EnvironmentError:
+        # Deployment-safe fallback when OAuth env vars are missing.
+        st.button(
+            f"{label} (Unavailable)",
+            key=key,
+            type="primary",
+            use_container_width=True,
+            disabled=True,
+        )
+        st.caption("SP-API OAuth is not configured in this environment. Set `SP_API_APPLICATION_ID` to enable this button.")
 
 
 def render_onboarding_wizard():
