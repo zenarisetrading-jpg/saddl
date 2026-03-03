@@ -19,19 +19,13 @@ def _fetch_daily_stats_cached(client_id: str, test_mode: bool):
             query = """
                 SELECT
                     report_date AS "Date",
-                    campaign_name AS "Campaign Name",
-                    ad_group_name AS "Ad Group Name",
-                    targeting AS "Targeting",
                     customer_search_term AS "Customer Search Term",
-                    match_type AS "Match Type",
-                    spend AS "Spend",
-                    sales AS "Sales",
-                    orders AS "Orders",
-                    clicks AS "Clicks",
-                    impressions AS "Impressions"
+                    SUM(spend) AS "Spend",
+                    SUM(sales) AS "Sales"
                 FROM raw_search_term_data
                 WHERE client_id = %s
-                ORDER BY report_date DESC
+                  AND report_date >= CURRENT_DATE - INTERVAL '65 days'
+                GROUP BY report_date, customer_search_term
             """
             df = pd.read_sql(query, conn, params=(client_id,))
             if not df.empty and 'Date' in df.columns:
@@ -744,6 +738,7 @@ def render_landing_page(config: dict):
 
         with col_button:
             def start_optimization():
+                st.session_state["_nav_loading"] = True
                 st.session_state["run_optimizer_refactored"] = True
                 
             st.button(

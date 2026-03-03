@@ -112,6 +112,7 @@ def render_control_center(client_id: str):
             )
             go_optimizer = render_actions(actions)
             if go_optimizer:
+                st.session_state["_nav_loading"] = True
                 st.session_state["current_module"] = "optimizer"
                 st.rerun()
             render_asin_table(asin_actions)

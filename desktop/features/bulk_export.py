@@ -392,62 +392,24 @@ def generate_bids_bulk(bids_df: pd.DataFrame) -> Tuple[pd.DataFrame, int]:
     if bids_df is None or bids_df.empty:
         return pd.DataFrame(columns=EXPORT_COLUMNS), []
         
-    # Filter for actually changed bids (exclude holds)
-    changes = bids_df[~bids_df["Reason"].str.contains("Hold", case=False, na=False)].copy()
-    if changes is None or changes.empty:
-        return pd.DataFrame(columns=EXPORT_COLUMNS), []
-    
-    # VALIDATE-AT-SOURCE: Filter to only executable recommendations
-    if 'recommendation' in changes.columns:
-        changes = changes[changes['recommendation'].apply(lambda x: x.can_execute if isinstance(x, OptimizationRecommendation) else True)]
-        
-    if changes.empty:
-        return pd.DataFrame(columns=EXPORT_COLUMNS), []
-        
-    changes = changes.reset_index(drop=True)
-    df = pd.DataFrame(index=changes.index, columns=EXPORT_COLUMNS)
-    
-    # -----------------------------------------------------------
-    # DEDUPLICATION LOGIC (Strategy: Dominant Term/Highest Spend)
-    # -----------------------------------------------------------
-    # If multiple search terms map to the same Keyword ID/Targeting ID,
-    # we must pick ONE bid update to avoid bulk file errors.
-    # We choose the row with the Highest Spend ("Dominant Term").
-    
-    # Ensure Spend column exists for sorting (might be passed in, or we just trust the order if pre-sorted)
-    # If Spend is not present, we can't reliably pick max spend, so we keep first occurrence (highest rank).
+    # Pass all rows through — user filters using Decision_Basis/Reason column before applying
+    changes = bids_df.copy().reset_index(drop=True)
+
+    # Deduplicate: keep highest-spend row per KeywordId / TargetingId
     if "Spend" in changes.columns:
-        # Sort by Spend descending so highest spend is first
         changes = changes.sort_values(by="Spend", ascending=False).reset_index(drop=True)
-        # Also rebuild index for final DF to match
-        df = pd.DataFrame(index=changes.index, columns=EXPORT_COLUMNS)
-    
-    # Deduplicate by Keyword ID (if present)
     if "KeywordId" in changes.columns:
-        # Create mask of ID validity
-        valid_kw_id = changes["KeywordId"].notna() & (changes["KeywordId"] != "")
-        
-        # Duplicate check on valid IDs only
-        dupes_mask = changes.loc[valid_kw_id].duplicated(subset=["KeywordId"], keep="first")
-        
-        if dupes_mask.any():
-            # Get indices of duplicates to drop
-            # These are the lower-spend versions of the same ID
-            drop_indices = changes.loc[valid_kw_id][dupes_mask].index
-            changes = changes.drop(drop_indices).reset_index(drop=True)
-            # Resize result DF
-            df = pd.DataFrame(index=changes.index, columns=EXPORT_COLUMNS)
-            
-    # Deduplicate by Product Targeting ID (if present)
+        valid = changes["KeywordId"].notna() & (changes["KeywordId"].astype(str).str.strip() != "")
+        dupes = changes.loc[valid].duplicated(subset=["KeywordId"], keep="first")
+        if dupes.any():
+            changes = changes.drop(changes.loc[valid][dupes].index).reset_index(drop=True)
     if "TargetingId" in changes.columns:
-        valid_pt_id = changes["TargetingId"].notna() & (changes["TargetingId"] != "")
-        dupes_mask = changes.loc[valid_pt_id].duplicated(subset=["TargetingId"], keep="first")
-        
-        if dupes_mask.any():
-            drop_indices = changes.loc[valid_pt_id][dupes_mask].index
-            changes = changes.drop(drop_indices).reset_index(drop=True)
-            df = pd.DataFrame(index=changes.index, columns=EXPORT_COLUMNS)
-    # -----------------------------------------------------------
+        valid = changes["TargetingId"].notna() & (changes["TargetingId"].astype(str).str.strip() != "")
+        dupes = changes.loc[valid].duplicated(subset=["TargetingId"], keep="first")
+        if dupes.any():
+            changes = changes.drop(changes.loc[valid][dupes].index).reset_index(drop=True)
+
+    df = pd.DataFrame(index=changes.index, columns=EXPORT_COLUMNS)
 
     df["Product"] = "Sponsored Products"
     df["Operation"] = "Update"
@@ -500,7 +462,13 @@ def generate_bids_bulk(bids_df: pd.DataFrame) -> Tuple[pd.DataFrame, int]:
     # Enforce Mutual Exclusivity based on entity
     df["Keyword Id"] = np.where(df["Entity"] == "Keyword", df["Keyword Id"], "")
     df["Product Targeting Id"] = np.where(df["Entity"] == "Product Targeting", df["Product Targeting Id"], "")
-    
+
+    # Carry through Reason/Decision_Basis so users can filter before applying
+    if "Decision_Basis" in changes.columns:
+        df["Decision_Basis"] = changes["Decision_Basis"].values
+    if "Reason" in changes.columns:
+        df["Reason"] = changes["Reason"].values
+
     # Run bid validation
     validated_df, result = validate_bulk_export(df, export_type="bids", currency="AED")
     issues = result.to_dict_list()

@@ -238,5 +238,6 @@ def render_v2_entry_screen():
 
     st.markdown("<div style='height: 8px;'></div>", unsafe_allow_html=True)
     if st.button("Start Optimization →", type="primary", use_container_width=True, key="start_v2_opt"):
+        st.session_state["_nav_loading"] = True
         st.session_state["v2_opt_state"] = "running"
         st.rerun()

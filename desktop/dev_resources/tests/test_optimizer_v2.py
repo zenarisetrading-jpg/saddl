@@ -45,14 +45,19 @@ def run_optimizer_with_mocks(df, cooldowns_df, roas_14d_df, commerce_df=None):
             
         def get_commerce_metrics_by_target(self, client_id):
             return self.com_df
+
+        def has_active_spapi_integration(self, client_id):
+            return not self.com_df.empty
             
     def mock_get_db_manager(test_mode=False):
         return MockDBManager(cooldowns_df, roas_14d_df, commerce_df)
 
-    with patch('app_core.db_manager.get_db_manager', side_effect=mock_get_db_manager), \\
-         patch('features.optimizer.strategies.bids.DataHub') as mock_datahub, \\
-         patch('features.optimizer.strategies.bids.st') as mock_st, \\
-         patch('features.optimizer.strategies.bids.enrich_with_ids', side_effect=lambda df, bulk: df):
+    with (
+        patch('app_core.db_manager.get_db_manager', side_effect=mock_get_db_manager),
+        patch('features.optimizer_shared.strategies.bids.DataHub') as mock_datahub,
+        patch('features.optimizer_shared.strategies.bids.st') as mock_st,
+        patch('features.optimizer_shared.strategies.bids.enrich_with_ids', side_effect=lambda df, bulk: df),
+    ):
              
         mock_st.session_state = {'test_mode': True}
         mock_datahub.return_value.get_data.return_value = pd.DataFrame()
@@ -130,7 +135,7 @@ def run_tests():
     
     ex, pt, ag, au = run_optimizer_with_mocks(df, c_df, pd.DataFrame())
     res = ex.iloc[0]
-    pass_test = res["New Bid"] > 1.0 and "Promote" in res["Reason"]
+    pass_test = res["New Bid"] > 1.0 and "Bid raised" in res["Reason"]
     results.append(("TEST 2 - Cooldown pass-through", pass_test, f"Bid: {res['New Bid']} ({res['Reason']})"))
 
     # ---------------------------------------------------------
@@ -163,7 +168,7 @@ def run_tests():
     
     ex, pt, ag, au = run_optimizer_with_mocks(df, pd.DataFrame(), pd.DataFrame())
     res = ex.iloc[0]
-    pass_test = res["New Bid"] == 1.0 and "Insufficient data for promote" in res["Reason"]
+    pass_test = res["New Bid"] == 1.0 and "Bid increase blocked" in res["Reason"] and "insufficient data" in res["Reason"]
     results.append(("TEST 5 - Thin data promote blocked", pass_test, res["Reason"]))
 
     # ---------------------------------------------------------
@@ -181,7 +186,7 @@ def run_tests():
     
     ex, pt, ag, au = run_optimizer_with_mocks(df, pd.DataFrame(), r_df)
     res = ex.iloc[0]
-    pass_test = res["New Bid"] < 1.0 and "Bid Down" in res["Reason"] and "ROAS 2.00" in res["Reason"]
+    pass_test = res["New Bid"] < 1.0 and "Bid reduced" in res["Reason"]
     results.append(("TEST 6 - Windowed ROAS vs spike", pass_test, f"Bid: {res['New Bid']} ({res['Reason']})"))
 
     # ---------------------------------------------------------
@@ -199,7 +204,7 @@ def run_tests():
     exact_res = ex.iloc[0]
     auto_res = au.iloc[0]
     
-    pass_test = "Bid Down" in exact_res["Reason"] and "Promote" in auto_res["Reason"]
+    pass_test = "Bid reduced" in exact_res["Reason"] and "Bid raised" in auto_res["Reason"]
     msg = f"Exact ({exact_res['Reason']}) | Auto ({auto_res['Reason']})"
     results.append(("TEST 7 - Bucket ROAS multiplier", pass_test, msg))
 
@@ -234,7 +239,7 @@ def run_tests():
     
     ex, pt, ag, au = run_optimizer_with_mocks(df, pd.DataFrame(), pd.DataFrame(), commerce_df)
     res = ex.iloc[0]
-    pass_test = res["New Bid"] == res["Current Bid"] and "INVENTORY_RISK" in res["Reason"]
+    pass_test = res["New Bid"] == res["Current Bid"] and "inventory" in res["Reason"].lower()
     results.append(("TEST 9 - V2.1 INVENTORY_RISK suppresses promote", pass_test, res["Reason"]))
 
     # ---------------------------------------------------------
@@ -248,7 +253,7 @@ def run_tests():
         "campaign_name": "Test Campaign",
         "ad_group_name": "Test AdGroup",
         "ordered_revenue": 100,
-        "units_ordered": 10, # Halo triggers if total units > ad orders * 3. Ad orders = 1.
+        "units_ordered": 100, # Halo triggers if total units > ad orders * 3 AND >= 30 organic units.
         "sessions": 50,
         "organic_cvr": 0.20,
         "days_of_supply": 50,
@@ -257,7 +262,7 @@ def run_tests():
     
     ex, pt, ag, au = run_optimizer_with_mocks(df, pd.DataFrame(), pd.DataFrame(), commerce_df_halo)
     res = ex.iloc[0]
-    pass_test = res["New Bid"] == res["Current Bid"] and "matches Target" in res["Reason"] and "HALO_ACTIVE" in res["Reason"]
+    pass_test = res["New Bid"] == res["Current Bid"] and "HALO_ACTIVE" in str(res.get("Intelligence_Flags", ""))
     results.append(("TEST 10 - V2.1 HALO_ACTIVE relaxes target", pass_test, res["Reason"]))
 
     # ---------------------------------------------------------

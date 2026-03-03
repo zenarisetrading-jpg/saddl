@@ -22,6 +22,8 @@ from features.optimizer_shared.strategies.bids import calculate_bid_optimization
 from features.optimizer_shared.simulation import run_simulation
 from features.optimizer_shared.ui.heatmap import create_heatmap
 from features.optimizer_shared.logging import log_optimization_events
+from features.optimizer_shared.ppc_cascade import compute_ppc_cascade
+from features.optimizer_shared.campaign_recommendations import generate_campaign_recommendations
 from dev_resources.tests.bulk_validation_spec import OptimizationRecommendation
 
 # UI Imports
@@ -96,7 +98,7 @@ class OptimizerModule(BaseFeature):
 
         # 4. Handle Optimization Run Logic (using separate key to avoid conflicts with legacy UI)
         if st.session_state.get("run_optimizer_refactored"):
-            with st.spinner("Running AI Optimization Analysis..."):
+            with st.container():
                 # Load Data from DATABASE (not CSV) and apply date filtering
                 from app_core.db_manager import get_db_manager
                 import pandas as pd
@@ -183,21 +185,68 @@ class OptimizerModule(BaseFeature):
         return calculate_account_health(df)
 
     def _run_analysis(self, df):
-        """Executes the core optimization logic (UNCHANGED)."""
-        df, date_info = prepare_data(df, self.config)
-        benchmarks = calculate_account_benchmarks(df, self.config)
-        universal_median = benchmarks.get('universal_median_roas', self.config.get("TARGET_ROAS", 2.5))
-        
-        matcher = ExactMatcher(df)
-        
-        harvest = identify_harvest_candidates(df, self.config, matcher, benchmarks)
-        neg_kw, neg_pt, your_products = identify_negative_candidates(df, self.config, harvest, benchmarks)
-        
-        neg_set = set(zip(neg_kw["Campaign Name"], neg_kw["Ad Group Name"], neg_kw["Term"].str.lower()))
+        """
+        Two-phase analysis:
+          Phase 1 — Full dataset: cascade + Tier 1 campaign recommendations
+                    (always from complete data so the panel shows all campaigns)
+          Phase 2 — Bid engine: runs on filtered dataset if user has applied
+                    Tier 1 exclusions, so account averages / quadrant thresholds
+                    recalculate correctly for the remaining campaigns.
+        """
+        target_roas_val = self.config.get("TARGET_ROAS", 2.5)
+
+        # ── Phase 1: full-dataset enrichment ─────────────────────────────────
+        full_df, date_info = prepare_data(df, self.config)
+
+        total_spend_full = full_df["Spend"].sum() if "Spend" in full_df.columns else 0
+        total_sales_full = full_df["Sales"].sum() if "Sales" in full_df.columns else 0
+        acct_metrics_full = {
+            "roas": total_sales_full / total_spend_full if total_spend_full > 0 else 0,
+            "acos": (total_spend_full / total_sales_full * 100) if total_sales_full > 0 else 100,
+        }
+        full_df_cascade = compute_ppc_cascade(
+            df=full_df,
+            target_roas=target_roas_val,
+            account_metrics_current=acct_metrics_full,
+            account_metrics_prior=None,
+        )
+        # Tier 1 recs always derive from full dataset
+        campaign_recs = generate_campaign_recommendations(full_df_cascade, target_roas_val, self.config)
+
+        # ── Phase 2: bid engine on (possibly filtered) dataset ────────────────
+        accepted = st.session_state.get("tier1_accepted_campaigns", [])
+        if accepted:
+            # Filter full_df (already prepare_data-processed) and re-run cascade
+            # so account averages and thresholds reflect only remaining campaigns.
+            df_filtered = full_df[~full_df["Campaign Name"].isin(accepted)].copy()
+            total_spend_f = df_filtered["Spend"].sum() if "Spend" in df_filtered.columns else 0
+            total_sales_f = df_filtered["Sales"].sum() if "Sales" in df_filtered.columns else 0
+            acct_metrics_f = {
+                "roas": total_sales_f / total_spend_f if total_spend_f > 0 else 0,
+                "acos": (total_spend_f / total_sales_f * 100) if total_sales_f > 0 else 100,
+            }
+            df_engine = compute_ppc_cascade(
+                df=df_filtered,
+                target_roas=target_roas_val,
+                account_metrics_current=acct_metrics_f,
+                account_metrics_prior=None,
+            )
+        else:
+            df_engine = full_df_cascade
+
+        benchmarks     = calculate_account_benchmarks(df_engine, self.config)
+        universal_median = benchmarks.get('universal_median_roas', target_roas_val)
+
+        matcher   = ExactMatcher(df_engine)
+        harvest   = identify_harvest_candidates(df_engine, self.config, matcher, benchmarks)
+        neg_kw, neg_pt, your_products = identify_negative_candidates(df_engine, self.config, harvest, benchmarks)
+
+        neg_set   = set(zip(neg_kw["Campaign Name"], neg_kw["Ad Group Name"], neg_kw["Term"].str.lower()))
         data_days = date_info.get("days", 7) if date_info else 7
         client_id = st.session_state.get("active_account_id")
+
         bids_ex, bids_pt, bids_agg, bids_auto = calculate_bid_optimizations(
-            df,
+            df_engine,
             self.config,
             set(harvest["Customer Search Term"].str.lower()),
             neg_set,
@@ -205,16 +254,25 @@ class OptimizerModule(BaseFeature):
             data_days=data_days,
             client_id=client_id,
         )
-        
-        heatmap = create_heatmap(df, self.config, harvest, neg_kw, neg_pt, pd.concat([bids_ex, bids_pt]), pd.concat([bids_agg, bids_auto]))
-        
+
+        heatmap = create_heatmap(
+            df_engine, self.config, harvest, neg_kw, neg_pt,
+            pd.concat([bids_ex, bids_pt]), pd.concat([bids_agg, bids_auto]),
+        )
+
         self.results = {
-            "df": df, "date_info": date_info, "harvest": harvest, "neg_kw": neg_kw, "neg_pt": neg_pt,
-            "your_products_review": your_products, 
+            "df": df_engine, "date_info": date_info,
+            "harvest": harvest, "neg_kw": neg_kw, "neg_pt": neg_pt,
+            "your_products_review": your_products,
             "bids_exact": bids_ex, "bids_pt": bids_pt, "bids_agg": bids_agg, "bids_auto": bids_auto,
             "direct_bids": pd.concat([bids_ex, bids_pt]),
-            "agg_bids": pd.concat([bids_agg, bids_auto]), "heatmap": heatmap,
-            "simulation": run_simulation(df, pd.concat([bids_ex, bids_pt]), pd.concat([bids_agg, bids_auto]), harvest, self.config, date_info)
+            "agg_bids": pd.concat([bids_agg, bids_auto]),
+            "heatmap": heatmap,
+            "campaign_recs": campaign_recs,
+            "simulation": run_simulation(
+                df_engine, pd.concat([bids_ex, bids_pt]),
+                pd.concat([bids_agg, bids_auto]), harvest, self.config, date_info,
+            ),
         }
         st.session_state['optimizer_results_refactored'] = self.results
 
