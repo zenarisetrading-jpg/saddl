@@ -1174,8 +1174,12 @@ def main():
             creator.run()
 
         elif current == 'assistant':
-            from features.assistant import AssistantModule
-            AssistantModule().render_interface()
+            try:
+                from features.assistant import AssistantModule
+                AssistantModule().render_interface()
+            except Exception as e:
+                st.error(f"Assistant module is unavailable in this deployment: {e}")
+                st.info("Continuing without Assistant. Please check deployment dependencies/logs.")
 
         # ASIN/AI modules are now inside Optimizer, but we keep routing valid just in case
         elif current == 'asin_mapper':
@@ -1198,10 +1202,14 @@ def main():
 
     # Render Floating Chat Bubble (unless already on assistant page)
     if current != 'assistant':
-        from features.assistant import AssistantModule
-        assistant = AssistantModule()
-        assistant.render_floating_interface()
-        assistant.render_interface()
+        try:
+            from features.assistant import AssistantModule
+            assistant = AssistantModule()
+            assistant.render_floating_interface()
+            assistant.render_interface()
+        except Exception:
+            # Non-fatal in environments where assistant dependencies are unavailable.
+            pass
 
     if nav_loading:
         st.session_state['_nav_loading'] = False
