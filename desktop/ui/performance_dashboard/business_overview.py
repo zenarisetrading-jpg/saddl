@@ -234,20 +234,47 @@ def _resolve_spapi_scope(db, client_id: str) -> Tuple[str, str]:
         LIMIT 1
     """
     try:
+        mapped_account_id = client_id
+        marketplace_id = MARKETPLACE_ID
         with db._get_connection() as conn:
             cursor = conn.cursor()
             cursor.execute(query, (client_id,))
             row = cursor.fetchone()
-            if not row:
-                return client_id, MARKETPLACE_ID
-            if isinstance(row, dict):
-                return str(row.get("account_id") or client_id), str(row.get("marketplace_id") or MARKETPLACE_ID)
-            if hasattr(row, "keys"):
-                return str(row["account_id"] or client_id), str(row["marketplace_id"] or MARKETPLACE_ID)
-            return (
-                str(row[0] if row else client_id),
-                str(row[1] if row and len(row) > 1 else MARKETPLACE_ID),
-            )
+            if row:
+                if isinstance(row, dict):
+                    mapped_account_id = str(row.get("account_id") or client_id)
+                    marketplace_id = str(row.get("marketplace_id") or MARKETPLACE_ID)
+                elif hasattr(row, "keys"):
+                    mapped_account_id = str(row["account_id"] or client_id)
+                    marketplace_id = str(row["marketplace_id"] or MARKETPLACE_ID)
+                else:
+                    mapped_account_id = str(row[0] if row else client_id)
+                    marketplace_id = str(row[1] if row and len(row) > 1 else MARKETPLACE_ID)
+
+            # Data can be keyed by either public client_id or internal account_id
+            # depending on which ingestion path populated sc_raw.sales_traffic.
+            probe_q = f"""
+                SELECT COUNT(*)
+                FROM sc_raw.sales_traffic
+                WHERE account_id = {ph}
+                  AND marketplace_id = {ph}
+            """
+
+            def _count_for(account_scope: str) -> int:
+                try:
+                    cursor.execute(probe_q, (account_scope, marketplace_id))
+                    got = cursor.fetchone()
+                    return int(got[0]) if got else 0
+                except Exception:
+                    return 0
+
+            count_client = _count_for(client_id)
+            count_mapped = _count_for(mapped_account_id)
+
+            # Prefer whichever scope currently has data.
+            if count_mapped > count_client:
+                return mapped_account_id, marketplace_id
+            return client_id, marketplace_id
     except Exception:
         return client_id, MARKETPLACE_ID
 
