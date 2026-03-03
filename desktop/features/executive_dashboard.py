@@ -18,6 +18,7 @@ from features.constants import classify_match_type
 from ui.theme import ThemeManager
 
 from features.impact_dashboard import get_maturity_status, _fetch_impact_data
+from features.optimizer_shared.ppc_classifications import classify_performance_quadrant as _classify_quadrant_shared
 from app_core.db_manager import get_db_manager
 
 @st.cache_data(ttl=3600, show_spinner=False)
@@ -1053,18 +1054,15 @@ class ExecutiveDashboard:
         camp_perf['ROAS_display'] = camp_perf['ROAS'].clip(upper=roas_cap)
         camp_perf['CVR_display'] = camp_perf['CVR'].clip(upper=cvr_cap)
         
-        # Quadrant classification based on average - BETTER LABELS
-        def classify(row):
-            if row['ROAS'] >= avg_roas and row['CVR'] >= avg_cvr:
-                return 'Stars'           # High ROAS + High CVR = Best performers
-            elif row['ROAS'] >= avg_roas:
-                return 'Scale Potential' # High ROAS + Low CVR = Needs more conversions (Potential to Scale)
-            elif row['CVR'] >= avg_cvr:
-                return 'Profit Potential' # Low ROAS + High CVR = Converting but not profitable (Potential for Profit)
-            else:
-                return 'Cut'             # Low ROAS + Low CVR = Worst performers
-        
-        camp_perf['Zone'] = camp_perf.apply(classify, axis=1)
+        # Quadrant classification — logic lives in ppc_classifications.py
+        _QUAD_LABEL = {
+            "stars": "Stars", "scale_potential": "Scale Potential",
+            "profit_potential": "Profit Potential", "cut": "Cut",
+        }
+        camp_perf['Zone'] = camp_perf.apply(
+            lambda r: _QUAD_LABEL[_classify_quadrant_shared(r['ROAS'], r['CVR'], avg_roas, avg_cvr)],
+            axis=1,
+        )
         
         # Create base figure
         fig = go.Figure()
@@ -1391,16 +1389,15 @@ class ExecutiveDashboard:
         if avg_roas <= 0: avg_roas = 3.0
         if avg_cvr <= 0: avg_cvr = 5.0
         
-        # Classify quadrants - SAME LABELS AS SCATTER
-        def classify(row):
-            high_roas = row['ROAS'] >= avg_roas
-            high_cvr = row['CVR'] >= avg_cvr
-            if high_roas and high_cvr: return 'Stars'
-            if high_roas and not high_cvr: return 'Scale Potential'
-            if not high_roas and high_cvr: return 'Profit Potential'
-            return 'Cut'
-        
-        camp_perf['Quadrant'] = camp_perf.apply(classify, axis=1)
+        # Classify quadrants - SAME LABELS AS SCATTER (logic in ppc_classifications.py)
+        _QUAD_LABEL = {
+            "stars": "Stars", "scale_potential": "Scale Potential",
+            "profit_potential": "Profit Potential", "cut": "Cut",
+        }
+        camp_perf['Quadrant'] = camp_perf.apply(
+            lambda r: _QUAD_LABEL[_classify_quadrant_shared(r['ROAS'], r['CVR'], avg_roas, avg_cvr)],
+            axis=1,
+        )
         
         # Aggregate by quadrant
         quad_sales = camp_perf.groupby('Quadrant')['Sales'].sum().reset_index()
@@ -1526,18 +1523,15 @@ class ExecutiveDashboard:
             if avg_roas <= 0: avg_roas = 3.0
             if avg_cvr <= 0: avg_cvr = 5.0
             
-        # 3. Classify ALL campaigns into Quadrants (ensures Total Revenue matches)
-        def classify(row):
-            if row['ROAS'] >= avg_roas and row['CVR'] >= avg_cvr:
-                return 'Stars'
-            elif row['ROAS'] >= avg_roas:
-                return 'Scale Potential'
-            elif row['CVR'] >= avg_cvr:
-                return 'Profit Potential'
-            else:
-                return 'Cut'
-        
-        camp_perf['Zone'] = camp_perf.apply(classify, axis=1)
+        # 3. Classify ALL campaigns into Quadrants (logic in ppc_classifications.py)
+        _QUAD_LABEL = {
+            "stars": "Stars", "scale_potential": "Scale Potential",
+            "profit_potential": "Profit Potential", "cut": "Cut",
+        }
+        camp_perf['Zone'] = camp_perf.apply(
+            lambda r: _QUAD_LABEL[_classify_quadrant_shared(r['ROAS'], r['CVR'], avg_roas, avg_cvr)],
+            axis=1,
+        )
         
         # 4. Aggregate Revenue by Zone
         zone_metrics = camp_perf.groupby('Zone')['Sales'].sum().reset_index()

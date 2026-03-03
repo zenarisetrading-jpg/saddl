@@ -1011,9 +1011,20 @@ def main():
             
     # Routing
     current = st.session_state.get('current_module', 'home')
-
-    # Ghost content prevention removed - caused pages not to load
-    # Will address in polish phase
+    
+    # CSS hack to fix the Streamlit "Ghosting" issue during page navigation
+    # This briefly sets the main container to opacity 0 on load via a short animation
+    st.markdown("""
+        <style>
+            @keyframes fadeIn {
+                0% { opacity: 0; }
+                100% { opacity: 1; }
+            }
+            .main .block-container {
+                animation: fadeIn 0.4s ease-in-out;
+            }
+        </style>
+    """, unsafe_allow_html=True)
 
     # Check for pending actions confirmation dialog - REMOVED per user request
     # Actions are now saved explicitly via "Save Run" button in optimizer

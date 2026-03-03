@@ -3,6 +3,7 @@ import pandas as pd
 from .components import render_metric_card
 from .charts import render_spend_reallocation_chart, render_action_distribution_chart
 from utils.formatters import get_account_currency, format_currency, dataframe_to_excel
+from features.optimizer_shared.ui.campaign_panel import render_tier1_campaign_panel
 
 
 def _to_numeric_series(df: pd.DataFrame, col: str) -> pd.Series:
@@ -110,18 +111,42 @@ def _compute_intelligence_layer_counts(all_bids: pd.DataFrame) -> dict:
                 flag_counts.get("ORGANIC_CVR_DOMINANT", 0) + flag_counts.get("CANNIBALIZE_RISK", 0)
             )
 
+    # Phase 4 cascade flag counts (from Intelligence_Flags column)
+    cascade_counts = {
+        "camp_drag": 0, "camp_underopt": 0, "camp_amp": 0,
+        "zero_conv_block": 0, "zero_conv_watch": 0,
+        "cut_quad": 0, "acct_declining": 0, "high_conviction": 0,
+    }
+    if not all_bids.empty and "Intelligence_Flags" in all_bids.columns:
+        all_flags_cascade = []
+        series = all_bids["Intelligence_Flags"].replace("", pd.NA).dropna()
+        for raw in series:
+            all_flags_cascade.extend([x.strip() for x in str(raw).split(",") if x.strip()])
+        if all_flags_cascade:
+            fc = pd.Series(all_flags_cascade).value_counts()
+            cascade_counts["camp_drag"]       = int(fc.get("CAMPAIGN_DRAG", 0))
+            cascade_counts["camp_underopt"]   = int(fc.get("CAMPAIGN_UNDEROPTIMIZED", 0))
+            cascade_counts["camp_amp"]        = int(fc.get("CAMPAIGN_AMPLIFIER", 0))
+            cascade_counts["zero_conv_block"] = int(fc.get("ZERO_CONV_BLOCK", 0))
+            cascade_counts["zero_conv_watch"] = int(fc.get("ZERO_CONV_WATCH", 0))
+            cascade_counts["cut_quad"]        = int(fc.get("CUT_QUADRANT", 0))
+            cascade_counts["acct_declining"]  = int(fc.get("ACCOUNT_DECLINING", 0))
+            cascade_counts["high_conviction"] = int(fc.get("HIGH_CONVICTION_PROMOTE", 0))
+
     return {
         "cooldown_count": cooldown_count,
         "inventory_count": inventory_count,
         "halo_count": halo_count,
         "organic_dom_count": organic_dom_count,
         "has_commerce": bool(st.session_state.get("v21_commerce_fetch_ok", False)),
+        "cascade_counts": cascade_counts,
     }
 
 
 def _render_intelligence_layer_hero(all_bids: pd.DataFrame) -> None:
     intel = _compute_intelligence_layer_counts(all_bids)
     has_commerce = intel["has_commerce"]
+    cc = intel["cascade_counts"]
 
     cooldown = intel["cooldown_count"]
     inventory = intel["inventory_count"] if has_commerce else 0
@@ -134,6 +159,57 @@ def _render_intelligence_layer_hero(all_bids: pd.DataFrame) -> None:
         if has_commerce
         else "SP-API not connected - inventory and organic signals unavailable."
     )
+
+    cascade_total = sum(cc.values())
+    cascade_html = ""
+    if cascade_total > 0:
+        cascade_html = f"""
+        <div style="margin-top:16px; padding-top:16px; border-top:1px solid rgba(255,255,255,0.06);">
+            <div style="font-size:11px; font-weight:600; color:#64748b; letter-spacing:0.08em; text-transform:uppercase; margin-bottom:10px;">Phase 4 PPC Cascade</div>
+            <div style="display:grid; grid-template-columns:repeat(4,1fr); gap:8px;">
+                <div style="background:rgba(239,68,68,0.08); border:1px solid rgba(239,68,68,0.15); border-radius:8px; padding:10px;">
+                    <div style="font-size:11px; color:#94a3b8;">Campaign Drag</div>
+                    <div style="font-size:20px; font-weight:700; color:#f87171;">{cc["camp_drag"]}</div>
+                    <div style="font-size:10px; color:#64748b;">50% bid dampen</div>
+                </div>
+                <div style="background:rgba(251,191,36,0.08); border:1px solid rgba(251,191,36,0.15); border-radius:8px; padding:10px;">
+                    <div style="font-size:11px; color:#94a3b8;">Underoptimized</div>
+                    <div style="font-size:20px; font-weight:700; color:#fbbf24;">{cc["camp_underopt"]}</div>
+                    <div style="font-size:10px; color:#64748b;">Flagged for review</div>
+                </div>
+                <div style="background:rgba(34,197,94,0.08); border:1px solid rgba(34,197,94,0.15); border-radius:8px; padding:10px;">
+                    <div style="font-size:11px; color:#94a3b8;">Amplifier</div>
+                    <div style="font-size:20px; font-weight:700; color:#4ade80;">{cc["camp_amp"]}</div>
+                    <div style="font-size:10px; color:#64748b;">+15% throttle loosened</div>
+                </div>
+                <div style="background:rgba(239,68,68,0.08); border:1px solid rgba(239,68,68,0.15); border-radius:8px; padding:10px;">
+                    <div style="font-size:11px; color:#94a3b8;">Zero-Conv Block</div>
+                    <div style="font-size:20px; font-weight:700; color:#f87171;">{cc["zero_conv_block"]}</div>
+                    <div style="font-size:10px; color:#64748b;">Confirmed bleed blocked</div>
+                </div>
+                <div style="background:rgba(148,163,184,0.08); border:1px solid rgba(148,163,184,0.15); border-radius:8px; padding:10px;">
+                    <div style="font-size:11px; color:#94a3b8;">Zero-Conv Watch</div>
+                    <div style="font-size:20px; font-weight:700; color:#94a3b8;">{cc["zero_conv_watch"]}</div>
+                    <div style="font-size:10px; color:#64748b;">Thin data, monitoring</div>
+                </div>
+                <div style="background:rgba(239,68,68,0.08); border:1px solid rgba(239,68,68,0.15); border-radius:8px; padding:10px;">
+                    <div style="font-size:11px; color:#94a3b8;">Cut Quadrant</div>
+                    <div style="font-size:20px; font-weight:700; color:#f87171;">{cc["cut_quad"]}</div>
+                    <div style="font-size:10px; color:#64748b;">70% bid dampen</div>
+                </div>
+                <div style="background:rgba(251,191,36,0.08); border:1px solid rgba(251,191,36,0.15); border-radius:8px; padding:10px;">
+                    <div style="font-size:11px; color:#94a3b8;">Acct Declining</div>
+                    <div style="font-size:20px; font-weight:700; color:#fbbf24;">{cc["acct_declining"]}</div>
+                    <div style="font-size:10px; color:#64748b;">20% account dampen</div>
+                </div>
+                <div style="background:rgba(56,189,248,0.08); border:1px solid rgba(56,189,248,0.15); border-radius:8px; padding:10px;">
+                    <div style="font-size:11px; color:#94a3b8;">High Conviction</div>
+                    <div style="font-size:20px; font-weight:700; color:#38bdf8;">{cc["high_conviction"]}</div>
+                    <div style="font-size:10px; color:#64748b;">+10% throttle loosened</div>
+                </div>
+            </div>
+        </div>
+        """
 
     st.markdown(
         f"""
@@ -166,6 +242,7 @@ def _render_intelligence_layer_hero(all_bids: pd.DataFrame) -> None:
                 </div>
             </div>
             <div class="intel-impact">Total intelligence-guided interventions: <strong>{protected_total if has_commerce else cooldown}</strong></div>
+            {cascade_html}
         </div>
         """,
         unsafe_allow_html=True,
@@ -535,6 +612,16 @@ def render_results_dashboard(results: dict):
 
     all_bids = pd.concat([direct_bids, agg_bids]) if not direct_bids.empty or not agg_bids.empty else pd.DataFrame()
 
+    # On-the-fly Tier 1 PAUSE filter — reads checkbox widget states directly (no re-run needed)
+    _t1_recs = results.get("campaign_recs", pd.DataFrame())
+    if not _t1_recs.empty and not all_bids.empty and "recommendation" in _t1_recs.columns and "campaign_name" in _t1_recs.columns:
+        _pause_camp_names = set(_t1_recs.loc[_t1_recs["recommendation"] == "PAUSE", "campaign_name"].tolist())
+        _camp_col = next((c for c in ["Campaign Name", "campaign_name"] if c in all_bids.columns), None)
+        if _pause_camp_names and _camp_col:
+            _checked_pauses = {c for c in _pause_camp_names if st.session_state.get(f"tier1_cb_{c}", False)}
+            if _checked_pauses:
+                all_bids = all_bids[~all_bids[_camp_col].isin(_checked_pauses)].copy()
+
     # 2. Calculate Display Metrics (Aggregation only - NO new logic)
     action_count = len(harvest) + len(neg_kw) + len(neg_pt) + len(all_bids)
 
@@ -702,18 +789,41 @@ def render_results_dashboard(results: dict):
                     del st.session_state['optimizer_results_refactored']
                 st.rerun()
 
-    st.markdown("<br>", unsafe_allow_html=True)
+    st.markdown("<div style='height:8px'></div>", unsafe_allow_html=True)
 
-    # 4. Metrics Dashboard Header
-    st.markdown(f"""
-    <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 24px;">
-        <h2 style="margin: 0; color: #f1f5f9; font-size: 20px; font-weight: 600;">Optimization Summary</h2>
-        <div style="display: flex; align-items: center; gap: 12px;">
-            <span style="color: #94a3b8; font-size: 13px;">Last run: Just now</span>
-            <span style="background: rgba(34, 197, 94, 0.1); color: #22c55e; padding: 4px 12px; border-radius: 100px; font-size: 12px; font-weight: 500;">✓ Complete</span>
-        </div>
-    </div>
-    """, unsafe_allow_html=True)
+    # Tier 1 Campaign Intelligence panel — shown between Save Run and Tier 2 summary
+    # Results already reflect any applied Tier 1 exclusions (optimizer re-ran on filtered df)
+    st.markdown(
+        "<div style='display:flex;align-items:center;gap:10px;margin:8px 0 14px 0;'>"
+        "<div style='width:3px;height:18px;background:linear-gradient(to bottom,#67e8f9,#06b6d4);"
+        "border-radius:2px;flex-shrink:0;'></div>"
+        "<span style='color:#67e8f9;font-size:0.72rem;font-weight:700;letter-spacing:0.1em;"
+        "text-transform:uppercase;'>Tier 1 Optimization</span>"
+        "<span style='color:#475569;font-size:0.72rem;margin-left:2px;'>"
+        "Campaign-level budget &amp; scaling actions</span>"
+        "<div style='flex:1;height:1px;background:rgba(51,65,85,0.5);'></div>"
+        "</div>",
+        unsafe_allow_html=True,
+    )
+    _campaign_recs = results.get("campaign_recs", pd.DataFrame())
+    render_tier1_campaign_panel(_campaign_recs)
+
+    # 4. Tier 2 Section Header
+    st.markdown(
+        "<div style='display:flex;align-items:center;gap:10px;margin:20px 0 14px 0;'>"
+        "<div style='width:3px;height:18px;background:linear-gradient(to bottom,#2dd4bf,#38bdf8);"
+        "border-radius:2px;flex-shrink:0;'></div>"
+        "<span style='color:#2dd4bf;font-size:0.72rem;font-weight:700;letter-spacing:0.1em;"
+        "text-transform:uppercase;'>Tier 2 Optimization</span>"
+        "<span style='color:#475569;font-size:0.72rem;margin-left:2px;'>"
+        "Keyword-level bid, negative &amp; harvest actions</span>"
+        "<div style='flex:1;height:1px;background:rgba(51,65,85,0.5);'></div>"
+        "<span style='color:#64748b;font-size:0.7rem;'>Last run: Just now</span>"
+        "<span style='background:rgba(34,197,94,0.1);color:#22c55e;padding:3px 10px;"
+        "border-radius:100px;font-size:0.68rem;font-weight:600;'>✓ Complete</span>"
+        "</div>",
+        unsafe_allow_html=True,
+    )
 
     # 5. Metrics Grid (match the same KPI card format used under tabs)
     # Calculate bid increase/decrease counts safely

@@ -112,13 +112,61 @@ DEFAULT_CONFIG = {
     
     # Harvest forecast
     "HARVEST_EFFICIENCY_MULTIPLIER": 1.30,  # 30% efficiency gain from exact match
-    "HARVEST_LAUNCH_MULTIPLIER": 1.75,  # Bid multiplier for new harvest keywords (75% above current CPC)
+    "HARVEST_LAUNCH_MULTIPLIER": 1.20,  # Bid multiplier for new harvest keywords (20% above current bid)
     
     # Bucket median sanity check
     "BUCKET_MEDIAN_FLOOR_MULTIPLIER": 0.5,  # Bucket median must be >= 50% of target ROAS
     
     # V2.1 Commerce Intelligence
     "halo_min_organic_units": 30,  # Minimum absolute organic units for HALO_ACTIVE flag
+
+    # ── PPC Intelligence Cascade (Phase 4) ───────────────────────────────────
+    # Master switch — set False to disable entire cascade (zero cascade flags fire)
+    "cascade_enabled": True,
+
+    # Campaign efficiency cascade
+    "cascade_campaign_drag_ratio": 0.5,            # Below this ratio = potential drag
+    "cascade_campaign_drag_min_orders": 20,         # Fewer than this → genuine drag (high vol = underoptimized)
+    "cascade_campaign_amplifier_ratio": 1.2,        # Above this with volume = amplifier
+    "cascade_campaign_amplifier_min_orders": 50,    # Min orders to trust amplifier signal
+
+    # Target diagnostic cascade
+    "cascade_zero_conv_min_spend": 30,              # Min spend to trust zero-conversion flag
+    "cascade_zero_conv_min_clicks": 10,             # Min clicks to confirm zero-conversion
+
+    # Cut quadrant cascade
+    "cascade_cut_min_spend": 50,                    # Min spend to act on Cut classification
+    "cascade_cut_min_clicks": 15,                   # Min clicks for Cut conviction
+
+    # Account health cascade
+    "cascade_account_declining_dampen": 0.8,        # Throttle multiplier when account is declining
+
+    # ── Tier 1 Campaign-Level Recommendation Thresholds (Phase 4) ────────────
+    # PAUSE thresholds
+    "tier1_pause_max_efficiency": 0.4,              # Efficiency below this = pause candidate
+    "tier1_pause_max_orders": 10,                   # Must have fewer than this to justify pause
+    "tier1_pause_min_spend": 50,                    # Don't flag campaigns spending < $50
+    "tier1_pause_min_weeks": 2,                     # Future — needs history (not yet enforced)
+
+    # REDUCE_BUDGET thresholds
+    "tier1_reduce_max_efficiency": 0.6,             # Below this = budget reduction candidate
+    "tier1_reduce_max_pct_profitable": 0.3,         # < 30% of targets profitable → reduce
+
+    # RESTRUCTURE thresholds
+    "tier1_restructure_mixed_threshold": 0.4,       # 40%+ targets profitable but...
+    "tier1_restructure_zero_conv_pct": 0.3,         # ...30%+ zero-conv = mixed bag → restructure
+
+    # SCALE thresholds
+    "tier1_scale_min_efficiency": 1.3,              # Above this = scale candidate
+    "tier1_scale_min_orders": 30,                   # Need volume to trust scale signal
+    "tier1_scale_min_roas_vs_target": 1.2,          # ROAS must be 20%+ above target
+
+    # INCREASE_BUDGET thresholds
+    "tier1_increase_min_efficiency": 1.0,           # Above this with orders = increase candidate
+    "tier1_increase_min_orders": 20,                # Minimum orders for increase
+
+    # Tier 1 master switch
+    "tier1_enabled": True,
 }
 
 # Elasticity scenarios for simulation

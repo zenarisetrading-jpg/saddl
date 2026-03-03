@@ -83,7 +83,7 @@ def _fetch_active_accounts() -> list[dict]:
 
 # ── Per-account pull ───────────────────────────────────────────────────────────
 
-def _run_for_account(account: dict, target_date: str) -> dict:
+def _run_for_account(account: dict, target_dates: list[str]) -> dict:
     """
     Run the full daily pull for one account:
       1. Sales & Traffic → sc_raw.sales_traffic (batch Data Kiosk query)
@@ -153,41 +153,52 @@ def _run_for_account(account: dict, target_date: str) -> dict:
                 os.environ.pop("SP_API_ENDPOINT", None)
         db_url       = _get_db_url()
 
-        # ── 1. Sales & Traffic (single batch query, granularity=DAY) ──────────
-        log.info("  [1/4] Data Kiosk query for %s on %s…", client_id, target_date)
-        try:
-            qbody   = build_sales_traffic_query(target_date, target_date, settings.marketplace_id)
-            qid     = create_data_kiosk_query(access_token, qbody, region_endpoint=region_endpoint)
-            payload = poll_query_status(
-                access_token, qid,
-                poll_seconds=30, max_wait_minutes=45,
-                region_endpoint=region_endpoint,
-            )
-            doc_id = payload.get("dataDocumentId")
-            if doc_id:
-                records = download_query_document(access_token, doc_id, region_endpoint=region_endpoint)
-                result["sales_rows"] = upsert_sales_traffic(
-                    records, target_date, settings.marketplace_id, account_id=client_id
-                )
-                log.info("  [1/4] ✓ %d rows written (client=%s)", result["sales_rows"], client_id)
-            else:
-                log.warning("  [1/4] No dataDocumentId for %s on %s", client_id, target_date)
-        except Exception as e:
-            msg = f"Sales/traffic failed: {e}"
-            log.warning("  [1/4] %s", msg)
-            result["errors"].append(msg)
+        # ── 1 & 2. Sales & Traffic + Aggregation (per date) ───────────────────
+        last_submit_ts = None
+        for t_date in target_dates:
+            log.info("  [1/4] Data Kiosk query for %s on %s…", client_id, t_date)
+            try:
+                if last_submit_ts:
+                    elapsed = time.time() - last_submit_ts
+                    if elapsed < 62:
+                        log.info("   Waiting %.1fs for Data Kiosk rate limit...", 62 - elapsed)
+                        time.sleep(62 - elapsed)
 
-        # ── 2. Aggregation ────────────────────────────────────────────────────
-        log.info("  [2/4] Aggregating account_daily + osi_index…")
-        try:
-            upsert_account_daily(db_url, target_date, settings.marketplace_id,
-                                 client_id=client_id, account_id=client_id)
-            upsert_osi_index(db_url, target_date, settings.marketplace_id, account_id=client_id)
-            log.info("  [2/4] ✓ account_daily and osi_index updated")
-        except Exception as e:
-            msg = f"Aggregation failed: {e}"
-            log.warning("  [2/4] %s", msg)
-            result["errors"].append(msg)
+                qbody   = build_sales_traffic_query(t_date, t_date, settings.marketplace_id)
+                qid     = create_data_kiosk_query(access_token, qbody, region_endpoint=region_endpoint)
+                last_submit_ts = time.time()
+
+                payload = poll_query_status(
+                    access_token, qid,
+                    poll_seconds=30, max_wait_minutes=45,
+                    region_endpoint=region_endpoint,
+                )
+                doc_id = payload.get("dataDocumentId")
+                if doc_id:
+                    records = download_query_document(access_token, doc_id, region_endpoint=region_endpoint)
+                    rows_written = upsert_sales_traffic(
+                        records, t_date, settings.marketplace_id, account_id=client_id
+                    )
+                    result["sales_rows"] += rows_written
+                    log.info("  [1/4] ✓ %d rows written (client=%s, date=%s)", rows_written, client_id, t_date)
+                else:
+                    log.warning("  [1/4] No dataDocumentId for %s on %s", client_id, t_date)
+            except Exception as e:
+                msg = f"Sales/traffic failed for {t_date}: {e}"
+                log.warning("  [1/4] %s", msg)
+                result["errors"].append(msg)
+
+            # ── 2. Aggregation ────────────────────────────────────────────────────
+            log.info("  [2/4] Aggregating account_daily + osi_index for %s…", t_date)
+            try:
+                upsert_account_daily(db_url, t_date, settings.marketplace_id,
+                                     client_id=client_id, account_id=client_id)
+                upsert_osi_index(db_url, t_date, settings.marketplace_id, account_id=client_id)
+                log.info("  [2/4] ✓ account_daily and osi_index updated")
+            except Exception as e:
+                msg = f"Aggregation failed for {t_date}: {e}"
+                log.warning("  [2/4] %s", msg)
+                result["errors"].append(msg)
 
         # ── 3. FBA Inventory ──────────────────────────────────────────────────
         log.info("  [3/4] FBA inventory snapshot…")
@@ -231,7 +242,7 @@ def _run_for_account(account: dict, target_date: str) -> dict:
                     "database_url":      db_url,
                 }
                 bsr_rows = fetch_bsr_batch(cfg, token=access_token,
-                                           asins=asins, report_date=target_date)
+                                           asins=asins, report_date=target_dates[0])
                 result["bsr_rows"] = upsert_bsr_history(bsr_rows, db_url)
                 log.info("  [4/4] ✓ %d BSR rows written", result["bsr_rows"])
             else:
@@ -259,13 +270,20 @@ def _run_for_account(account: dict, target_date: str) -> dict:
 # ── Main ───────────────────────────────────────────────────────────────────────
 
 def main() -> None:
-    target_date = sys.argv[1] if len(sys.argv) > 1 else (
-        (datetime.utcnow().date() - timedelta(days=1)).strftime("%Y-%m-%d")
-    )
+    if len(sys.argv) > 1:
+        target_dates = [sys.argv[1]]
+    else:
+        # Standard daily run: pull D-1, plus several lookback days to capture
+        # late-arriving traffic data (sessions, pageViews typically 48-72h delayed).
+        today = datetime.utcnow().date()
+        target_dates = [
+            (today - timedelta(days=offset)).strftime("%Y-%m-%d")
+            for offset in [1, 2, 3, 7, 14, 30]
+        ]
 
     log.info("═══════════════════════════════════════════════")
     log.info("  Saddle Multi-Account Daily Pull")
-    log.info("  Target date : %s", target_date)
+    log.info("  Target dates : %s", ", ".join(target_dates))
     log.info("═══════════════════════════════════════════════")
 
     accounts = _fetch_active_accounts()
@@ -287,12 +305,12 @@ def main() -> None:
             log.info("   Waiting 65s between accounts (Data Kiosk rate limit)…")
             time.sleep(65)
 
-        result = _run_for_account(account, target_date)
+        result = _run_for_account(account, target_dates)
         all_results.append(result)
 
     # ── Summary ───────────────────────────────────────────────────────────────
     log.info("")
-    log.info("═══════════════ SUMMARY (%s) ════════════════", target_date)
+    log.info("═══════════════ SUMMARY (%s) ════════════════", target_dates[0])
     any_error = False
     for r in all_results:
         status = "✅" if not r["errors"] else "⚠️"

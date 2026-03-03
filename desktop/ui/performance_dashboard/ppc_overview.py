@@ -99,15 +99,26 @@ def _fmt_number(v) -> str:
     return f"{int(v):,}"
 
 
+from features.optimizer_shared.ppc_classifications import classify_keyword_diagnostic as _classify_keyword_shared
+
+
 def _classify_keyword(row: pd.Series, target_roas: float) -> str:
-    """Flag keywords by diagnostic category."""
-    if row["sales"] == 0 and row["spend"] > 50:
-        return "Zero-Conversion"
-    if row["roas"] > 0 and row["roas"] > target_roas * 1.5:
-        return "Under-Bidding"
-    if row["roas"] < target_roas:
-        return "Over-Spending"
-    return "Optimized"
+    """Flag keywords by diagnostic category. Logic lives in ppc_classifications.py."""
+    _LABEL_MAP = {
+        "zero_conversion": "Zero-Conversion",
+        "under_bid":       "Under-Bidding",
+        "over_spend":      "Over-Spending",
+        "optimized":       "Optimized",
+    }
+    key = _classify_keyword_shared(
+        spend=row["spend"],
+        sales=row["sales"],
+        roas=row["roas"],
+        target_roas=target_roas,
+        clicks=int(row.get("clicks", 0) or 0),
+        impressions=int(row.get("impressions", 0) or 0),
+    )
+    return _LABEL_MAP.get(key, "Optimized")
 
 
 # ===========================================================================
