@@ -273,12 +273,16 @@ def main() -> None:
     if len(sys.argv) > 1:
         target_dates = [sys.argv[1]]
     else:
-        # Standard daily run: pull D-1, plus several lookback days to capture
-        # late-arriving traffic data (sessions, pageViews typically 48-72h delayed).
+        # Standard daily run:
+        # 1) Pull a contiguous recent window to avoid gaps when runs are missed.
+        # 2) Add deeper lookbacks to capture late-arriving traffic corrections.
         today = datetime.utcnow().date()
+        recent_offsets = list(range(1, 11))  # D-1 .. D-10 (continuous)
+        correction_offsets = [14, 21, 30]
+        offsets = sorted(set(recent_offsets + correction_offsets))
         target_dates = [
             (today - timedelta(days=offset)).strftime("%Y-%m-%d")
-            for offset in [1, 2, 3, 7, 14, 30]
+            for offset in offsets
         ]
 
     log.info("═══════════════════════════════════════════════")
