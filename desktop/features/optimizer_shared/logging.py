@@ -150,50 +150,7 @@ def flush_pending_actions_to_db(test_mode: bool = False) -> int:
     if not db:
         raise RuntimeError("Database manager unavailable")
 
-    sql = """
-    INSERT INTO actions_log (
-        action_date, client_id, batch_id, entity_name, action_type,
-        old_value, new_value, reason,
-        campaign_name, ad_group_name, target_text, match_type,
-        winner_source_campaign, new_campaign_name,
-        before_match_type, after_match_type,
-        intelligence_flags
-    )
-    VALUES (
-        %s, %s, %s, %s, %s,
-        %s, %s, %s,
-        %s, %s, %s, %s,
-        %s, %s,
-        %s, %s,
-        %s
-    )
-    """
-
-    written = 0
-    with db._get_connection() as conn:
-        with conn.cursor() as cur:
-            for action in actions:
-                cur.execute(sql, (
-                    report_date,
-                    client_id,
-                    batch_id,
-                    action.get('entity_name', ''),
-                    action.get('action_type', ''),
-                    action.get('old_value', ''),
-                    action.get('new_value', ''),
-                    action.get('reason', ''),
-                    action.get('campaign_name', ''),
-                    action.get('ad_group_name', ''),
-                    action.get('target_text', ''),
-                    action.get('match_type', ''),
-                    action.get('winner_source_campaign', None),
-                    action.get('new_campaign_name', None),
-                    action.get('before_match_type', None),
-                    action.get('after_match_type', None),
-                    action.get('intelligence_flags', None),
-                ))
-                written += 1
-        conn.commit()
+    written = db.log_action_batch(actions, client_id, batch_id, report_date)
 
     # Clear the queue so double-saves don't happen
     st.session_state.pop('pending_actions', None)

@@ -112,7 +112,7 @@ DEFAULT_CONFIG = {
     
     # Harvest forecast
     "HARVEST_EFFICIENCY_MULTIPLIER": 1.30,  # 30% efficiency gain from exact match
-    "HARVEST_LAUNCH_MULTIPLIER": 1.75,  # Bid multiplier for new harvest keywords (75% above current CPC)
+    "HARVEST_LAUNCH_MULTIPLIER": 1.20,  # Bid multiplier for new harvest keywords (20% above current bid)
     
     # Bucket median sanity check
     "BUCKET_MEDIAN_FLOOR_MULTIPLIER": 0.5,  # Bucket median must be >= 50% of target ROAS

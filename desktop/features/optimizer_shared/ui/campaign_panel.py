@@ -55,7 +55,7 @@ _REC_META: dict[str, dict] = {
     },
     "INCREASE_BUDGET": {
         "label":       "INCREASE",
-        "section":     "Increase Budget",
+        "section":     "Scale & Grow",
         "color":       "#22c55e",
         "border":      "rgba(34,197,94,0.3)",
         "bg":          "rgba(34,197,94,0.06)",
@@ -64,7 +64,7 @@ _REC_META: dict[str, dict] = {
     },
     "SCALE": {
         "label":       "SCALE",
-        "section":     "Scale Candidates",
+        "section":     "Scale & Grow",
         "color":       "#22c55e",
         "border":      "rgba(34,197,94,0.3)",
         "bg":          "rgba(34,197,94,0.06)",
@@ -73,7 +73,7 @@ _REC_META: dict[str, dict] = {
     },
 }
 
-_SECTION_ORDER = ["PAUSE", "REDUCE_BUDGET", "RESTRUCTURE", "INCREASE_BUDGET", "SCALE"]
+_SECTION_ORDER = ["PAUSE", "REDUCE_BUDGET", "RESTRUCTURE", "INCREASE_BUDGET"]
 _ACTIONABLE    = set(_SECTION_ORDER)
 _CURRENCY      = "AED"
 
@@ -158,7 +158,10 @@ def render_tier1_campaign_panel(campaign_recs: pd.DataFrame) -> list[str]:
     accepted: list[str] = []
 
     for rec_type in _SECTION_ORDER:
-        section_df = actionable[actionable["recommendation"] == rec_type]
+        if rec_type == "INCREASE_BUDGET":
+            section_df = actionable[actionable["recommendation"].isin(["INCREASE_BUDGET", "SCALE"])]
+        else:
+            section_df = actionable[actionable["recommendation"] == rec_type]
         if section_df.empty:
             continue
 
@@ -185,6 +188,8 @@ def render_tier1_campaign_panel(campaign_recs: pd.DataFrame) -> list[str]:
             impact_v  = _f(row.get("estimated_monthly_impact", 0))
             confidence = str(row.get("confidence", "")).upper()
             is_high   = confidence == "HIGH"
+            row_rec   = str(row.get("recommendation", rec_type))
+            row_meta  = _REC_META.get(row_rec, meta)
 
             default_on = (
                 camp_name in previously_accepted
@@ -210,7 +215,7 @@ def render_tier1_campaign_panel(campaign_recs: pd.DataFrame) -> list[str]:
             )
 
             # Concrete action suggestion chip for non-PAUSE types
-            if rec_type == "REDUCE_BUDGET":
+            if row_rec == "REDUCE_BUDGET":
                 # Impact = spend * 0.3 → 30% cut recommended
                 suggestion_html = (
                     f"<span style='background:rgba(245,158,11,0.08);color:#fbbf24;"
@@ -218,27 +223,16 @@ def render_tier1_campaign_panel(campaign_recs: pd.DataFrame) -> list[str]:
                     f"letter-spacing:0.03em;border:1px solid rgba(245,158,11,0.2);"
                     f"white-space:nowrap;flex-shrink:0;'>cut −30%</span>"
                 )
-            elif rec_type == "INCREASE_BUDGET":
-                # Reason text: "test 20-30% budget increase"
+            elif row_rec in ("INCREASE_BUDGET", "SCALE"):
                 budget_add = impact_v / roas if roas > 0 else 0
                 suggestion_html = (
                     f"<span style='background:rgba(34,197,94,0.08);color:#86efac;"
                     f"font-size:0.6rem;font-weight:700;padding:1px 7px;border-radius:3px;"
-                    f"letter-spacing:0.03em;border:1px solid rgba(34,197,94,0.18);"
+                    f"letter-spacing:0.03em;border:1px solid rgba(34,197,94,0.2);"
                     f"white-space:nowrap;flex-shrink:0;'>"
                     f"+{_CURRENCY}{budget_add:,.0f} budget</span>"
                 )
-            elif rec_type == "SCALE":
-                # High conviction — impact = sales * 0.15; budget needed ≈ impact / roas
-                budget_add = impact_v / roas if roas > 0 else 0
-                suggestion_html = (
-                    f"<span style='background:rgba(34,197,94,0.1);color:#4ade80;"
-                    f"font-size:0.6rem;font-weight:700;padding:1px 7px;border-radius:3px;"
-                    f"letter-spacing:0.03em;border:1px solid rgba(34,197,94,0.25);"
-                    f"white-space:nowrap;flex-shrink:0;'>"
-                    f"+{_CURRENCY}{budget_add:,.0f} budget</span>"
-                )
-            elif rec_type == "RESTRUCTURE":
+            elif row_rec == "RESTRUCTURE":
                 suggestion_html = (
                     f"<span style='background:rgba(6,182,212,0.08);color:#67e8f9;"
                     f"font-size:0.6rem;font-weight:700;padding:1px 7px;border-radius:3px;"
@@ -262,16 +256,16 @@ def render_tier1_campaign_panel(campaign_recs: pd.DataFrame) -> list[str]:
                 st.markdown(
                     f"<div style='"
                     f"display:flex;align-items:center;gap:10px;"
-                    f"background:{meta['bg']};"
-                    f"border:1px solid {meta['border']};"
-                    f"border-left:3px solid {meta['color']};"
+                    f"background:{row_meta['bg']};"
+                    f"border:1px solid {row_meta['border']};"
+                    f"border-left:3px solid {row_meta['color']};"
                     f"border-radius:7px;padding:7px 12px;"
                     f"margin-bottom:3px;min-height:36px;'>"
                     # Badge
-                    f"<span style='background:{meta['badge_bg']};color:{meta['badge_fg']};"
+                    f"<span style='background:{row_meta['badge_bg']};color:{row_meta['badge_fg']};"
                     f"font-size:0.63rem;font-weight:700;padding:2px 7px;border-radius:4px;"
                     f"letter-spacing:0.04em;text-transform:uppercase;flex-shrink:0;'>"
-                    f"{meta['label']}</span>"
+                    f"{row_meta['label']}</span>"
                     f"{conf_html}"
                     f"{suggestion_html}"
                     # Campaign name
