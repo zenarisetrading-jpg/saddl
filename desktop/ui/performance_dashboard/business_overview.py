@@ -1005,9 +1005,11 @@ def _merge_trend_frame(
     trend["sessions"] = trend["sessionsAccount"].where(trend["sessionsAccount"] > 0, trend["sessions"])
 
     trend["adSales"] = trend["adSales"].where(trend["adSales"] > 0, trend["adSalesAccount"])
-    # Cap adSales at revenue — weekly target_stats data can dump a full week onto a single
-    # week-start date when no daily PPC rows exist, causing a false spike.
-    trend["adSales"] = trend[["adSales", "revenue"]].min(axis=1)
+    # adSales > revenue is physically impossible — it means weekly target_stats dumped a full
+    # week's data onto a single week-start date (no daily PPC rows existed for that day).
+    # Fall back to adSalesAccount for those days so the spike disappears cleanly.
+    spike_mask = trend["adSales"] > trend["revenue"]
+    trend["adSales"] = trend["adSales"].where(~spike_mask, trend["adSalesAccount"])
     trend["organicSales"] = (trend["revenue"] - trend["adSales"]).clip(lower=0)
     trend["cvr"] = trend.apply(lambda r: calculate_cvr(r["orders"], r["sessions"]) or 0.0, axis=1)
 
