@@ -1084,7 +1084,7 @@ def _build_paid_vs_organic_figure(trend: pd.DataFrame, currency_symbol: str) -> 
     fig.add_trace(
         go.Scatter(
             x=trend["report_date"],
-            y=trend["adSales"],
+            y=trend["adSalesAccount"],
             stackgroup="one",
             mode="lines",
             line=dict(width=1.8, color=palette[0]),
