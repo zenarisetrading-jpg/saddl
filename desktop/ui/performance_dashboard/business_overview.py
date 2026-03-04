@@ -995,21 +995,17 @@ def _merge_trend_frame(
     ]:
         trend[col] = pd.to_numeric(trend[col], errors="coerce").fillna(0.0)
 
-    # Prefer ad performance daily series for paid values.
+    # Prefer daily PPC series (raw_search_term_data) for ad values.
+    # Never fall back to weekly target_stats — it dumps a full week onto the week-start date,
+    # causing false spikes. Fall back directly to adSalesAccount (account_daily) instead.
     trend["adSpend"] = trend["ad_spend"].where(trend["ad_spend"] > 0, trend["adSpend"])
-    trend["adSales"] = trend["ad_sales"].where(trend["ad_sales"] > 0, trend["adSales"])
+    trend["adSales"] = trend["ad_sales"].where(trend["ad_sales"] > 0, trend["adSalesAccount"])
 
     # Primary source for trend continuity should be SP-API account_daily.
     trend["revenue"] = trend["revenueAccount"].where(trend["revenueAccount"] > 0, trend["revenue"])
     trend["orders"] = trend["ordersAccount"].where(trend["ordersAccount"] > 0, trend["orders"])
     trend["sessions"] = trend["sessionsAccount"].where(trend["sessionsAccount"] > 0, trend["sessions"])
 
-    trend["adSales"] = trend["adSales"].where(trend["adSales"] > 0, trend["adSalesAccount"])
-    # adSales > revenue is physically impossible — it means weekly target_stats dumped a full
-    # week's data onto a single week-start date (no daily PPC rows existed for that day).
-    # Fall back to adSalesAccount for those days so the spike disappears cleanly.
-    spike_mask = trend["adSales"] > trend["revenue"]
-    trend["adSales"] = trend["adSales"].where(~spike_mask, trend["adSalesAccount"])
     trend["organicSales"] = (trend["revenue"] - trend["adSales"]).clip(lower=0)
     trend["cvr"] = trend.apply(lambda r: calculate_cvr(r["orders"], r["sessions"]) or 0.0, axis=1)
 
