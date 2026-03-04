@@ -274,12 +274,10 @@ def main() -> None:
         target_dates = [sys.argv[1]]
     else:
         # Standard daily run:
-        # 1) Pull a contiguous recent window to avoid gaps when runs are missed.
-        # 2) Add deeper lookbacks to capture late-arriving traffic corrections.
+        # D-1, D-2: yesterday + day before (cover missed runs)
+        # D-7, D-14, D-30: correction lookbacks for late-arriving traffic data
         today = datetime.utcnow().date()
-        recent_offsets = list(range(1, 11))  # D-1 .. D-10 (continuous)
-        correction_offsets = [14, 21, 30]
-        offsets = sorted(set(recent_offsets + correction_offsets))
+        offsets = [1, 2, 7, 14, 30]
         target_dates = [
             (today - timedelta(days=offset)).strftime("%Y-%m-%d")
             for offset in offsets
