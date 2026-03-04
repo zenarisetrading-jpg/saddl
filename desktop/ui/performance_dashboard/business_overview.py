@@ -1005,9 +1005,10 @@ def _merge_trend_frame(
     trend["sessions"] = trend["sessionsAccount"].where(trend["sessionsAccount"] > 0, trend["sessions"])
 
     trend["adSales"] = trend["adSales"].where(trend["adSales"] > 0, trend["adSalesAccount"])
-    # Use adSalesAccount (SP-API account_daily) for organic split — same source as revenue.
-    # Using ad_sales (PPC click-date) caused attribution lag and organic dropping to 0 on spike days.
-    trend["organicSales"] = (trend["revenue"] - trend["adSalesAccount"]).clip(lower=0)
+    # Cap adSales at revenue — weekly target_stats data can dump a full week onto a single
+    # week-start date when no daily PPC rows exist, causing a false spike.
+    trend["adSales"] = trend[["adSales", "revenue"]].min(axis=1)
+    trend["organicSales"] = (trend["revenue"] - trend["adSales"]).clip(lower=0)
     trend["cvr"] = trend.apply(lambda r: calculate_cvr(r["orders"], r["sessions"]) or 0.0, axis=1)
 
     # Avoid artificial cliffs from padded trailing days with no loaded records.
@@ -1084,7 +1085,7 @@ def _build_paid_vs_organic_figure(trend: pd.DataFrame, currency_symbol: str) -> 
     fig.add_trace(
         go.Scatter(
             x=trend["report_date"],
-            y=trend["adSalesAccount"],
+            y=trend["adSales"],
             stackgroup="one",
             mode="lines",
             line=dict(width=1.8, color=palette[0]),
