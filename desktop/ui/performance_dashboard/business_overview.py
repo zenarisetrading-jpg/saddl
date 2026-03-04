@@ -1005,7 +1005,9 @@ def _merge_trend_frame(
     trend["sessions"] = trend["sessionsAccount"].where(trend["sessionsAccount"] > 0, trend["sessions"])
 
     trend["adSales"] = trend["adSales"].where(trend["adSales"] > 0, trend["adSalesAccount"])
-    trend["organicSales"] = (trend["revenue"] - trend["adSales"]).clip(lower=0)
+    # Use adSalesAccount (SP-API account_daily) for organic split — same source as revenue.
+    # Using ad_sales (PPC click-date) caused attribution lag and organic dropping to 0 on spike days.
+    trend["organicSales"] = (trend["revenue"] - trend["adSalesAccount"]).clip(lower=0)
     trend["cvr"] = trend.apply(lambda r: calculate_cvr(r["orders"], r["sessions"]) or 0.0, axis=1)
 
     # Avoid artificial cliffs from padded trailing days with no loaded records.

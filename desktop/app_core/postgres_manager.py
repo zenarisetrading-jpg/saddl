@@ -1817,6 +1817,19 @@ class PostgresManager:
         with self._get_connection() as conn:
             return pd.read_sql(query, conn, params={'client_id': client_id})
 
+    def get_actions_by_client(self, client_id: str, limit: int = 100) -> list:
+        """Get recent actions for a client — used by Intelligence Log."""
+        query = """
+            SELECT *
+            FROM actions_log
+            WHERE client_id = %(client_id)s
+            ORDER BY action_date DESC
+            LIMIT %(limit)s
+        """
+        with self._get_connection() as conn:
+            df = pd.read_sql(query, conn, params={"client_id": client_id, "limit": limit})
+        return df.to_dict("records")
+
     def get_recent_action_dates(self, client_id: str) -> pd.DataFrame:
         """Fetch the most recent BID_CHANGE action date for each target to enforce cooldown."""
         query = """
