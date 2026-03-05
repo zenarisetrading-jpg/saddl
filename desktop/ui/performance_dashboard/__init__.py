@@ -1,1 +1,0 @@
-"""Performance dashboard UI pages."""

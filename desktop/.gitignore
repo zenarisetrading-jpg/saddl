@@ -1,8 +1,0 @@
-.DS_Store
-.agent/
-.agents/
-.claude/
-.gemini/
-.opencode/
-.vscode/
-*.log
